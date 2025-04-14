@@ -1,0 +1,318 @@
+import numpy as np
+import torch
+import torch.optim as optim
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+from scipy.optimize import root
+from scipy.linalg import eig
+
+# -------------------------------
+# 1. Set random seed & parameters
+# -------------------------------
+np.random.seed(42)
+torch.manual_seed(42)
+
+# Network dimensions and task parameters
+N = 200         # number of neurons
+I = 1           # input dimension (scalar input)
+num_tasks = 51  # 51 different sine-wave tasks
+
+# Frequencies: equally spaced between 0.1 and 0.6 rad/s
+omegas = np.linspace(0.1, 0.6, num_tasks)
+
+# Static input offset for each task: j/51 + 0.25, j=0,...,50 (j/51+0.25)
+static_inputs = np.linspace(0, num_tasks-1, num_tasks) / num_tasks + 0.25
+
+# Time parameters (in seconds)
+dt = 0.01       # integration time step
+T_drive = 1.0   # driving phase duration (to set network state)
+T_train = 2.0   # training phase duration with static input (target generation)
+num_steps_drive = int(T_drive/dt)
+num_steps_train = int(T_train/dt)
+time_drive = np.arange(0, T_drive, dt)
+time_train = np.arange(0, T_train, dt)
+time_full  = np.concatenate([time_drive, T_drive + time_train])
+
+# -------------------------------
+# 2. Define the RNN and its parameters
+# -------------------------------
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Randomly initialize recurrent weight matrix J with scaling ~1/sqrt(N)
+J_param = torch.nn.Parameter(torch.randn(N, N, device=device) / np.sqrt(N))
+# Randomly initialize input weight matrix B of shape (N, I)
+B_param = torch.nn.Parameter(torch.randn(N, I, device=device) / np.sqrt(N))
+# Bias for network neurons, shape (N,)
+b_x_param = torch.nn.Parameter(torch.zeros(N, device=device))
+
+# Output weights and bias: readout is scalar.
+w_param = torch.nn.Parameter(torch.randn(N, device=device) / np.sqrt(N))
+b_z_param = torch.nn.Parameter(torch.tensor(0.0, device=device))
+
+# Collect parameters in a list for optimization
+params = [J_param, B_param, b_x_param, w_param, b_z_param]
+
+# -------------------------------
+# 3. Simulation function for one trajectory
+# -------------------------------
+def simulate_trajectory(x0, u_seq, J, B, b_x, w, b_z, dt):
+    """
+    Simulate the RNN dynamics with Euler integration.
+    
+    Arguments:
+      x0    : initial state (torch tensor, shape (N,))
+      u_seq : input sequence (torch tensor, shape (T, I))
+      J, B, b_x, w, b_z : network parameters (torch tensors)
+      dt    : time step
+      
+    Returns:
+      xs : (T+1, N) tensor of states over time
+      zs : (T+1,) tensor of outputs computed as z = w^T tanh(x) + b_z
+    """
+    T = u_seq.shape[0]
+    xs = [x0]
+    zs = []
+    x = x0
+    for t in range(T):
+        # Compute nonlinear activation
+        r = torch.tanh(x)
+        # Compute readout
+        z = torch.dot(w, r) + b_z
+        zs.append(z)
+        # Euler integration: dx/dt = -x + J tanh(x) + B u + b_x
+        u_t = u_seq[t].view(-1)  # ensure u_t is 1D
+        x = x + dt * (-x + torch.matmul(J, torch.tanh(x)) + torch.matmul(B, u_t) + b_x)
+        xs.append(x)
+    xs = torch.stack(xs)
+    zs = torch.stack(zs)
+    return xs, zs
+
+# -------------------------------
+# 4. Training procedure
+# -------------------------------
+def run_batch(J, B, b_x, w, b_z):
+    loss_total = 0.0
+    traj_states = []  # store states from training phase for later PCA
+    fixed_point_inits = []  # store final state from drive phase as an initial guess
+    
+    # Loop over each task (frequency)
+    for j in range(num_tasks):
+        omega = omegas[j]
+        u_offset = static_inputs[j]
+        
+        # Build input sequences for both phases:
+        # Driving phase: u(t) = [ sin(omega*t) + u_offset ]
+        u_drive = torch.tensor(np.sin(omega*time_drive) + u_offset, 
+                             dtype=torch.float32, device=device).view(-1, 1)
+        # Training phase: static input = [ u_offset ] repeated
+        u_train = torch.full((num_steps_train, 1), u_offset, dtype=torch.float32, device=device)
+        # Target output during training: sine wave sin(omega*t) with unity amplitude.
+        target_train = torch.tensor(np.sin(omega * time_train), dtype=torch.float32, device=device)
+        
+        # Initialize state at t=0; can be zero.
+        x0 = torch.zeros(N, device=device)
+        # First simulate drive phase to set a good initial state.
+        xs_drive, _ = simulate_trajectory(x0, u_drive, J, B, b_x, w, b_z, dt)
+        x_drive_final = xs_drive[-1]  # use final state of drive phase as initial condition for training phase
+        
+        # Save initial state for fixed point search later.
+        fixed_point_inits.append(x_drive_final.detach().cpu().numpy())
+        
+        # Now simulate training phase with constant input.
+        xs_train, zs_train = simulate_trajectory(x_drive_final, u_train, J, B, b_x, w, b_z, dt)
+        # Compute loss: mean squared error between network output and target sine wave.
+        loss = torch.mean((zs_train - target_train)**2)
+        loss_total += loss
+        traj_states.append(xs_train.detach().cpu().numpy())
+    
+    # Average loss over tasks
+    loss_total /= num_tasks
+    return loss_total, traj_states, fixed_point_inits
+
+# Define LBFGS optimizer with more conservative parameters
+optimizer = optim.LBFGS(params, lr=0.1, max_iter=10, history_size=10, line_search_fn="strong_wolfe")
+
+num_epochs = 50  # number of training epochs
+loss_history = []
+best_loss = float('inf')
+best_params = None
+loss_threshold = 1e-4  # threshold for early stopping
+
+class TrainingState:
+    def __init__(self):
+        self.traj_states = []
+        self.fixed_point_inits = []
+
+state = TrainingState()
+
+for epoch in range(num_epochs):
+    # Clear memory between epochs
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    
+    def closure():
+        optimizer.zero_grad()
+        loss, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)
+        loss.backward()
+        return loss
+    
+    try:
+        loss_val = optimizer.step(closure)
+        loss_history.append(loss_val.item())
+        
+        # Save best parameters
+        if loss_val.item() < best_loss:
+            best_loss = loss_val.item()
+            best_params = [p.detach().clone() for p in params]
+            
+        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {loss_val.item():.4f}")
+        
+        # Check if loss is below threshold
+        if loss_val.item() < loss_threshold:
+            print(f"Training converged with loss {loss_val.item():.4f} below threshold {loss_threshold}")
+            break
+            
+    except RuntimeError as e:
+        print(f"Optimization failed at epoch {epoch+1}: {str(e)}")
+        break
+
+# Restore best parameters if available
+if best_params is not None:
+    for p, best_p in zip(params, best_params):
+        p.data.copy_(best_p)
+
+# Ensure we have the final states for analysis
+if state.traj_states is None or state.fixed_point_inits is None:
+    print("Running final batch to get states for analysis...")
+    _, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)
+
+# -------------------------------
+# 5. Post-Training Analysis: Fixed point search & PCA
+# -------------------------------
+def fixed_point_func(x_np, u_val, J_np, B_np, b_x_np):
+    """
+    Compute f(x) = -x + J*tanh(x) + B*u + b_x for given x and fixed u.
+    All inputs are numpy arrays.
+    """
+    x = x_np
+    return -x + np.dot(J_np, np.tanh(x)) + np.dot(B_np, np.array([u_val])).flatten() + b_x_np
+
+def jacobian_fixed_point(x_star, J_np):
+    """
+    Compute Jacobian: J_eff = -I + J * diag(1 - tanh(x_star)^2)
+    """
+    diag_term = 1 - np.tanh(x_star)**2
+    return -np.eye(len(x_star)) + J_np * diag_term[np.newaxis, :]
+
+# Extract trained parameters as NumPy arrays
+J_trained = J_param.detach().cpu().numpy()
+B_trained = B_param.detach().cpu().numpy()
+b_x_trained = b_x_param.detach().cpu().numpy()
+
+fixed_points = []
+unstable_eig_freq = []
+
+# For each task, perform fixed point search using the final state from the drive phase as initial guess.
+for j in range(num_tasks):
+    u_const = static_inputs[j]
+    x0_guess = state.fixed_point_inits[j]
+    
+    # Try multiple initial conditions if root finding fails
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            sol = root(fixed_point_func, x0_guess, args=(u_const, J_trained, B_trained, b_x_trained),
+                      method='lm', options={'maxiter': 1000})
+            if sol.success:
+                x_star = sol.x
+                break
+            else:
+                # Perturb initial guess if root finding failed
+                x0_guess = x0_guess + np.random.normal(0, 0.1, size=x0_guess.shape)
+        except Exception as e:
+            print(f"Fixed point search failed for task {j}, attempt {attempt+1}: {str(e)}")
+            if attempt == max_attempts - 1:
+                x_star = x0_guess  # fallback to last guess
+    else:
+        x_star = x0_guess  # fallback if all attempts failed
+    
+    fixed_points.append(x_star)
+    
+    # Compute Jacobian at the fixed point and its eigen-decomposition
+    J_eff = jacobian_fixed_point(x_star, J_trained)
+    eigenvals, eigenvecs = eig(J_eff)
+    
+    # Find all complex eigenvalues with positive real part (unstable modes)
+    idx_complex = np.where((np.abs(np.imag(eigenvals)) > 1e-3) & (np.real(eigenvals) > 0))[0]
+    if len(idx_complex) > 0:
+        # Sort by imaginary part magnitude and take the largest
+        sorted_idx = idx_complex[np.argsort(np.abs(np.imag(eigenvals[idx_complex])))]
+        ev = eigenvals[sorted_idx[-1]]  # take the one with largest imaginary part
+        unstable_eig_freq.append(np.abs(np.imag(ev)))
+    else:
+        unstable_eig_freq.append(0.0)
+
+# -------------------------------
+# 6. PCA and Visualization
+# -------------------------------
+# Concatenate all states from all tasks (from training phase) to perform PCA.
+all_states = np.concatenate([traj for traj in state.traj_states], axis=0)
+pca = PCA(n_components=3)
+proj_all = pca.fit_transform(all_states)
+
+# For plotting, also project each trajectory and each fixed point into PCA space.
+proj_trajs = []
+start = 0
+for traj in state.traj_states:
+    T = traj.shape[0]
+    proj_traj = proj_all[start:start+T]
+    proj_trajs.append(proj_traj)
+    start += T
+
+proj_fixed = pca.transform(np.array(fixed_points))
+
+# Plot trajectories (blue) and fixed points (green circles) with unstable eigen-directions (red lines)
+fig = plt.figure(figsize=(10, 8))
+ax = fig.add_subplot(111, projection='3d')
+for traj in proj_trajs:
+    ax.plot(traj[:,0], traj[:,1], traj[:,2], color='blue', alpha=0.5)
+    
+# Plot fixed points as green circles
+ax.scatter(proj_fixed[:,0], proj_fixed[:,1], proj_fixed[:,2], color='green', s=50, label="Fixed Points")
+
+# For each fixed point, plot the unstable mode as a red line.
+for j, x_star in enumerate(fixed_points):
+    u_const = static_inputs[j]
+    J_eff = jacobian_fixed_point(x_star, J_trained)
+    eigenvals, eigenvecs = eig(J_eff)
+    idx_complex = np.where((np.abs(np.imag(eigenvals)) > 1e-3) & (np.real(eigenvals) > 0))[0]
+    if len(idx_complex) > 0:
+        # Sort by imaginary part magnitude and take the largest
+        sorted_idx = idx_complex[np.argsort(np.abs(np.imag(eigenvals[idx_complex])))]
+        v = eigenvecs[:, sorted_idx[-1]].real  # take real part for plotting direction
+        # Scale vector for visualisation
+        scale = 0.5  
+        # Project the unstable eigenvector into PCA space
+        v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_fixed[j]
+        # Plot a line centered on the fixed point
+        line = np.array([proj_fixed[j] - v_proj, proj_fixed[j] + v_proj])
+        ax.plot(line[:,0], line[:,1], line[:,2], color='red', linewidth=2)
+    
+ax.set_title('PCA of Network Trajectories and Fixed Points')
+ax.set_xlabel('PC1')
+ax.set_ylabel('PC2')
+ax.set_zlabel('PC3')
+plt.legend()
+plt.show()
+
+# -------------------------------
+# 7. Compare Unstable Mode Frequencies vs. Target Frequencies
+# -------------------------------
+plt.figure(figsize=(8,5))
+plt.plot(omegas, unstable_eig_freq, 'o-', label='|Imag(eigenvalue)| (unstable mode)')
+plt.plot(omegas, omegas, 'k--', label='Target frequency')
+plt.xlabel('Target Frequency (rad/s)')
+plt.ylabel('Frequency from Linearization (rad/s)')
+plt.title('Comparison of Target Frequencies and Unstable Mode Frequency')
+plt.legend()
+plt.show() 
