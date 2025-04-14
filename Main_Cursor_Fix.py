@@ -25,9 +25,9 @@ omegas = np.linspace(0.1, 0.6, num_tasks)
 static_inputs = np.linspace(0, num_tasks-1, num_tasks) / num_tasks + 0.25
 
 # Time parameters (in seconds)
-dt = 0.01       # integration time step
-T_drive = 1.0   # driving phase duration (to set network state)
-T_train = 2.0   # training phase duration with static input (target generation)
+dt = 0.06       # integration time step
+T_drive = 12.0   # driving phase duration (to set network state)
+T_train = 24.0   # training phase duration with static input (target generation)
 num_steps_drive = int(T_drive/dt)
 num_steps_train = int(T_train/dt)
 time_drive = np.arange(0, T_drive, dt)
@@ -89,7 +89,7 @@ def simulate_trajectory(x0, u_seq, J, B, b_x, w, b_z, dt):
     return xs, zs
 
 # -------------------------------
-# 4. Training procedure
+# 4. Training procedure and visualization
 # -------------------------------
 def run_batch(J, B, b_x, w, b_z):
     loss_total = 0.0
@@ -150,15 +150,15 @@ for epoch in range(num_epochs):
     # Clear memory between epochs
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
     
-    def closure():
+    def closure():  # required by the LBFGS optimizer to re-evaluate the model function multiple times per step
         optimizer.zero_grad()
         loss, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)
-        loss.backward()
+        loss.backward() # computes the gradient of the loss with respect to the model parameters
         return loss
     
     try:
         loss_val = optimizer.step(closure)
-        loss_history.append(loss_val.item())
+        loss_history.append(loss_val.item())    # returns the computed loss value for the epoch
         
         # Save best parameters
         if loss_val.item() < best_loss:
@@ -185,6 +185,44 @@ if best_params is not None:
 if state.traj_states is None or state.fixed_point_inits is None:
     print("Running final batch to get states for analysis...")
     _, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)
+
+# Plot produced trajectories vs. target signals for selected tasks
+test_js = [0, 10, 20, 30, 40, 50]
+fig, axes = plt.subplots(nrows=len(test_js), ncols=1, figsize=(10, 3 * len(test_js)))
+if len(test_js) == 1:
+    axes = [axes]  # Ensure axes is iterable when there's a single subplot
+
+for ax, j in zip(axes, test_js):
+    omega = omegas[j]
+    u_offset = static_inputs[j]
+    
+    # Build the training input and compute the target sine signal.
+    u_train_test = torch.full((num_steps_train, 1), u_offset, dtype=torch.float32, device=device)
+    target_train_test = np.sin(omega * time_train)
+    
+    # Initialize state using driving phase.
+    x0_test = torch.zeros(N, device=device)
+    u_drive_test = torch.tensor(np.sin(omega*time_drive) + u_offset, 
+                                dtype=torch.float32, device=device).view(-1, 1)
+    xs_drive_test, _ = simulate_trajectory(x0_test, u_drive_test, J_param, B_param, 
+                                           b_x_param, w_param, b_z_param, dt)
+    x_drive_final_test = xs_drive_test[-1]
+    
+    # Simulate training phase starting from the drive-phase final state.
+    _, zs_train_test = simulate_trajectory(x_drive_final_test, u_train_test, J_param, B_param, 
+                                           b_x_param, w_param, b_z_param, dt)
+    produced_traj = zs_train_test.detach().cpu().numpy()
+    
+    # Plot the produced trajectory and the target signal.
+    ax.plot(time_train, produced_traj, label="Produced Output", linewidth=2)
+    ax.plot(time_train, target_train_test, 'k--', label="Target Signal", linewidth=1.5)
+    ax.set_title(f"Task {j}: omega = {omega:.3f}, u_offset = {u_offset:.3f}")
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Output")
+    ax.legend(loc="upper right")
+    
+plt.tight_layout()
+plt.show()
 
 # -------------------------------
 # 5. Post-Training Analysis: Fixed point search & PCA
