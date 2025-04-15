@@ -225,7 +225,7 @@ plt.tight_layout()
 plt.show()
 
 # -------------------------------
-# 5. Post-Training Analysis: Fixed point search & PCA
+# 5. Post-Training Analysis: Fixed point search & Unstable Mode Frequencies
 # -------------------------------
 def fixed_point_func(x_np, u_val, J_np, B_np, b_x_np):
     """
@@ -249,6 +249,7 @@ b_x_trained = b_x_param.detach().cpu().numpy()
 
 fixed_points = []
 unstable_eig_freq = []
+jacobians = []  # Store Jacobians for visualization
 
 # For each task, perform fixed point search using the final state from the drive phase as initial guess.
 for j in range(num_tasks):
@@ -278,6 +279,7 @@ for j in range(num_tasks):
     
     # Compute Jacobian at the fixed point and its eigen-decomposition
     J_eff = jacobian_fixed_point(x_star, J_trained)
+    jacobians.append(J_eff)  # Store Jacobian for visualization
     eigenvals, eigenvecs = eig(J_eff)
     
     # Find all complex eigenvalues with positive real part (unstable modes)
@@ -289,6 +291,114 @@ for j in range(num_tasks):
         unstable_eig_freq.append(np.abs(np.imag(ev)))
     else:
         unstable_eig_freq.append(0.0)
+
+# Plot unstable mode frequencies
+plt.figure(figsize=(8,5))
+plt.plot(omegas, unstable_eig_freq, 'o-', label='|Imag(eigenvalue)| (unstable mode)')
+plt.plot(omegas, omegas, 'k--', label='Target frequency')
+plt.xlabel('Target Frequency (rad/s)')
+plt.ylabel('Frequency from Linearization (rad/s)')
+plt.title('Comparison of Target Frequencies and Unstable Mode Frequency')
+plt.legend()
+plt.show()
+
+# -------------------------------
+# Additional Analysis: Jacobian and Parameter Visualization for Selected Tasks
+# -------------------------------
+test_js = [0, 10, 20, 30, 40, 50]
+colors = ['b', 'g', 'r', 'c', 'm', 'y']
+markers = ['o', 's', '^', 'v', '<', '>']
+
+# Print detailed information about unstable eigenvalues for all tasks
+print("\nDetailed Analysis of Unstable Eigenvalues:")
+for j in range(num_tasks):
+    J_eff = jacobians[j]
+    eigenvals, _ = eig(J_eff)
+    unstable_idx = np.where(np.real(eigenvals) > 0)[0]
+    num_unstable = len(unstable_idx)
+    
+    print(f"\nTask {j} (omega = {omegas[j]:.3f}):")
+    print(f"Number of unstable eigenvalues: {num_unstable}")
+    if num_unstable > 0:
+        unstable_eigenvals = eigenvals[unstable_idx]
+        print("Unstable eigenvalues:")
+        for ev in unstable_eigenvals:
+            print(f"  Real: {np.real(ev):.4f}, Imag: {np.imag(ev):.4f}")
+
+# Plot unstable eigenvalues for selected tasks
+plt.figure(figsize=(12, 8))
+for idx, j in enumerate(test_js):
+    J_eff = jacobians[j]
+    eigenvals, _ = eig(J_eff)
+    
+    # Find unstable eigenvalues
+    unstable_idx = np.where(np.real(eigenvals) > 0)[0]
+    unstable_eigenvals = eigenvals[unstable_idx]
+    
+    if len(unstable_eigenvals) > 0:
+        plt.scatter(np.real(unstable_eigenvals), np.imag(unstable_eigenvals), 
+                   color=colors[idx], marker=markers[idx], 
+                   label=f'Task {j} (ω={omegas[j]:.3f})')
+
+plt.axvline(x=0, color='k', linestyle='--', alpha=0.3)
+plt.axhline(y=0, color='k', linestyle='--', alpha=0.3)
+plt.xlabel('Real Part')
+plt.ylabel('Imaginary Part')
+plt.title('Unstable Eigenvalues of Jacobian for Selected Tasks')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Create subplots for Jacobian visualizations
+num_rows = len(test_js)
+fig, axes = plt.subplots(num_rows, 2, figsize=(15, 5*num_rows))
+fig.suptitle('Jacobian and Parameter Matrices for Selected Tasks', fontsize=16)
+
+# Plot Jacobians and parameters for each selected task
+for idx, j in enumerate(test_js):
+    # Plot Jacobian
+    im = axes[idx, 0].imshow(jacobians[j], cmap='viridis')
+    axes[idx, 0].set_title(f'Jacobian Matrix (Task {j}, ω={omegas[j]:.3f})')
+    plt.colorbar(im, ax=axes[idx, 0])
+    
+    # Plot J_param (only for first row)
+    if idx == 0:
+        im = axes[idx, 1].imshow(J_param.detach().cpu().numpy(), cmap='viridis')
+        axes[idx, 1].set_title('J_param Matrix')
+        plt.colorbar(im, ax=axes[idx, 1])
+    else:
+        axes[idx, 1].axis('off')
+
+# Add B_param and b_x_param visualizations
+fig2, axes2 = plt.subplots(2, 1, figsize=(10, 10))
+fig2.suptitle('Parameter Matrices', fontsize=16)
+
+# Plot B_param
+im = axes2[0].imshow(B_param.detach().cpu().numpy(), cmap='viridis')
+axes2[0].set_title('B_param Matrix')
+plt.colorbar(im, ax=axes2[0])
+
+# Plot b_x_param
+im = axes2[1].imshow(b_x_param.detach().cpu().numpy().reshape(-1, 1), cmap='viridis')
+axes2[1].set_title('b_x_param Vector')
+plt.colorbar(im, ax=axes2[1])
+
+# Print information about state.traj_states and state.fixed_point_inits
+print("\nState Information:")
+print(f"state.traj_states:")
+print(f"  Type: {type(state.traj_states)}")
+print(f"  Length: {len(state.traj_states)}")
+print(f"  Shape of first trajectory: {state.traj_states[0].shape}")
+print(f"  Data type of first trajectory: {state.traj_states[0].dtype}")
+
+print(f"\nstate.fixed_point_inits:")
+print(f"  Type: {type(state.fixed_point_inits)}")
+print(f"  Length: {len(state.fixed_point_inits)}")
+print(f"  Shape of first fixed point: {state.fixed_point_inits[0].shape}")
+print(f"  Data type of first fixed point: {state.fixed_point_inits[0].dtype}")
+
+plt.tight_layout()
+plt.show()
 
 # -------------------------------
 # 6. PCA and Visualization
@@ -342,15 +452,3 @@ ax.set_ylabel('PC2')
 ax.set_zlabel('PC3')
 plt.legend()
 plt.show()
-
-# -------------------------------
-# 7. Compare Unstable Mode Frequencies vs. Target Frequencies
-# -------------------------------
-plt.figure(figsize=(8,5))
-plt.plot(omegas, unstable_eig_freq, 'o-', label='|Imag(eigenvalue)| (unstable mode)')
-plt.plot(omegas, omegas, 'k--', label='Target frequency')
-plt.xlabel('Target Frequency (rad/s)')
-plt.ylabel('Frequency from Linearization (rad/s)')
-plt.title('Comparison of Target Frequencies and Unstable Mode Frequency')
-plt.legend()
-plt.show() 
