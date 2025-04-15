@@ -91,6 +91,19 @@ params = [J_param, B_param, b_x_param, w_param, b_z_param]
 
 BATCH_SIZE = 10
 
+# Optimizer parameters
+OPTIMIZER_LR = 0.6
+OPTIMIZER_MAX_ITER = 10
+OPTIMIZER_HISTORY_SIZE = 10
+OPTIMIZER_LINE_SEARCH_FN = "strong_wolfe"
+
+# Training parameters
+NUM_EPOCHS = 50
+LOSS_THRESHOLD = 1e-4
+
+# De-bugging parameters
+TEST_INDICES = [0, 10, 20, 30, 40, 50]
+
 
 
 
@@ -235,23 +248,29 @@ def run_batch(J, B, b_x, w, b_z):
 # 2.3. Execute Training Procedure
 # -------------------------------
 
-# Define LBFGS optimizer with more conservative parameters
-optimizer = optim.LBFGS(params, lr=0.6, max_iter=10, history_size=10, line_search_fn="strong_wolfe")
+# Define LBFGS optimizer
+optimizer = optim.LBFGS(params, 
+                        lr=OPTIMIZER_LR, max_iter=OPTIMIZER_MAX_ITER, 
+                        history_size=OPTIMIZER_HISTORY_SIZE, line_search_fn=OPTIMIZER_LINE_SEARCH_FN)
 
-num_epochs = 50  # number of training epochs
+num_epochs = NUM_EPOCHS  # number of training epochs
+loss_threshold = LOSS_THRESHOLD  # threshold for early stopping
+
+# Define variables to track training progress
 loss_history = []
 best_loss = float('inf')
 best_params = None
-loss_threshold = 1e-4  # threshold for early stopping
 
+# Define class to store trajectories during the training phase and the final point from driving phase
 class TrainingState:
     def __init__(self):
-        self.traj_states = []
-        self.fixed_point_inits = []
+        self.traj_states = []   # list of length num_tasks, each element is a (num_steps_train, N) tensor
+        self.fixed_point_inits = []   # list of length num_tasks, each element is a (N,) tensor
 
+# Instance of the training state class
 state = TrainingState()
 
-# Track training time
+# Start tracking training time
 start_time = time.time()
 print("Starting training...")
 
@@ -261,8 +280,8 @@ for epoch in tqdm(range(num_epochs), desc="Training epochs"):
     
     def closure():  # required by the LBFGS optimizer to re-evaluate the model function multiple times per step
         optimizer.zero_grad()
-        loss, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)
-        loss.backward() # computes the gradient of the loss with respect to the model parameters
+        loss, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)   # forward pass
+        loss.backward() # backward pass: computes the gradient of the loss with respect to the model parameters
         return loss
     
     try:
@@ -286,13 +305,14 @@ for epoch in tqdm(range(num_epochs), desc="Training epochs"):
         print(f"\nOptimization failed at epoch {epoch+1}: {str(e)}")
         break
 
+# Calculate training time
 training_time = time.time() - start_time
 print(f"\nTraining completed in {training_time:.2f} seconds")
 
-# Restore best parameters if available
+# Restore best parameters if available, to ensure that at the end of training, the best parameters are used
 if best_params is not None:
     for p, best_p in zip(params, best_params):
-        p.data.copy_(best_p)
+        p.data.copy_(best_p)    # copy the best parameters to the model parameters
 
 # Ensure we have the final states for analysis
 if state.traj_states is None or state.fixed_point_inits is None:
@@ -312,34 +332,42 @@ if state.traj_states is None or state.fixed_point_inits is None:
 # 3.1. Produced Trajectories vs. Target Signals Plots
 # -------------------------------
 
-# Plot produced trajectories vs. target signals for selected tasks
-test_js = [0, 10, 20, 30, 40, 50]
-fig, axes = plt.subplots(nrows=len(test_js), ncols=1, figsize=(10, 3 * len(test_js)))
-if len(test_js) == 1:
-    axes = [axes]  # Ensure axes is iterable when there's a single subplot
+# Select the tasks to plot
+test_js = TEST_INDICES
 
+# Create the figure and axes
+fig, axes = plt.subplots(nrows=len(test_js), ncols=1, figsize=(10, 3 * len(test_js)))
+
+# Ensure axes is iterable when there's a single subplot
+if len(test_js) == 1:
+    axes = [axes]
+
+# Pre-allocate tensors for all tasks
+x0_test = torch.zeros(N, device=device)
+
+# Iterate over the subplots
 for ax, j in zip(axes, test_js):
     omega = omegas[j]
     u_offset = static_inputs[j]
     
-    # Build the training input and compute the target sine signal.
-    u_train_test = torch.full((num_steps_train, 1), u_offset, dtype=torch.float32, device=device)
+    # Build input sequences for both phases
+    u_drive_test = torch.tensor(np.sin(omega*time_drive) + u_offset, 
+                            dtype=torch.float32, device=device).view(-1, 1)     # shape (num_steps_drive, 1)
+    u_train_test = torch.full((num_steps_train, 1), u_offset, 
+                        dtype=torch.float32, device=device)                     # shape (num_steps_train, 1)
     target_train_test = np.sin(omega * time_train)
     
-    # Initialize state using driving phase.
-    x0_test = torch.zeros(N, device=device)
-    u_drive_test = torch.tensor(np.sin(omega*time_drive) + u_offset, 
-                                dtype=torch.float32, device=device).view(-1, 1)
+    # Simulate drive phase
     xs_drive_test, _ = simulate_trajectory(x0_test, u_drive_test, J_param, B_param, 
                                            b_x_param, w_param, b_z_param, dt)
     x_drive_final_test = xs_drive_test[-1]
     
-    # Simulate training phase starting from the drive-phase final state.
+    # Simulate training phase starting from the drive-phase final state
     _, zs_train_test = simulate_trajectory(x_drive_final_test, u_train_test, J_param, B_param, 
                                            b_x_param, w_param, b_z_param, dt)
     produced_traj = zs_train_test.detach().cpu().numpy()
     
-    # Plot the produced trajectory and the target signal.
+    # Plot the produced trajectory and the target signal
     ax.plot(time_train, produced_traj, label="Produced Output", linewidth=2)
     ax.plot(time_train, target_train_test, 'k--', label="Target Signal", linewidth=1.5)
     ax.set_title(f"Task {j}: omega = {omega:.3f}, u_offset = {u_offset:.3f}")
