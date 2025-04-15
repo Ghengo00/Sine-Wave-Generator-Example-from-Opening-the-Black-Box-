@@ -492,7 +492,11 @@ for traj in tqdm(state.traj_states, desc="Projecting trajectories"):
     proj_trajs.append(proj_traj)
     start += T
 
-proj_fixed = pca.transform(np.array(all_fixed_points[0]))
+# Project all fixed points from all tasks
+all_fixed_points_flat = []
+for task_fps in all_fixed_points:
+    all_fixed_points_flat.extend(task_fps)
+proj_fixed = pca.transform(np.array(all_fixed_points_flat))
 
 pca_time = time.time() - start_time
 print(f"\nPCA computation completed in {pca_time:.2f} seconds")
@@ -507,22 +511,25 @@ for traj in proj_trajs:
 ax.scatter(proj_fixed[:,0], proj_fixed[:,1], proj_fixed[:,2], color='green', s=50, label="Fixed Points")
 
 # For each fixed point, plot the unstable mode as a red line.
-for j, x_star in enumerate(all_fixed_points[0]):
-    u_const = static_inputs[j]
-    J_eff = jacobian_fixed_point(x_star, J_trained)
-    eigenvals, eigenvecs = eig(J_eff)
-    idx_complex = np.where((np.abs(np.imag(eigenvals)) > 1e-3) & (np.real(eigenvals) > 0))[0]
-    if len(idx_complex) > 0:
-        # Sort by imaginary part magnitude and take the largest
-        sorted_idx = idx_complex[np.argsort(np.abs(np.imag(eigenvals[idx_complex])))]
-        v = eigenvecs[:, sorted_idx[-1]].real  # take real part for plotting direction
-        # Scale vector for visualisation
-        scale = 0.5  
-        # Project the unstable eigenvector into PCA space
-        v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_fixed[j]
-        # Plot a line centered on the fixed point
-        line = np.array([proj_fixed[j] - v_proj, proj_fixed[j] + v_proj])
-        ax.plot(line[:,0], line[:,1], line[:,2], color='red', linewidth=2)
+fixed_point_idx = 0
+for j, task_fps in enumerate(all_fixed_points):
+    for x_star in task_fps:
+        u_const = static_inputs[j]
+        J_eff = jacobian_fixed_point(x_star, J_trained)
+        eigenvals, eigenvecs = eig(J_eff)
+        idx_complex = np.where((np.abs(np.imag(eigenvals)) > 1e-3) & (np.real(eigenvals) > 0))[0]
+        if len(idx_complex) > 0:
+            # Sort by imaginary part magnitude and take the largest
+            sorted_idx = idx_complex[np.argsort(np.abs(np.imag(eigenvals[idx_complex])))]
+            v = eigenvecs[:, sorted_idx[-1]].real  # take real part for plotting direction
+            # Scale vector for visualisation
+            scale = 0.5  
+            # Project the unstable eigenvector into PCA space
+            v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_fixed[fixed_point_idx]
+            # Plot a line centered on the fixed point
+            line = np.array([proj_fixed[fixed_point_idx] - v_proj, proj_fixed[fixed_point_idx] + v_proj])
+            ax.plot(line[:,0], line[:,1], line[:,2], color='red', linewidth=2)
+        fixed_point_idx += 1
     
 ax.set_title('PCA of Network Trajectories and Fixed Points')
 ax.set_xlabel('PC1')
