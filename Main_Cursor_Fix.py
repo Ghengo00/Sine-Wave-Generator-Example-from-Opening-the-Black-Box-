@@ -106,6 +106,13 @@ TEST_INDICES = [0, 10, 20, 30, 40, 50]
 COLORS = ['b', 'g', 'r', 'c', 'm', 'y']
 MARKERS = ['o', 's', '^', 'v', '<', '>']
 
+# Jacobians, fixed points, and unstable mode frequencies parameters
+NUM_ATTEMPTS = 10
+TOL = 1e-6
+MAXITER = 1000
+EVALUE_TOL = 1e-3
+SEARCH_BATCH_SIZE = 5
+
 
 
 
@@ -377,6 +384,8 @@ for ax, j in zip(axes, test_js):
     ax.set_ylabel("Output")
     ax.legend(loc="upper right")
     
+print("\nPlotting produced trajectories vs. target signals for selected tasks...")
+
 plt.tight_layout()
 plt.show()
 
@@ -423,6 +432,7 @@ def plot_parameter_matrices(J_param, B_param, b_x_param, j, omega, u_offset):
     plt.tight_layout()
     plt.show()
 
+
 # Select the tasks to plot
 test_js = TEST_INDICES
 # Set the plotting parameters
@@ -430,7 +440,7 @@ colors = COLORS
 markers = MARKERS
 
 # Plot parameter matrices for selected tasks
-print("\nPlotting parameter matrices...")
+print("\nPlotting parameter matrices for selected tasks...")
 for j in test_js:
     omega = omegas[j]
     u_offset = static_inputs[j]
@@ -453,38 +463,59 @@ def fixed_point_func(x_np, u_val, J_np, B_np, b_x_np):
     """
     Compute f(x) = -x + J*tanh(x) + B*u + b_x for given x and fixed u.
     Vectorized implementation for better performance.
+
+    Arguments:
+        x_np: Input vector (numpy array, shape (N,))
+        u_val: Constant input value (float)
+        J_np: Recurrent weight matrix (numpy array, shape (N, N))
+        B_np: Input weight matrix (numpy array, shape (N, I))
+        b_x_np: Bias vector (numpy array, shape (N,))
+    
+    Returns:
+        f_x: Output vector (numpy array, shape (N,))
     """
     x = x_np
+    # Note that np.array([u_val]) has shape (1,), so the dot product has shape (N,1), which means that it must be flattened to (N,)
     return -x + np.dot(J_np, np.tanh(x)) + np.dot(B_np, np.array([u_val])).flatten() + b_x_np
+
 
 def jacobian_fixed_point(x_star, J_np):
     """
-    Compute Jacobian: J_eff = -I + J * diag(1 - tanh(x_star)^2)
+    Compute Jacobian: J_eff = -I + J * diag(1 - tanh(x_star)^2).
     Vectorized implementation for better performance.
+
+    Arguments:
+        x_star: Fixed point (numpy array, shape (N,))
+        J_np: Recurrent weight matrix (numpy array, shape (N, N))
+    
+    Returns:
+        J_eff: Jacobian matrix evaluated at x_star (numpy array, shape (N, N))
     """
-    diag_term = 1 - np.tanh(x_star)**2
+    diag_term = 1 - np.tanh(x_star)**2  # This gives a vector of derivaties of shape (N,)
+    # Note that [np.newaxis, :] reshapes the vector to a row vector of shape (1, N) so that it can be broadcast
     return -np.eye(len(x_star)) + J_np * diag_term[np.newaxis, :]
 
-def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=10, tol=1e-6):
+
+def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=NUM_ATTEMPTS, tol=TOL):
     """
-    Find multiple fixed points by trying different initial conditions.
+    Find multiple fixed points for a given task by trying different initial conditions.
     
     Arguments:
-        x0_guess: Initial guess for fixed point
-        u_const: Constant input
+        x0_guess: Initial guess for fixed point for the given task
+        u_const: Constant input for the given task
         J_trained, B_trained, b_x_trained: Network parameters
         num_attempts: Number of different initial conditions to try
         tol: Tolerance for considering two fixed points as distinct
         
     Returns:
-        List of distinct fixed points found
+        List of distinct fixed points found for the given task
     """
     fixed_points = []
     
     # Try the original initial condition
     try:
         sol = root(fixed_point_func, x0_guess, args=(u_const, J_trained, B_trained, b_x_trained),
-                  method='lm', options={'maxiter': 1000})
+                  method='lm', options={'maxiter': MAXITER})
         if sol.success:
             fixed_points.append(sol.x)
     except Exception as e:
@@ -496,7 +527,7 @@ def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_
         x0_perturbed = x0_guess + np.random.normal(0, 0.5, size=x0_guess.shape)
         try:
             sol = root(fixed_point_func, x0_perturbed, args=(u_const, J_trained, B_trained, b_x_trained),
-                      method='lm', options={'maxiter': 1000})
+                      method='lm', options={'maxiter': MAXITER})
             if sol.success:
                 # Check if this fixed point is distinct from previous ones
                 is_distinct = True
@@ -511,9 +542,19 @@ def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_
     
     return fixed_points
 
-def analyze_fixed_points(fixed_points, J_trained, static_inputs):
+
+def analyze_fixed_points(fixed_points, J_trained):
     """
-    Analyze fixed points and compute their properties in a memory-efficient way.
+    Analyze fixed points for a given task and compute their properties in a memory-efficient way.
+
+    Arguments:
+        fixed_points: List of fixed points (numpy array, shape (N,))
+        J_trained: Recurrent weight matrix (numpy array, shape (N, N))
+        static_inputs: List of constant input values (numpy array, shape (I,))
+    
+    Returns:
+        jacobians: List of Jacobian matrices of length len(fixed_points) (where each element is a numpy array, shape (N, N))
+        unstable_freqs: List of lists of unstable eigenvalues, where each inner list contains all unstable eigenvalues for a fixed point
     """
     jacobians = []
     unstable_freqs = []
@@ -526,22 +567,75 @@ def analyze_fixed_points(fixed_points, J_trained, static_inputs):
         # Compute eigenvalues
         eigenvals, _ = eig(J_eff)
         
-        # Find unstable eigenvalues
-        idx_complex = np.where((np.abs(np.imag(eigenvals)) > 1e-3) & (np.real(eigenvals) > 0))[0]
-        if len(idx_complex) > 0:
-            # Sort by imaginary part magnitude and take the largest
-            sorted_idx = idx_complex[np.argsort(np.abs(np.imag(eigenvals[idx_complex])))]
-            ev = eigenvals[sorted_idx[-1]]  # take the one with largest imaginary part
-            unstable_freqs.append(np.abs(np.imag(ev)))
+        # Find all unstable eigenvalues for the given fixed point (real part > 0)
+        unstable_idx = np.where(np.real(eigenvals) > 0)[0]
+        if len(unstable_idx) > 0:
+            # Store all unstable eigenvalues for this fixed point
+            unstable_freqs.append(list(eigenvals[unstable_idx]))
         else:
-            unstable_freqs.append(0.0)
+            # If no unstable eigenvalues, append an empty list
+            unstable_freqs.append([])
     
     return jacobians, unstable_freqs
 
-# Extract trained parameters as NumPy arrays
-J_trained = J_param.detach().cpu().numpy()
-B_trained = B_param.detach().cpu().numpy()
-b_x_trained = b_x_param.detach().cpu().numpy()
+
+def plot_jacobian_matrices(jacobians, j, omega):
+    """
+    Plot the Jacobian matrices for a specific task.
+
+    Arguments:
+        jacobians: List of Jacobian matricesfor task j (where each element is a numpy array, shape (N, N))
+        j: Task index
+        omega: Angular frequency
+    """
+    # Create the figure and axes
+    fig, axes = plt.subplots(len(jacobians), 1, figsize=(10, 5*len(jacobians)))
+    
+    # Ensure axes is iterable when there's a single subplot
+    if len(jacobians) == 1:
+        axes = [axes]
+    
+    # Iterate over the subplots
+    for i, J_eff in enumerate(jacobians):
+        im = axes[i].imshow(J_eff, cmap='viridis')
+        axes[i].set_title(f'Jacobian Matrix (Task {j}, ω={omega:.3f}, FP{i+1})')
+        plt.colorbar(im, ax=axes[i])
+    
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_unstable_eigenvalues(unstable_freqs, j, omega):
+    """
+    Plot unstable eigenvalues on the complex plane for a specific task.
+
+    Arguments:
+        unstable_freqs: List of lists of unstable eigenvalues for the task (where each inner list contains eigenvalues for a fixed point)
+        j: Task index
+        omega: Angular frequency
+    """
+    # Create the figure
+    plt.figure(figsize=(10, 8))
+    
+    # Plot each fixed point's eigenvalues
+    for i, freqs in enumerate(unstable_freqs):
+        if freqs:  # if there are any unstable eigenvalues
+            # Convert to numpy array for easier handling
+            freqs_array = np.array(freqs)
+            # Plot real vs imaginary parts
+            plt.scatter(np.real(freqs_array), np.imag(freqs_array), 
+                       color=colors[i], marker=markers[i], 
+                       label=f'FP{i+1}')
+    
+    # Add reference lines and labels
+    plt.axvline(x=0, color='k', linestyle='--', alpha=0.3)
+    plt.axhline(y=0, color='k', linestyle='--', alpha=0.3)
+    plt.xlabel('Real Part')
+    plt.ylabel('Imaginary Part')
+    plt.title(f'Unstable Eigenvalues for Task {j} (ω={omega:.3f})')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 
 
@@ -550,17 +644,22 @@ b_x_trained = b_x_param.detach().cpu().numpy()
 # 4.2. Find Jacobians, Fixed Points, and Unstable Mode Frequencies
 # -------------------------------
 
+# Extract trained parameters as NumPy arrays
+J_trained = J_param.detach().cpu().numpy()
+B_trained = B_param.detach().cpu().numpy()
+b_x_trained = b_x_param.detach().cpu().numpy()
+
 # Initialize lists to store multiple fixed points and their properties
-all_fixed_points = []  # List of lists, one list per task
-all_jacobians = []     # List of lists of Jacobians
-all_unstable_eig_freq = []  # List of lists of unstable frequencies
+all_fixed_points = []  # List of lists of fixed points, one list per task, and the inner lists contain the fixed points for each task
+all_jacobians = []     # List of lists of Jacobians, one list per task, and the inner lists contain the Jacobians for each fixed point
+all_unstable_eig_freq = []  # List of lists of lists of unstable frequencies, one list per task, one middle list per fixed point for that task, and the inner list contains the unstable frequencies for each fixed point
 
 # Track fixed point search time
 start_time = time.time()
 print("\nStarting fixed point search...")
 
 # Process tasks in batches for memory efficiency
-batch_size = 5  # Adjust based on available memory
+batch_size = BATCH_SIZE  # Adjust based on available memory
 for batch_start in range(0, num_tasks, batch_size):
     batch_end = min(batch_start + batch_size, num_tasks)
     
@@ -573,7 +672,7 @@ for batch_start in range(0, num_tasks, batch_size):
         all_fixed_points.append(task_fixed_points)
         
         # Analyze fixed points
-        task_jacobians, task_unstable_freqs = analyze_fixed_points(task_fixed_points, J_trained, static_inputs)
+        task_jacobians, task_unstable_freqs = analyze_fixed_points(task_fixed_points, J_trained)
         all_jacobians.append(task_jacobians)
         all_unstable_eig_freq.append(task_unstable_freqs)
         
@@ -581,6 +680,7 @@ for batch_start in range(0, num_tasks, batch_size):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+# Calculate search time
 fixed_point_time = time.time() - start_time
 print(f"\nFixed point search completed in {fixed_point_time:.2f} seconds")
 
@@ -588,51 +688,41 @@ print(f"\nFixed point search completed in {fixed_point_time:.2f} seconds")
 
 
 # -------------------------------
-# 4.3. Jacobian Plots
-# -------------------------------
-
-def plot_jacobian_matrices(jacobians, j, omega, u_offset):
-    """
-    Plot the Jacobian matrices for a specific task.
-    """
-    fig, axes = plt.subplots(len(jacobians), 1, figsize=(10, 5*len(jacobians)))
-    if len(jacobians) == 1:
-        axes = [axes]  # Ensure axes is iterable when there's a single subplot
-    
-    for i, J_eff in enumerate(jacobians):
-        im = axes[i].imshow(J_eff, cmap='viridis')
-        axes[i].set_title(f'Jacobian Matrix (Task {j}, ω={omega:.3f}, FP{i+1})')
-        plt.colorbar(im, ax=axes[i])
-    
-    plt.tight_layout()
-    plt.show()
-
-# Plot Jacobian matrices and unstable eigenvalues for selected tasks
-print("\nPlotting Jacobian matrices and unstable eigenvalues...")
-for j in test_js:
-    omega = omegas[j]
-    u_offset = static_inputs[j]
-    
-    if all_jacobians[j]:  # If any fixed points were found
-        # Plot Jacobian matrices
-        plot_jacobian_matrices(all_jacobians[j], j, omega, u_offset)
-
-
-
-
-# -------------------------------
-# 4.4. Fixed Point Summaries
+# 4.3. Fixed Point Summaries
 # -------------------------------
 
 # Print summary of fixed points found
 print("\nSummary of Fixed Points Found:")
 for j in range(num_tasks):
-    print(f"\nTask {j} (omega = {omegas[j]:.3f}):")
+    print(f"\nTask {j}:")
     print(f"Number of distinct fixed points found: {len(all_fixed_points[j])}")
-    for i, (fp, freq) in enumerate(zip(all_fixed_points[j], all_unstable_eig_freq[j])):
+    for i, (fp, freqs) in enumerate(zip(all_fixed_points[j], all_unstable_eig_freq[j])):
         print(f"  Fixed point {i+1}:")
-        print(f"    Unstable mode frequency: {freq:.4f}")
+        print(f"    Number of unstable eigenvalues: {len(freqs)}")
+        if len(freqs) > 0:
+            print("    Unstable eigenvalues:")
+            for ev in freqs:
+                print(f"      Real: {np.real(ev):.4f}, Imag: {np.imag(ev):.4f}")
         print(f"    Norm: {np.linalg.norm(fp):.4f}")
+
+
+
+
+# -------------------------------
+# 4.4. Jacobian Plots
+# -------------------------------
+
+# Select the tasks to plot
+test_js = TEST_INDICES
+
+# Plot Jacobian matrices for selected tasks
+print("\nPlotting Jacobian matrices for selected tasks...")
+for j in test_js:
+    omega_j = omegas[j]
+    
+    if all_jacobians[j]:  # if any fixed points were found
+        # Plot Jacobian matrices
+        plot_jacobian_matrices(all_jacobians[j], j, omega_j)
 
 
 
@@ -641,59 +731,20 @@ for j in range(num_tasks):
 # 4.5. Unstable Mode Frequency Summaries and Plots
 # -------------------------------
 
-# Plot unstable mode frequencies for the first fixed point of each task
-first_fixed_point_freqs = [freqs[0] if freqs else 0.0 for freqs in all_unstable_eig_freq]
-plt.figure(figsize=(8,5))
-plt.plot(omegas, first_fixed_point_freqs, 'o-', label='|Imag(eigenvalue)| (unstable mode)')
-plt.plot(omegas, omegas, 'k--', label='Target frequency')
-plt.xlabel('Target Frequency (rad/s)')
-plt.ylabel('Frequency from Linearization (rad/s)')
-plt.title('Comparison of Target Frequencies and Unstable Mode Frequency')
-plt.legend()
-plt.show()
-
-test_js = [0, 10, 20, 30, 40, 50]
-colors = ['b', 'g', 'r', 'c', 'm', 'y']
-markers = ['o', 's', '^', 'v', '<', '>']
-
-# Print detailed information about unstable eigenvalues for all tasks
-print("\nDetailed Analysis of Unstable Eigenvalues:")
-for j in range(num_tasks):
-    print(f"\nTask {j} (omega = {omegas[j]:.3f}):")
-    for i, (J_eff, freqs) in enumerate(zip(all_jacobians[j], all_unstable_eig_freq[j])):
-        eigenvals, _ = eig(J_eff)
-        unstable_idx = np.where(np.real(eigenvals) > 0)[0]
-        num_unstable = len(unstable_idx)
-        
-        print(f"\n  Fixed point {i+1}:")
-        print(f"  Number of unstable eigenvalues: {num_unstable}")
-        if num_unstable > 0:
-            unstable_eigenvals = eigenvals[unstable_idx]
-            print("  Unstable eigenvalues:")
-            for ev in unstable_eigenvals:
-                print(f"    Real: {np.real(ev):.4f}, Imag: {np.imag(ev):.4f}")
+# Select the tasks to plot
+test_js = TEST_INDICES
+# Set the plotting parameters
+colors = COLORS
+markers = MARKERS
 
 # Plot unstable eigenvalues for selected tasks
-plt.figure(figsize=(12, 8))
-for idx, j in enumerate(test_js):
-    for i, (J_eff, freqs) in enumerate(zip(all_jacobians[j], all_unstable_eig_freq[j])):
-        eigenvals, _ = eig(J_eff)
-        unstable_idx = np.where(np.real(eigenvals) > 0)[0]
-        unstable_eigenvals = eigenvals[unstable_idx]
-        
-        if len(unstable_eigenvals) > 0:
-            plt.scatter(np.real(unstable_eigenvals), np.imag(unstable_eigenvals), 
-                       color=colors[idx], marker=markers[i], 
-                       label=f'Task {j} FP{i+1} (ω={omegas[j]:.3f})')
-
-plt.axvline(x=0, color='k', linestyle='--', alpha=0.3)
-plt.axhline(y=0, color='k', linestyle='--', alpha=0.3)
-plt.xlabel('Real Part')
-plt.ylabel('Imaginary Part')
-plt.title('Unstable Eigenvalues of Jacobian for Selected Tasks')
-plt.legend()
-plt.grid(True)
-plt.show()
+print("\nPlotting unstable eigenvalues for selected tasks...")
+for j in test_js:
+    omega_j = omegas[j]
+    
+    if all_unstable_eig_freq[j]:  # if any fixed points were found
+        # Plot unstable eigenvalues
+        plot_unstable_eigenvalues(all_unstable_eig_freq[j], j, omega_j)
 
 
 
