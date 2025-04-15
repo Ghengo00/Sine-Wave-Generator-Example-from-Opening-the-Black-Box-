@@ -865,8 +865,11 @@ def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train):
     # Get the directory of the current script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # Create Outputs folder if it doesn't exist
-    outputs_dir = os.path.join(script_dir, 'Outputs')
+    # Create timestamp in the same format as generate_filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Create Outputs folder with timestamp if it doesn't exist
+    outputs_dir = os.path.join(script_dir, f'Outputs_{timestamp}')
     if not os.path.exists(outputs_dir):
         os.makedirs(outputs_dir)
         print(f"Created Outputs directory at: {outputs_dir}")
@@ -910,9 +913,7 @@ save_variable(all_unstable_eig_freq, "all_unstable_eig_freq", N, num_tasks, dt, 
 # Save PCA results
 pca_results = {
     'proj_trajs': proj_trajs,
-    'proj_fixed': proj_fixed,
-    'pca_components': pca.components_,
-    'pca_mean': pca.mean_
+    'proj_fixed': proj_fixed
 }
 save_variable(pca_results, "pca_results", N, num_tasks, dt, T_drive, T_train)
 
