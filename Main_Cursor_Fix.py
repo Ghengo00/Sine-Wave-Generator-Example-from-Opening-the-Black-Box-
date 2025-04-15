@@ -1,36 +1,54 @@
+# -------------------------------
+# -------------------------------
+# 0. IMPORTS
+# -------------------------------
+# -------------------------------
+
 import numpy as np
+import matplotlib.pyplot as plt
+
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from scipy.optimize import root
 from scipy.linalg import eig
+
+import os
 from tqdm import tqdm
 import time
-import pickle
 from datetime import datetime
-import os
+import pickle
+
+
+
 
 # -------------------------------
-# 1. Set random seed & parameters
 # -------------------------------
+# 1. RNN SETUP
+# -------------------------------
+# -------------------------------
+
+# -------------------------------
+# 1.1. Set Random Seed & Parameters
+# -------------------------------
+
 np.random.seed(42)
 torch.manual_seed(42)
 
 # Network dimensions and task parameters
 N = 200         # number of neurons
 I = 1           # input dimension (scalar input)
-num_tasks = 51  # 51 different sine-wave tasks
+num_tasks = 51  # number of different sine-wave tasks
 
 # Frequencies: equally spaced between 0.1 and 0.6 rad/s
 omegas = np.linspace(0.1, 0.6, num_tasks)
 
-# Static input offset for each task: j/51 + 0.25, j=0,...,50 (j/51+0.25)
+# Static input offset for each task: j/51 + 0.25, j=0,...,50
 static_inputs = np.linspace(0, num_tasks-1, num_tasks) / num_tasks + 0.25
 
 # Time parameters (in seconds)
-dt = 0.02       # integration time step
+dt = 0.02        # integration time step
 T_drive = 12.0   # driving phase duration (to set network state)
 T_train = 24.0   # training phase duration with static input (target generation)
 num_steps_drive = int(T_drive/dt)
@@ -39,28 +57,53 @@ time_drive = np.arange(0, T_drive, dt)
 time_train = np.arange(0, T_train, dt)
 time_full  = np.concatenate([time_drive, T_drive + time_train])
 
+
+
+
 # -------------------------------
-# 2. Define the RNN and its parameters
+# 1.2. Define RNN Parameters
 # -------------------------------
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Randomly initialize recurrent weight matrix J with scaling ~1/sqrt(N)
+# Randomly initialize recurrent weight matrix J with scaling ~1/sqrt(N) of shape (N, N)
 J_param = torch.nn.Parameter(torch.randn(N, N, device=device) / np.sqrt(N))
-# Randomly initialize input weight matrix B of shape (N, I)
+# Randomly initialize input weight matrix B with scaling ~1/sqrt(N) of shape (N, I)
 B_param = torch.nn.Parameter(torch.randn(N, I, device=device) / np.sqrt(N))
-# Bias for network neurons, shape (N,)
+# Bias for network neurons of shape (N,) set to zero
 b_x_param = torch.nn.Parameter(torch.zeros(N, device=device))
 
-# Output weights and bias: readout is scalar.
+# Output weights and bias: readout is scalar
+# Randomly initialize output weights with scaling ~1/sqrt(N) of shape (N,)
 w_param = torch.nn.Parameter(torch.randn(N, device=device) / np.sqrt(N))
+# Bias for readout of shape () set to zero
 b_z_param = torch.nn.Parameter(torch.tensor(0.0, device=device))
 
 # Collect parameters in a list for optimization
 params = [J_param, B_param, b_x_param, w_param, b_z_param]
 
+
+
+
 # -------------------------------
-# 3. Simulation function for one trajectory
+# 1.3. Useful Global Variables
 # -------------------------------
+
+BATCH_SIZE = 10
+
+
+
+
+# -------------------------------
+# -------------------------------
+# 2. RNN TRAINING
+# -------------------------------
+# -------------------------------
+
+# -------------------------------
+# 2.1. Trajectory Simulation Function
+# -------------------------------
+
 def simulate_trajectory(x0, u_seq, J, B, b_x, w, b_z, dt):
     """
     Simulate the RNN dynamics with Euler integration.
@@ -74,11 +117,11 @@ def simulate_trajectory(x0, u_seq, J, B, b_x, w, b_z, dt):
       
     Returns:
       xs : (T+1, N) tensor of states over time
-      zs : (T+1,) tensor of outputs computed as z = w^T tanh(x) + b_z
+      zs : (T,) tensor of outputs computed as z = w^T tanh(x) + b_z
     """
     T = u_seq.shape[0]
-    xs = torch.zeros(T+1, x0.shape[0], device=x0.device)
-    zs = torch.zeros(T, device=x0.device)
+    xs = torch.zeros(T+1, x0.shape[0], device=x0.device)    # shape (T+1, N)
+    zs = torch.zeros(T, device=x0.device)                  # shape (T,)
     xs[0] = x0
     
     # Pre-compute B*u for all time steps
@@ -96,12 +139,26 @@ def simulate_trajectory(x0, u_seq, J, B, b_x, w, b_z, dt):
     
     return xs, zs
 
+
+
+
 # -------------------------------
-# 4. Training procedure and visualization
+# 2.2. Training Run Function
 # -------------------------------
+
 def run_batch(J, B, b_x, w, b_z):
     """
     Run a batch of tasks with improved memory efficiency and GPU utilization.
+
+    Arguments:
+      J, B, b_x, w, b_z : network parameters (torch tensors)
+      
+    Returns:
+      loss_total : total average loss across all the tasks
+      traj_states : list of training phase states for each task
+        (so a list of num_tasks tensors, each of shape (T, N))
+      fixed_point_inits : list of drive phase final states for each task
+        (so a list of num_tasks tensors, each of shape (N,))
     """
     loss_total = 0.0
     traj_states = []  # store states from training phase for later PCA
@@ -111,7 +168,7 @@ def run_batch(J, B, b_x, w, b_z):
     x0 = torch.zeros(N, device=device)
     
     # Process tasks in smaller batches to manage memory
-    batch_size = 10  # Adjust based on available memory
+    batch_size = BATCH_SIZE  # Adjust based on available memory
     for batch_start in range(0, num_tasks, batch_size):
         batch_end = min(batch_start + batch_size, num_tasks)
         batch_loss = 0.0
@@ -121,17 +178,18 @@ def run_batch(J, B, b_x, w, b_z):
         u_train_batch = []
         target_train_batch = []
         
+        # Process each task in the batch
         for j in range(batch_start, batch_end):
             omega = omegas[j]
             u_offset = static_inputs[j]
             
             # Build input sequences for both phases
             u_drive = torch.tensor(np.sin(omega*time_drive) + u_offset, 
-                                 dtype=torch.float32, device=device).view(-1, 1)
+                                 dtype=torch.float32, device=device).view(-1, 1)     # shape (num_steps_drive, 1)
             u_train = torch.full((num_steps_train, 1), u_offset, 
-                               dtype=torch.float32, device=device)
+                               dtype=torch.float32, device=device)                     # shape (num_steps_train, 1)
             target_train = torch.tensor(np.sin(omega * time_train), 
-                                      dtype=torch.float32, device=device)
+                                      dtype=torch.float32, device=device)                # shape (num_steps_train,)
             
             u_drive_batch.append(u_drive)
             u_train_batch.append(u_train)
@@ -169,6 +227,13 @@ def run_batch(J, B, b_x, w, b_z):
     # Average loss over all tasks
     loss_total /= num_tasks
     return loss_total, traj_states, fixed_point_inits
+
+
+
+
+# -------------------------------
+# 2.3. Execute Training Procedure
+# -------------------------------
 
 # Define LBFGS optimizer with more conservative parameters
 optimizer = optim.LBFGS(params, lr=0.6, max_iter=10, history_size=10, line_search_fn="strong_wolfe")
@@ -234,6 +299,19 @@ if state.traj_states is None or state.fixed_point_inits is None:
     print("Running final batch to get states for analysis...")
     _, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)
 
+
+
+
+# -------------------------------
+# -------------------------------
+# 3. DYNAMICS RESULTS
+# -------------------------------
+# -------------------------------
+
+# -------------------------------
+# 3.1. Produced Trajectories vs. Target Signals Plots
+# -------------------------------
+
 # Plot produced trajectories vs. target signals for selected tasks
 test_js = [0, 10, 20, 30, 40, 50]
 fig, axes = plt.subplots(nrows=len(test_js), ncols=1, figsize=(10, 3 * len(test_js)))
@@ -272,9 +350,63 @@ for ax, j in zip(axes, test_js):
 plt.tight_layout()
 plt.show()
 
+
+
+
 # -------------------------------
-# 5. Post-Training Analysis: Fixed point search & Unstable Mode Frequencies
+# 3.2. Parameter Matrices Plots
 # -------------------------------
+
+def plot_parameter_matrices(J_param, B_param, b_x_param, j, omega, u_offset):
+    """
+    Plot the parameter matrices (J, B, b_x) for a specific task.
+    """
+    fig, axes = plt.subplots(3, 1, figsize=(10, 15))
+    fig.suptitle(f'Parameter Matrices (Task {j}, ω={omega:.3f}, u_offset={u_offset:.3f})', fontsize=16)
+    
+    # Plot J_param
+    im = axes[0].imshow(J_param.detach().cpu().numpy(), cmap='viridis')
+    axes[0].set_title('J_param Matrix')
+    plt.colorbar(im, ax=axes[0])
+    
+    # Plot B_param
+    im = axes[1].imshow(B_param.detach().cpu().numpy(), cmap='viridis')
+    axes[1].set_title('B_param Matrix')
+    plt.colorbar(im, ax=axes[1])
+    
+    # Plot b_x_param
+    im = axes[2].imshow(b_x_param.detach().cpu().numpy().reshape(-1, 1), cmap='viridis')
+    axes[2].set_title('b_x_param Vector')
+    plt.colorbar(im, ax=axes[2])
+    
+    plt.tight_layout()
+    plt.show()
+
+# Define test tasks and plotting parameters
+test_js = [0, 10, 20, 30, 40, 50]
+colors = ['b', 'g', 'r', 'c', 'm', 'y']
+markers = ['o', 's', '^', 'v', '<', '>']
+
+# Plot parameter matrices for selected tasks
+print("\nPlotting parameter matrices...")
+for j in test_js:
+    omega = omegas[j]
+    u_offset = static_inputs[j]
+    plot_parameter_matrices(J_param, B_param, b_x_param, j, omega, u_offset)
+
+
+
+
+# -------------------------------
+# -------------------------------
+# 4. FIXED POINTS AND UNSTABLE MODES RESULTS
+# -------------------------------
+# -------------------------------
+
+# -------------------------------
+# 4.1. Jacobians, Fixed Points, and Unstable Mode Frequencies Functions
+# -------------------------------
+
 def fixed_point_func(x_np, u_val, J_np, B_np, b_x_np):
     """
     Compute f(x) = -x + J*tanh(x) + B*u + b_x for given x and fixed u.
@@ -290,11 +422,6 @@ def jacobian_fixed_point(x_star, J_np):
     """
     diag_term = 1 - np.tanh(x_star)**2
     return -np.eye(len(x_star)) + J_np * diag_term[np.newaxis, :]
-
-# Extract trained parameters as NumPy arrays
-J_trained = J_param.detach().cpu().numpy()
-B_trained = B_param.detach().cpu().numpy()
-b_x_trained = b_x_param.detach().cpu().numpy()
 
 def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=10, tol=1e-6):
     """
@@ -369,6 +496,18 @@ def analyze_fixed_points(fixed_points, J_trained, static_inputs):
     
     return jacobians, unstable_freqs
 
+# Extract trained parameters as NumPy arrays
+J_trained = J_param.detach().cpu().numpy()
+B_trained = B_param.detach().cpu().numpy()
+b_x_trained = b_x_param.detach().cpu().numpy()
+
+
+
+
+# -------------------------------
+# 4.2. Find Jacobians, Fixed Points, and Unstable Mode Frequencies
+# -------------------------------
+
 # Initialize lists to store multiple fixed points and their properties
 all_fixed_points = []  # List of lists, one list per task
 all_jacobians = []     # List of lists of Jacobians
@@ -403,6 +542,46 @@ for batch_start in range(0, num_tasks, batch_size):
 fixed_point_time = time.time() - start_time
 print(f"\nFixed point search completed in {fixed_point_time:.2f} seconds")
 
+
+
+
+# -------------------------------
+# 4.3. Jacobian Plots
+# -------------------------------
+
+def plot_jacobian_matrices(jacobians, j, omega, u_offset):
+    """
+    Plot the Jacobian matrices for a specific task.
+    """
+    fig, axes = plt.subplots(len(jacobians), 1, figsize=(10, 5*len(jacobians)))
+    if len(jacobians) == 1:
+        axes = [axes]  # Ensure axes is iterable when there's a single subplot
+    
+    for i, J_eff in enumerate(jacobians):
+        im = axes[i].imshow(J_eff, cmap='viridis')
+        axes[i].set_title(f'Jacobian Matrix (Task {j}, ω={omega:.3f}, FP{i+1})')
+        plt.colorbar(im, ax=axes[i])
+    
+    plt.tight_layout()
+    plt.show()
+
+# Plot Jacobian matrices and unstable eigenvalues for selected tasks
+print("\nPlotting Jacobian matrices and unstable eigenvalues...")
+for j in test_js:
+    omega = omegas[j]
+    u_offset = static_inputs[j]
+    
+    if all_jacobians[j]:  # If any fixed points were found
+        # Plot Jacobian matrices
+        plot_jacobian_matrices(all_jacobians[j], j, omega, u_offset)
+
+
+
+
+# -------------------------------
+# 4.4. Fixed Point Summaries
+# -------------------------------
+
 # Print summary of fixed points found
 print("\nSummary of Fixed Points Found:")
 for j in range(num_tasks):
@@ -412,6 +591,13 @@ for j in range(num_tasks):
         print(f"  Fixed point {i+1}:")
         print(f"    Unstable mode frequency: {freq:.4f}")
         print(f"    Norm: {np.linalg.norm(fp):.4f}")
+
+
+
+
+# -------------------------------
+# 4.5. Unstable Mode Frequency Summaries and Plots
+# -------------------------------
 
 # Plot unstable mode frequencies for the first fixed point of each task
 first_fixed_point_freqs = [freqs[0] if freqs else 0.0 for freqs in all_unstable_eig_freq]
@@ -424,9 +610,6 @@ plt.title('Comparison of Target Frequencies and Unstable Mode Frequency')
 plt.legend()
 plt.show()
 
-# -------------------------------
-# Additional Analysis: Jacobian and Parameter Visualization for Selected Tasks
-# -------------------------------
 test_js = [0, 10, 20, 30, 40, 50]
 colors = ['b', 'g', 'r', 'c', 'm', 'y']
 markers = ['o', 's', '^', 'v', '<', '>']
@@ -470,64 +653,19 @@ plt.legend()
 plt.grid(True)
 plt.show()
 
-# Create subplots for Jacobian visualizations
-num_rows = len(test_js)
-fig, axes = plt.subplots(num_rows, 2, figsize=(15, 5*num_rows))
-fig.suptitle('Jacobian and Parameter Matrices for Selected Tasks', fontsize=16)
 
-# Plot Jacobians and parameters for each selected task
-for idx, j in enumerate(test_js):
-    if all_jacobians[j]:  # If any fixed points were found
-        # Plot first Jacobian for this task
-        im = axes[idx, 0].imshow(all_jacobians[j][0], cmap='viridis')
-        axes[idx, 0].set_title(f'Jacobian Matrix (Task {j}, ω={omegas[j]:.3f}, FP1)')
-        plt.colorbar(im, ax=axes[idx, 0])
-        
-        # Plot J_param (only for first row)
-        if idx == 0:
-            im = axes[idx, 1].imshow(J_param.detach().cpu().numpy(), cmap='viridis')
-            axes[idx, 1].set_title('J_param Matrix')
-            plt.colorbar(im, ax=axes[idx, 1])
-        else:
-            axes[idx, 1].axis('off')
-    else:
-        axes[idx, 0].axis('off')
-        axes[idx, 1].axis('off')
 
-# Add B_param and b_x_param visualizations
-fig2, axes2 = plt.subplots(2, 1, figsize=(10, 10))
-fig2.suptitle('Parameter Matrices', fontsize=16)
-
-# Plot B_param
-im = axes2[0].imshow(B_param.detach().cpu().numpy(), cmap='viridis')
-axes2[0].set_title('B_param Matrix')
-plt.colorbar(im, ax=axes2[0])
-
-# Plot b_x_param
-im = axes2[1].imshow(b_x_param.detach().cpu().numpy().reshape(-1, 1), cmap='viridis')
-axes2[1].set_title('b_x_param Vector')
-plt.colorbar(im, ax=axes2[1])
-
-# Print information about state.traj_states and state.fixed_point_inits
-print("\nState Information:")
-print(f"state.traj_states:")
-print(f"  Type: {type(state.traj_states)}")
-print(f"  Length: {len(state.traj_states)}")
-print(f"  Shape of first trajectory: {state.traj_states[0].shape}")
-print(f"  Data type of first trajectory: {state.traj_states[0].dtype}")
-
-print(f"\nstate.fixed_point_inits:")
-print(f"  Type: {type(state.fixed_point_inits)}")
-print(f"  Length: {len(state.fixed_point_inits)}")
-print(f"  Shape of first fixed point: {state.fixed_point_inits[0].shape}")
-print(f"  Data type of first fixed point: {state.fixed_point_inits[0].dtype}")
-
-plt.tight_layout()
-plt.show()
 
 # -------------------------------
-# 6. PCA and Visualization
 # -------------------------------
+# 5. PCA RESULTS
+# -------------------------------
+# -------------------------------
+
+# -------------------------------
+# 5.1. Perform PCA on Trajectories and Fixed Points
+# -------------------------------
+
 # Track PCA computation time
 start_time = time.time()
 print("\nStarting PCA computation...")
@@ -554,6 +692,13 @@ proj_fixed = pca.transform(np.array(all_fixed_points_flat))
 
 pca_time = time.time() - start_time
 print(f"\nPCA computation completed in {pca_time:.2f} seconds")
+
+
+
+
+# -------------------------------
+# 5.2. PCA Trajectory and Fixed PointsPlot
+# -------------------------------
 
 # Plot trajectories (blue) and fixed points (green circles) with unstable eigen-directions (red lines)
 fig = plt.figure(figsize=(10, 8))
@@ -592,8 +737,18 @@ ax.set_zlabel('PC3')
 plt.legend()
 plt.show()
 
-# Save all important variables
-print("\nSaving results...")
+
+
+
+# -------------------------------
+# -------------------------------
+# 6. SAVING RESULTS
+# -------------------------------
+# -------------------------------
+
+# -------------------------------
+# 6.1. Saving Functions
+# -------------------------------
 
 def generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train):
     """
@@ -622,6 +777,15 @@ def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train):
     with open(filepath, 'wb') as f:
         pickle.dump(variable, f)
     print(f"Saved {variable_name} to {filepath}")
+
+
+
+
+# -------------------------------
+# 6.2. Save Results
+# -------------------------------
+
+print("\nSaving results...")
 
 # Save network parameters
 save_variable(J_param.detach().cpu().numpy(), "J_param", N, num_tasks, dt, T_drive, T_train)
