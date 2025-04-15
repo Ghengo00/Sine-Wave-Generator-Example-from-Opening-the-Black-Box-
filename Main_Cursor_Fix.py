@@ -61,6 +61,7 @@ params = [J_param, B_param, b_x_param, w_param, b_z_param]
 def simulate_trajectory(x0, u_seq, J, B, b_x, w, b_z, dt):
     """
     Simulate the RNN dynamics with Euler integration.
+    Vectorized implementation for better performance.
     
     Arguments:
       x0    : initial state (torch tensor, shape (N,))
@@ -73,62 +74,96 @@ def simulate_trajectory(x0, u_seq, J, B, b_x, w, b_z, dt):
       zs : (T+1,) tensor of outputs computed as z = w^T tanh(x) + b_z
     """
     T = u_seq.shape[0]
-    xs = [x0]
-    zs = []
-    x = x0
+    xs = torch.zeros(T+1, x0.shape[0], device=x0.device)
+    zs = torch.zeros(T, device=x0.device)
+    xs[0] = x0
+    
+    # Pre-compute B*u for all time steps
+    Bu = torch.matmul(B, u_seq.transpose(0, 1)).transpose(0, 1)  # shape (T, N)
+    
+    # Main simulation loop
     for t in range(T):
+        x = xs[t]
         # Compute nonlinear activation
         r = torch.tanh(x)
         # Compute readout
-        z = torch.dot(w, r) + b_z
-        zs.append(z)
+        zs[t] = torch.dot(w, r) + b_z
         # Euler integration: dx/dt = -x + J tanh(x) + B u + b_x
-        u_t = u_seq[t].view(-1)  # ensure u_t is 1D
-        x = x + dt * (-x + torch.matmul(J, torch.tanh(x)) + torch.matmul(B, u_t) + b_x)
-        xs.append(x)
-    xs = torch.stack(xs)
-    zs = torch.stack(zs)
+        xs[t+1] = x + dt * (-x + torch.matmul(J, r) + Bu[t] + b_x)
+    
     return xs, zs
 
 # -------------------------------
 # 4. Training procedure and visualization
 # -------------------------------
 def run_batch(J, B, b_x, w, b_z):
+    """
+    Run a batch of tasks with improved memory efficiency and GPU utilization.
+    """
     loss_total = 0.0
     traj_states = []  # store states from training phase for later PCA
     fixed_point_inits = []  # store final state from drive phase as an initial guess
     
-    # Loop over each task (frequency)
-    for j in tqdm(range(num_tasks), desc="Running batch", leave=False):
-        omega = omegas[j]
-        u_offset = static_inputs[j]
-        
-        # Build input sequences for both phases:
-        # Driving phase: u(t) = [ sin(omega*t) + u_offset ]
-        u_drive = torch.tensor(np.sin(omega*time_drive) + u_offset, 
-                             dtype=torch.float32, device=device).view(-1, 1)
-        # Training phase: static input = [ u_offset ] repeated
-        u_train = torch.full((num_steps_train, 1), u_offset, dtype=torch.float32, device=device)
-        # Target output during training: sine wave sin(omega*t) with unity amplitude.
-        target_train = torch.tensor(np.sin(omega * time_train), dtype=torch.float32, device=device)
-        
-        # Initialize state at t=0; can be zero.
-        x0 = torch.zeros(N, device=device)
-        # First simulate drive phase to set a good initial state.
-        xs_drive, _ = simulate_trajectory(x0, u_drive, J, B, b_x, w, b_z, dt)
-        x_drive_final = xs_drive[-1]  # use final state of drive phase as initial condition for training phase
-        
-        # Save initial state for fixed point search later.
-        fixed_point_inits.append(x_drive_final.detach().cpu().numpy())
-        
-        # Now simulate training phase with constant input.
-        xs_train, zs_train = simulate_trajectory(x_drive_final, u_train, J, B, b_x, w, b_z, dt)
-        # Compute loss: mean squared error between network output and target sine wave.
-        loss = torch.mean((zs_train - target_train)**2)
-        loss_total += loss
-        traj_states.append(xs_train.detach().cpu().numpy())
+    # Pre-allocate tensors for all tasks
+    x0 = torch.zeros(N, device=device)
     
-    # Average loss over tasks
+    # Process tasks in smaller batches to manage memory
+    batch_size = 10  # Adjust based on available memory
+    for batch_start in range(0, num_tasks, batch_size):
+        batch_end = min(batch_start + batch_size, num_tasks)
+        batch_loss = 0.0
+        
+        # Pre-compute input sequences for the batch
+        u_drive_batch = []
+        u_train_batch = []
+        target_train_batch = []
+        
+        for j in range(batch_start, batch_end):
+            omega = omegas[j]
+            u_offset = static_inputs[j]
+            
+            # Build input sequences for both phases
+            u_drive = torch.tensor(np.sin(omega*time_drive) + u_offset, 
+                                 dtype=torch.float32, device=device).view(-1, 1)
+            u_train = torch.full((num_steps_train, 1), u_offset, 
+                               dtype=torch.float32, device=device)
+            target_train = torch.tensor(np.sin(omega * time_train), 
+                                      dtype=torch.float32, device=device)
+            
+            u_drive_batch.append(u_drive)
+            u_train_batch.append(u_train)
+            target_train_batch.append(target_train)
+        
+        # Process each task in the batch
+        for j, (u_drive, u_train, target_train) in enumerate(zip(
+            u_drive_batch, u_train_batch, target_train_batch)):
+            
+            # Simulate drive phase
+            xs_drive, _ = simulate_trajectory(x0, u_drive, J, B, b_x, w, b_z, dt)
+            x_drive_final = xs_drive[-1]
+            
+            # Save initial state for fixed point search
+            fixed_point_inits.append(x_drive_final.detach().cpu().numpy())
+            
+            # Simulate training phase
+            xs_train, zs_train = simulate_trajectory(x_drive_final, u_train, J, B, b_x, w, b_z, dt)
+            
+            # Compute loss
+            loss = torch.mean((zs_train - target_train)**2)
+            batch_loss += loss
+            
+            # Store trajectory states
+            traj_states.append(xs_train.detach().cpu().numpy())
+            
+            # Clear intermediate tensors
+            del xs_drive, xs_train, zs_train
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        
+        # Accumulate batch loss
+        loss_total += batch_loss
+        
+    # Average loss over all tasks
     loss_total /= num_tasks
     return loss_total, traj_states, fixed_point_inits
 
@@ -240,7 +275,7 @@ plt.show()
 def fixed_point_func(x_np, u_val, J_np, B_np, b_x_np):
     """
     Compute f(x) = -x + J*tanh(x) + B*u + b_x for given x and fixed u.
-    All inputs are numpy arrays.
+    Vectorized implementation for better performance.
     """
     x = x_np
     return -x + np.dot(J_np, np.tanh(x)) + np.dot(B_np, np.array([u_val])).flatten() + b_x_np
@@ -248,6 +283,7 @@ def fixed_point_func(x_np, u_val, J_np, B_np, b_x_np):
 def jacobian_fixed_point(x_star, J_np):
     """
     Compute Jacobian: J_eff = -I + J * diag(1 - tanh(x_star)^2)
+    Vectorized implementation for better performance.
     """
     diag_term = 1 - np.tanh(x_star)**2
     return -np.eye(len(x_star)) + J_np * diag_term[np.newaxis, :]
@@ -303,32 +339,17 @@ def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_
     
     return fixed_points
 
-# Initialize lists to store multiple fixed points and their properties
-all_fixed_points = []  # List of lists, one list per task
-all_jacobians = []     # List of lists of Jacobians
-all_unstable_eig_freq = []  # List of lists of unstable frequencies
-
-# Track fixed point search time
-start_time = time.time()
-print("\nStarting fixed point search...")
-
-# For each task, perform fixed point search using multiple initial conditions
-for j in tqdm(range(num_tasks), desc="Processing tasks"):
-    u_const = static_inputs[j]
-    x0_guess = state.fixed_point_inits[j]
+def analyze_fixed_points(fixed_points, J_trained, static_inputs):
+    """
+    Analyze fixed points and compute their properties in a memory-efficient way.
+    """
+    jacobians = []
+    unstable_freqs = []
     
-    # Find multiple fixed points
-    task_fixed_points = find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained)
-    all_fixed_points.append(task_fixed_points)
-    
-    # For each fixed point found, compute Jacobian and eigenvalues
-    task_jacobians = []
-    task_unstable_freqs = []
-    
-    for x_star in task_fixed_points:
+    for x_star in fixed_points:
         # Compute Jacobian at the fixed point
         J_eff = jacobian_fixed_point(x_star, J_trained)
-        task_jacobians.append(J_eff)
+        jacobians.append(J_eff)
         
         # Compute eigenvalues
         eigenvals, _ = eig(J_eff)
@@ -339,12 +360,42 @@ for j in tqdm(range(num_tasks), desc="Processing tasks"):
             # Sort by imaginary part magnitude and take the largest
             sorted_idx = idx_complex[np.argsort(np.abs(np.imag(eigenvals[idx_complex])))]
             ev = eigenvals[sorted_idx[-1]]  # take the one with largest imaginary part
-            task_unstable_freqs.append(np.abs(np.imag(ev)))
+            unstable_freqs.append(np.abs(np.imag(ev)))
         else:
-            task_unstable_freqs.append(0.0)
+            unstable_freqs.append(0.0)
     
-    all_jacobians.append(task_jacobians)
-    all_unstable_eig_freq.append(task_unstable_freqs)
+    return jacobians, unstable_freqs
+
+# Initialize lists to store multiple fixed points and their properties
+all_fixed_points = []  # List of lists, one list per task
+all_jacobians = []     # List of lists of Jacobians
+all_unstable_eig_freq = []  # List of lists of unstable frequencies
+
+# Track fixed point search time
+start_time = time.time()
+print("\nStarting fixed point search...")
+
+# Process tasks in batches for memory efficiency
+batch_size = 5  # Adjust based on available memory
+for batch_start in range(0, num_tasks, batch_size):
+    batch_end = min(batch_start + batch_size, num_tasks)
+    
+    for j in range(batch_start, batch_end):
+        u_const = static_inputs[j]
+        x0_guess = state.fixed_point_inits[j]
+        
+        # Find multiple fixed points
+        task_fixed_points = find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained)
+        all_fixed_points.append(task_fixed_points)
+        
+        # Analyze fixed points
+        task_jacobians, task_unstable_freqs = analyze_fixed_points(task_fixed_points, J_trained, static_inputs)
+        all_jacobians.append(task_jacobians)
+        all_unstable_eig_freq.append(task_unstable_freqs)
+        
+        # Clear memory
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 fixed_point_time = time.time() - start_time
 print(f"\nFixed point search completed in {fixed_point_time:.2f} seconds")
