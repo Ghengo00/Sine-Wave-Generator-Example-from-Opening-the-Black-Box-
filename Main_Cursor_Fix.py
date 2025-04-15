@@ -36,10 +36,10 @@ import pickle
 np.random.seed(42)
 torch.manual_seed(42)
 
-# Network dimensions and task parameters
-N = 20         # number of neurons
+# Network dimensions and task parameters (CHANGE THESE FOR TEST RUNS)
+N = 20         # number of neurons (STANDARD VALUE IS 200)
 I = 1           # input dimension (scalar input)
-num_tasks = 5  # number of different sine-wave tasks
+num_tasks = 5  # number of different sine-wave tasks (STANDARD VALUE IS 51)
 
 # Frequencies: equally spaced between 0.1 and 0.6 rad/s
 omegas = np.linspace(0.1, 0.6, num_tasks)
@@ -47,10 +47,10 @@ omegas = np.linspace(0.1, 0.6, num_tasks)
 # Static input offset for each task: j/51 + 0.25, j=0,...,50
 static_inputs = np.linspace(0, num_tasks-1, num_tasks) / num_tasks + 0.25
 
-# Time parameters (in seconds)
+# Time parameters (in seconds) (NEED TO CHOOSE THESE CAREFULLY)
 dt = 0.02        # integration time step
 T_drive = 1.0   # driving phase duration (to set network state)
-T_train = 4.0   # training phase duration with static input (target generation)
+T_train = 4.0   # training phase duration with static input (target generation) (OMEGA = 0.1 NEEDS 63 SECONDS TO GO THROUGH A WHOLE CYCLE)
 num_steps_drive = int(T_drive/dt)
 num_steps_train = int(T_train/dt)
 time_drive = np.arange(0, T_drive, dt)
@@ -102,16 +102,23 @@ NUM_EPOCHS = 50
 LOSS_THRESHOLD = 1e-4
 
 # Plotting parameters
-TEST_INDICES = [0, 10, 20, 30, 40, 50]
-COLORS = ['b', 'g', 'r', 'c', 'm', 'y']
-MARKERS = ['o', 's', '^', 'v', '<', '>']
+TEST_INDICES = np.linspace(0, omegas.shape[0] - 1, 5, dtype=int)
+TEST_INDICES_EXTREMES = [0, omegas.shape[0] - 1]
+COLORS = ['b', 'g', 'r', 'c', 'm']
+MARKERS = ['o', 's', '^', 'v', '<']
 
 # Jacobians, fixed points, and unstable mode frequencies parameters
 NUM_ATTEMPTS = 10
-TOL = 1e-6
+TOL = 1e-2
 MAXITER = 1000
+JACOBIAN_TOL = 1e-2
 EVALUE_TOL = 1e-3
 SEARCH_BATCH_SIZE = 5
+
+# Create output directory for saving files
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+output_dir = os.path.join(os.getcwd(), 'Outputs', f'Outputs_{timestamp}')
+os.makedirs(output_dir, exist_ok=True)
 
 
 
@@ -434,7 +441,7 @@ def plot_parameter_matrices(J_param, B_param, b_x_param, j, omega, u_offset):
 
 
 # Select the tasks to plot
-test_js = TEST_INDICES
+test_js = TEST_INDICES_EXTREMES
 # Set the plotting parameters
 colors = COLORS
 markers = MARKERS
@@ -579,33 +586,7 @@ def analyze_fixed_points(fixed_points, J_trained):
     return jacobians, unstable_freqs
 
 
-def plot_jacobian_matrices(jacobians, j, omega):
-    """
-    Plot the Jacobian matrices for a specific task.
-
-    Arguments:
-        jacobians: List of Jacobian matricesfor task j (where each element is a numpy array, shape (N, N))
-        j: Task index
-        omega: Angular frequency
-    """
-    # Create the figure and axes
-    fig, axes = plt.subplots(len(jacobians), 1, figsize=(10, 5*len(jacobians)))
-    
-    # Ensure axes is iterable when there's a single subplot
-    if len(jacobians) == 1:
-        axes = [axes]
-    
-    # Iterate over the subplots
-    for i, J_eff in enumerate(jacobians):
-        im = axes[i].imshow(J_eff, cmap='viridis')
-        axes[i].set_title(f'Jacobian Matrix (Task {j}, ω={omega:.3f}, FP{i+1})')
-        plt.colorbar(im, ax=axes[i])
-    
-    plt.tight_layout()
-    plt.show()
-
-
-def plot_unstable_eigenvalues(unstable_freqs, j, omega):
+def plot_unstable_eigenvalues(unstable_freqs, j, omega, save_dir=None):
     """
     Plot unstable eigenvalues on the complex plane for a specific task.
 
@@ -613,6 +594,7 @@ def plot_unstable_eigenvalues(unstable_freqs, j, omega):
         unstable_freqs: List of lists of unstable eigenvalues for the task (where each inner list contains eigenvalues for a fixed point)
         j: Task index
         omega: Angular frequency
+        save_dir: Directory to save the plot (if None, plot is only displayed)
     """
     # Create the figure
     plt.figure(figsize=(10, 8))
@@ -635,6 +617,48 @@ def plot_unstable_eigenvalues(unstable_freqs, j, omega):
     plt.title(f'Unstable Eigenvalues for Task {j} (ω={omega:.3f})')
     plt.legend()
     plt.grid(True)
+    
+    # Save the plot if a directory is provided
+    if save_dir is not None:
+        filename = generate_filename(f"unstable_eigenvalues_task_{j}", N, num_tasks, dt, T_drive, T_train)
+        filepath = os.path.join(save_dir, filename.replace('.pkl', '.png'))
+        plt.savefig(filepath)
+        print(f"Saved unstable eigenvalues plot for task {j} to {filepath}")
+    
+    plt.show()
+
+def plot_jacobian_matrices(jacobians, j, omega, save_dir=None):
+    """
+    Plot the Jacobian matrices for a specific task.
+
+    Arguments:
+        jacobians: List of Jacobian matrices for task j (where each element is a numpy array, shape (N, N))
+        j: Task index
+        omega: Angular frequency
+        save_dir: Directory to save the plot (if None, plot is only displayed)
+    """
+    # Create the figure and axes
+    fig, axes = plt.subplots(len(jacobians), 1, figsize=(10, 5*len(jacobians)))
+    
+    # Ensure axes is iterable when there's a single subplot
+    if len(jacobians) == 1:
+        axes = [axes]
+    
+    # Iterate over the subplots
+    for i, J_eff in enumerate(jacobians):
+        im = axes[i].imshow(J_eff, cmap='viridis')
+        axes[i].set_title(f'Jacobian Matrix (Task {j}, ω={omega:.3f}, FP{i+1})')
+        plt.colorbar(im, ax=axes[i])
+    
+    plt.tight_layout()
+    
+    # Save the plot if a directory is provided
+    if save_dir is not None:
+        filename = generate_filename(f"jacobian_matrices_task_{j}", N, num_tasks, dt, T_drive, T_train)
+        filepath = os.path.join(save_dir, filename.replace('.pkl', '.png'))
+        plt.savefig(filepath)
+        print(f"Saved Jacobian matrices plot for task {j} to {filepath}")
+    
     plt.show()
 
 
@@ -691,9 +715,49 @@ print(f"\nFixed point search completed in {fixed_point_time:.2f} seconds")
 # 4.3. Fixed Point Summaries
 # -------------------------------
 
-# Print summary of fixed points found
 print("\nSummary of Fixed Points Found:")
+
+# Initialize dictionaries to store counts
+fixed_points_count = {}  # key: number of fixed points, value: count of tasks with that many fixed points
+unstable_eigs_count = {}  # key: number of unstable eigenvalues, value: count of fixed points with that many unstable eigenvalues
+
+
+# 1. Iterate through all tasks and print basic information
+print("\n1. Fixed Points per Task:")
 for j in range(num_tasks):
+    # Count the number of fixed points found for this task
+    num_fps = len(all_fixed_points[j])
+    print(f"Task {j}: {num_fps} fixed points found")
+    
+    # Update the count for this number of fixed points
+    fixed_points_count[num_fps] = fixed_points_count.get(num_fps, 0) + 1
+    
+    # Count unstable eigenvalues for each fixed point in this task
+    for fp_freqs in all_unstable_eig_freq[j]:
+        num_unstable = len(fp_freqs)
+        # Update the count for this number of unstable eigenvalues
+        unstable_eigs_count[num_unstable] = unstable_eigs_count.get(num_unstable, 0) + 1
+
+
+# 2. Print summary of tasks grouped by number of fixed points
+print("\n2. Tasks Grouped by Number of Fixed Points:")
+for num_fps in sorted(fixed_points_count.keys()):
+    count = fixed_points_count[num_fps]
+    print(f"  {count} tasks have {num_fps} fixed point{'s' if num_fps != 1 else ''}")
+
+
+# 3. Print summary of fixed points grouped by number of unstable eigenvalues
+print("\n3. Fixed Points Grouped by Number of Unstable Eigenvalues:")
+for num_unstable in sorted(unstable_eigs_count.keys()):
+    count = unstable_eigs_count[num_unstable]
+    print(f"  {count} fixed point{'s' if count != 1 else ''} have {num_unstable} unstable eigenvalue{'s' if num_unstable != 1 else ''}")
+
+
+# Select the tasks to summarise
+test_js = TEST_INDICES
+# Print detailed information for selected tasks
+print("\nDetailed Information for Selected Tasks:")
+for j in test_js:
     print(f"\nTask {j}:")
     print(f"Number of distinct fixed points found: {len(all_fixed_points[j])}")
     for i, (fp, freqs) in enumerate(zip(all_fixed_points[j], all_unstable_eig_freq[j])):
@@ -709,12 +773,11 @@ for j in range(num_tasks):
 
 
 # -------------------------------
-# 4.4. Jacobian Plots
+# 4.4. Jacobian Plots and Equal Jacobians Check
 # -------------------------------
 
 # Select the tasks to plot
 test_js = TEST_INDICES
-
 # Plot Jacobian matrices for selected tasks
 print("\nPlotting Jacobian matrices for selected tasks...")
 for j in test_js:
@@ -722,7 +785,43 @@ for j in test_js:
     
     if all_jacobians[j]:  # if any fixed points were found
         # Plot Jacobian matrices
-        plot_jacobian_matrices(all_jacobians[j], j, omega_j)
+        plot_jacobian_matrices(all_jacobians[j], j, omega_j, save_dir=output_dir)
+
+
+# Check for equal Jacobians within each task
+print("\nChecking for Equal Jacobians within Tasks:")
+for j in range(num_tasks):
+    # Get the Jacobians for this task
+    task_jacobians = all_jacobians[j]
+    num_jacobians = len(task_jacobians)
+    
+    if num_jacobians > 1:  # Only check if there are multiple Jacobians
+        # Create a list to track which Jacobians have been matched
+        matched = [False] * num_jacobians
+        equal_groups = []
+        
+        # Compare each pair of Jacobians
+        for i in range(num_jacobians):
+            if not matched[i]:  # Skip if this Jacobian has already been matched
+                current_group = [i]
+                matched[i] = True
+                
+                for k in range(i+1, num_jacobians):
+                    if not matched[k]:
+                        # Check if the Jacobians are equal within tolerance
+                        if np.all(np.abs(task_jacobians[i] - task_jacobians[k]) < JACOBIAN_TOL):
+                            current_group.append(k)
+                            matched[k] = True
+                
+                if len(current_group) > 1:  # Only store groups with more than one Jacobian
+                    equal_groups.append(current_group)
+        
+        # Print results if any equal groups were found
+        if equal_groups:
+            print(f"\nTask {j}:")
+            print(f"  Total number of Jacobians: {num_jacobians}")
+            for group_idx, group in enumerate(equal_groups):
+                print(f"  Group {group_idx+1}: {len(group)} equal Jacobians (indices: {[idx+1 for idx in group]})")
 
 
 
@@ -744,7 +843,7 @@ for j in test_js:
     
     if all_unstable_eig_freq[j]:  # if any fixed points were found
         # Plot unstable eigenvalues
-        plot_unstable_eigenvalues(all_unstable_eig_freq[j], j, omega_j)
+        plot_unstable_eigenvalues(all_unstable_eig_freq[j], j, omega_j, save_dir=output_dir)
 
 
 
@@ -836,6 +935,13 @@ ax.set_xlabel('PC1')
 ax.set_ylabel('PC2')
 ax.set_zlabel('PC3')
 plt.legend()
+
+# Save the PCA plot
+filename = generate_filename("pca_plot", N, num_tasks, dt, T_drive, T_train)
+filepath = os.path.join(output_dir, filename.replace('.pkl', '.png'))
+plt.savefig(filepath)
+print(f"Saved PCA plot to {filepath}")
+
 plt.show()
 
 
@@ -871,7 +977,7 @@ def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train, o
     
     # Allow the caller to specify an output directory; default to a subfolder 'Outputs_{timestamp}' in the current working directory
     if output_dir is None:
-        output_dir = os.path.join(base_dir, f'Outputs_{timestamp}')
+        output_dir = os.path.join(base_dir, 'Outputs',f'Outputs_{timestamp}')
     else:
         output_dir = os.path.join(base_dir, output_dir)
 
@@ -900,29 +1006,29 @@ def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train, o
 print("\nSaving results...")
 
 # Save network parameters
-save_variable(J_param.detach().cpu().numpy(), "J_param", N, num_tasks, dt, T_drive, T_train)
-save_variable(B_param.detach().cpu().numpy(), "B_param", N, num_tasks, dt, T_drive, T_train)
-save_variable(b_x_param.detach().cpu().numpy(), "b_x_param", N, num_tasks, dt, T_drive, T_train)
-save_variable(w_param.detach().cpu().numpy(), "w_param", N, num_tasks, dt, T_drive, T_train)
-save_variable(b_z_param.detach().cpu().numpy(), "b_z_param", N, num_tasks, dt, T_drive, T_train)
+save_variable(J_param.detach().cpu().numpy(), "J_param", N, num_tasks, dt, T_drive, T_train, output_dir)
+save_variable(B_param.detach().cpu().numpy(), "B_param", N, num_tasks, dt, T_drive, T_train, output_dir)
+save_variable(b_x_param.detach().cpu().numpy(), "b_x_param", N, num_tasks, dt, T_drive, T_train, output_dir)
+save_variable(w_param.detach().cpu().numpy(), "w_param", N, num_tasks, dt, T_drive, T_train, output_dir)
+save_variable(b_z_param.detach().cpu().numpy(), "b_z_param", N, num_tasks, dt, T_drive, T_train, output_dir)
 
 # Save state information
 state_dict = {
     'traj_states': state.traj_states,
     'fixed_point_inits': state.fixed_point_inits
 }
-save_variable(state_dict, "state", N, num_tasks, dt, T_drive, T_train)
+save_variable(state_dict, "state", N, num_tasks, dt, T_drive, T_train, output_dir)
 
 # Save fixed point analysis results
-save_variable(all_fixed_points, "all_fixed_points", N, num_tasks, dt, T_drive, T_train)
-save_variable(all_jacobians, "all_jacobians", N, num_tasks, dt, T_drive, T_train)
-save_variable(all_unstable_eig_freq, "all_unstable_eig_freq", N, num_tasks, dt, T_drive, T_train)
+save_variable(all_fixed_points, "all_fixed_points", N, num_tasks, dt, T_drive, T_train, output_dir)
+save_variable(all_jacobians, "all_jacobians", N, num_tasks, dt, T_drive, T_train, output_dir)
+save_variable(all_unstable_eig_freq, "all_unstable_eig_freq", N, num_tasks, dt, T_drive, T_train, output_dir)
 
 # Save PCA results
 pca_results = {
     'proj_trajs': proj_trajs,
     'proj_fixed': proj_fixed
 }
-save_variable(pca_results, "pca_results", N, num_tasks, dt, T_drive, T_train)
+save_variable(pca_results, "pca_results", N, num_tasks, dt, T_drive, T_train, output_dir)
 
 print("All results saved successfully!")
