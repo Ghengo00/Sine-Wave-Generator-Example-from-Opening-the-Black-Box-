@@ -8,6 +8,9 @@ from scipy.optimize import root
 from scipy.linalg import eig
 from tqdm import tqdm
 import time
+import pickle
+from datetime import datetime
+import os
 
 # -------------------------------
 # 1. Set random seed & parameters
@@ -588,3 +591,64 @@ ax.set_ylabel('PC2')
 ax.set_zlabel('PC3')
 plt.legend()
 plt.show()
+
+# Save all important variables
+print("\nSaving results...")
+
+def generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train):
+    """
+    Generate a filename with timestamp and parameters.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{variable_name}_{timestamp}_Neuron_Number_{N}_Task_Number_{num_tasks}_Time_Steps_{dt}_Driving_Time_{T_drive}_Training_Time_{T_train}.pkl"
+
+def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train):
+    """
+    Save a variable to a pickle file with a descriptive filename in the Outputs folder.
+    """
+    # Get the directory of the current script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Create Outputs folder if it doesn't exist
+    outputs_dir = os.path.join(script_dir, 'Outputs')
+    if not os.path.exists(outputs_dir):
+        os.makedirs(outputs_dir)
+        print(f"Created Outputs directory at: {outputs_dir}")
+    
+    # Generate filename and save in Outputs folder
+    filename = generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train)
+    filepath = os.path.join(outputs_dir, filename)
+    
+    with open(filepath, 'wb') as f:
+        pickle.dump(variable, f)
+    print(f"Saved {variable_name} to {filepath}")
+
+# Save network parameters
+save_variable(J_param.detach().cpu().numpy(), "J_param", N, num_tasks, dt, T_drive, T_train)
+save_variable(B_param.detach().cpu().numpy(), "B_param", N, num_tasks, dt, T_drive, T_train)
+save_variable(b_x_param.detach().cpu().numpy(), "b_x_param", N, num_tasks, dt, T_drive, T_train)
+save_variable(w_param.detach().cpu().numpy(), "w_param", N, num_tasks, dt, T_drive, T_train)
+save_variable(b_z_param.detach().cpu().numpy(), "b_z_param", N, num_tasks, dt, T_drive, T_train)
+
+# Save state information
+state_dict = {
+    'traj_states': state.traj_states,
+    'fixed_point_inits': state.fixed_point_inits
+}
+save_variable(state_dict, "state", N, num_tasks, dt, T_drive, T_train)
+
+# Save fixed point analysis results
+save_variable(all_fixed_points, "all_fixed_points", N, num_tasks, dt, T_drive, T_train)
+save_variable(all_jacobians, "all_jacobians", N, num_tasks, dt, T_drive, T_train)
+save_variable(all_unstable_eig_freq, "all_unstable_eig_freq", N, num_tasks, dt, T_drive, T_train)
+
+# Save PCA results
+pca_results = {
+    'proj_trajs': proj_trajs,
+    'proj_fixed': proj_fixed,
+    'pca_components': pca.components_,
+    'pca_mean': pca.mean_
+}
+save_variable(pca_results, "pca_results", N, num_tasks, dt, T_drive, T_train)
+
+print("All results saved successfully!")
