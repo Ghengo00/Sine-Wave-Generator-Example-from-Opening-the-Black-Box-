@@ -101,8 +101,10 @@ OPTIMIZER_LINE_SEARCH_FN = "strong_wolfe"
 NUM_EPOCHS = 50
 LOSS_THRESHOLD = 1e-4
 
-# De-bugging parameters
+# Plotting parameters
 TEST_INDICES = [0, 10, 20, 30, 40, 50]
+COLORS = ['b', 'g', 'r', 'c', 'm', 'y']
+MARKERS = ['o', 's', '^', 'v', '<', '>']
 
 
 
@@ -356,7 +358,7 @@ for ax, j in zip(axes, test_js):
     u_train_test = torch.full((num_steps_train, 1), u_offset, 
                         dtype=torch.float32, device=device)                     # shape (num_steps_train, 1)
     target_train_test = np.sin(omega * time_train)
-    
+
     # Simulate drive phase
     xs_drive_test, _ = simulate_trajectory(x0_test, u_drive_test, J_param, B_param, 
                                            b_x_param, w_param, b_z_param, dt)
@@ -388,32 +390,44 @@ plt.show()
 def plot_parameter_matrices(J_param, B_param, b_x_param, j, omega, u_offset):
     """
     Plot the parameter matrices (J, B, b_x) for a specific task.
+
+    Arguments:
+        J_param: Recurrent weight matrix (torch tensor, shape (N, N))
+        B_param: Input weight matrix (torch tensor, shape (N, I))
+        b_x_param: Bias vector (torch tensor, shape (N,))
+        j: Task index
+        omega: Angular frequency
+        u_offset: Static input offset
     """
+    # Create the figure and axes
     fig, axes = plt.subplots(3, 1, figsize=(10, 15))
+
+    # Set the title for the figure
     fig.suptitle(f'Parameter Matrices (Task {j}, ω={omega:.3f}, u_offset={u_offset:.3f})', fontsize=16)
     
     # Plot J_param
     im = axes[0].imshow(J_param.detach().cpu().numpy(), cmap='viridis')
-    axes[0].set_title('J_param Matrix')
+    axes[0].set_title('J Matrix')
     plt.colorbar(im, ax=axes[0])
     
     # Plot B_param
     im = axes[1].imshow(B_param.detach().cpu().numpy(), cmap='viridis')
-    axes[1].set_title('B_param Matrix')
+    axes[1].set_title('B Matrix')
     plt.colorbar(im, ax=axes[1])
     
     # Plot b_x_param
     im = axes[2].imshow(b_x_param.detach().cpu().numpy().reshape(-1, 1), cmap='viridis')
-    axes[2].set_title('b_x_param Vector')
+    axes[2].set_title('b_x Vector')
     plt.colorbar(im, ax=axes[2])
     
     plt.tight_layout()
     plt.show()
 
-# Define test tasks and plotting parameters
-test_js = [0, 10, 20, 30, 40, 50]
-colors = ['b', 'g', 'r', 'c', 'm', 'y']
-markers = ['o', 's', '^', 'v', '<', '>']
+# Select the tasks to plot
+test_js = TEST_INDICES
+# Set the plotting parameters
+colors = COLORS
+markers = MARKERS
 
 # Plot parameter matrices for selected tasks
 print("\nPlotting parameter matrices...")
