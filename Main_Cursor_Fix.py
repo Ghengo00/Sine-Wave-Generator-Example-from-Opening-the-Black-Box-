@@ -763,17 +763,19 @@ for j in test_js:
 start_time = time.time()
 print("\nStarting PCA computation...")
 
-# Concatenate all states from all tasks (from training phase) to perform PCA.
-all_states = np.concatenate([traj for traj in state.traj_states], axis=0)
+# Concatenate all states from all tasks (from training phase) to perform PCA
+all_states = np.concatenate([traj for traj in state.traj_states], axis=0)   # resulting shape is (num_tasks * num_steps_train, N)
+
+# Perform PCA with 3 components
 pca = PCA(n_components=3)
 proj_all = pca.fit_transform(all_states)
 
-# For plotting, also project each trajectory and each fixed point into PCA space.
+# For plotting, also project each trajectory and each fixed point into PCA space
 proj_trajs = []
 start = 0
 for traj in tqdm(state.traj_states, desc="Projecting trajectories"):
-    T = traj.shape[0]
-    proj_traj = proj_all[start:start+T]
+    T = traj.shape[0]   # number of time steps in the trajectory
+    proj_traj = proj_all[start:start+T] # extracts the projected trajectory from the PCA space, resulting shape is (num_steps_train, 3)
     proj_trajs.append(proj_traj)
     start += T
 
@@ -781,8 +783,10 @@ for traj in tqdm(state.traj_states, desc="Projecting trajectories"):
 all_fixed_points_flat = []
 for task_fps in all_fixed_points:
     all_fixed_points_flat.extend(task_fps)
-proj_fixed = pca.transform(np.array(all_fixed_points_flat))
+proj_fixed = pca.transform(np.array(all_fixed_points_flat)) # projects all fixed points from all tasks into the PCA space, resulting shape is (num_total_fixed_points, 3)
+# Note that np.array(all_fixed_points_flat) has shape (num_total_fixed_points, N)
 
+# Calculate PCA computation time
 pca_time = time.time() - start_time
 print(f"\nPCA computation completed in {pca_time:.2f} seconds")
 
@@ -790,37 +794,41 @@ print(f"\nPCA computation completed in {pca_time:.2f} seconds")
 
 
 # -------------------------------
-# 5.2. PCA Trajectory and Fixed PointsPlot
+# 5.2. PCA Trajectory and Fixed Points Plot
 # -------------------------------
 
-# Plot trajectories (blue) and fixed points (green circles) with unstable eigen-directions (red lines)
+# Create the figure and axes
 fig = plt.figure(figsize=(10, 8))
 ax = fig.add_subplot(111, projection='3d')
+
+# Plot the trajectories in blue
 for traj in proj_trajs:
     ax.plot(traj[:,0], traj[:,1], traj[:,2], color='blue', alpha=0.5)
     
-# Plot fixed points as green circles
+# Plot the fixed points as green circles
 ax.scatter(proj_fixed[:,0], proj_fixed[:,1], proj_fixed[:,2], color='green', s=50, label="Fixed Points")
 
-# For each fixed point, plot the unstable mode as a red line.
+# For each fixed point, plot all unstable modes as red lines
 fixed_point_idx = 0
 for j, task_fps in enumerate(all_fixed_points):
     for x_star in task_fps:
-        u_const = static_inputs[j]
+        # Compute Jacobian and eigenvalues at the fixed point
         J_eff = jacobian_fixed_point(x_star, J_trained)
         eigenvals, eigenvecs = eig(J_eff)
-        idx_complex = np.where((np.abs(np.imag(eigenvals)) > 1e-3) & (np.real(eigenvals) > 0))[0]
-        if len(idx_complex) > 0:
-            # Sort by imaginary part magnitude and take the largest
-            sorted_idx = idx_complex[np.argsort(np.abs(np.imag(eigenvals[idx_complex])))]
-            v = eigenvecs[:, sorted_idx[-1]].real  # take real part for plotting direction
-            # Scale vector for visualisation
-            scale = 0.5  
-            # Project the unstable eigenvector into PCA space
-            v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_fixed[fixed_point_idx]
-            # Plot a line centered on the fixed point
-            line = np.array([proj_fixed[fixed_point_idx] - v_proj, proj_fixed[fixed_point_idx] + v_proj])
-            ax.plot(line[:,0], line[:,1], line[:,2], color='red', linewidth=2)
+        
+        # Find all unstable eigenvalues
+        unstable_idx = np.where(np.real(eigenvals) > 0)[0]
+        if len(unstable_idx) > 0:
+            # For each unstable eigenvalue, plot its eigenvector direction
+            for idx in unstable_idx:
+                v = eigenvecs[:, idx].real  # take real part for plotting direction
+                # Scale vector for visualisation
+                scale = 0.5  
+                # Project the unstable eigenvector into PCA space
+                v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_fixed[fixed_point_idx]
+                # Plot a line centered on the fixed point
+                line = np.array([proj_fixed[fixed_point_idx] - v_proj, proj_fixed[fixed_point_idx] + v_proj])
+                ax.plot(line[:,0], line[:,1], line[:,2], color='red', linewidth=2, alpha=0.5)
         fixed_point_idx += 1
     
 ax.set_title('PCA of Network Trajectories and Fixed Points')
