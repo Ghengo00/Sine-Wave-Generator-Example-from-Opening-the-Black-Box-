@@ -37,9 +37,9 @@ np.random.seed(42)
 torch.manual_seed(42)
 
 # Network dimensions and task parameters
-N = 200         # number of neurons
+N = 20         # number of neurons
 I = 1           # input dimension (scalar input)
-num_tasks = 51  # number of different sine-wave tasks
+num_tasks = 5  # number of different sine-wave tasks
 
 # Frequencies: equally spaced between 0.1 and 0.6 rad/s
 omegas = np.linspace(0.1, 0.6, num_tasks)
@@ -49,8 +49,8 @@ static_inputs = np.linspace(0, num_tasks-1, num_tasks) / num_tasks + 0.25
 
 # Time parameters (in seconds)
 dt = 0.02        # integration time step
-T_drive = 12.0   # driving phase duration (to set network state)
-T_train = 24.0   # training phase duration with static input (target generation)
+T_drive = 1.0   # driving phase duration (to set network state)
+T_train = 4.0   # training phase duration with static input (target generation)
 num_steps_drive = int(T_drive/dt)
 num_steps_train = int(T_train/dt)
 time_drive = np.arange(0, T_drive, dt)
@@ -858,29 +858,37 @@ def generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{variable_name}_{timestamp}_Neuron_Number_{N}_Task_Number_{num_tasks}_Time_Steps_{dt}_Driving_Time_{T_drive}_Training_Time_{T_train}.pkl"
 
-def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train):
+
+def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train, output_dir=None):
     """
     Save a variable to a pickle file with a descriptive filename in the Outputs folder.
     """
-    # Get the directory of the current script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    
+    # Use the current working directory to build the base directory for saving files
+    base_dir = os.getcwd()
+
     # Create timestamp in the same format as generate_filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # Create Outputs folder with timestamp if it doesn't exist
-    outputs_dir = os.path.join(script_dir, f'Outputs_{timestamp}')
-    if not os.path.exists(outputs_dir):
-        os.makedirs(outputs_dir)
-        print(f"Created Outputs directory at: {outputs_dir}")
+    # Allow the caller to specify an output directory; default to a subfolder 'Outputs_{timestamp}' in the current working directory
+    if output_dir is None:
+        output_dir = os.path.join(base_dir, f'Outputs_{timestamp}')
+    else:
+        output_dir = os.path.join(base_dir, output_dir)
+
+    # Create the output directory if it doesn't exist (exist_ok avoids error if it does)
+    os.makedirs(output_dir, exist_ok=True)
     
-    # Generate filename and save in Outputs folder
+    # Generate filename with descriptive parameters
     filename = generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train)
-    filepath = os.path.join(outputs_dir, filename)
+    filepath = os.path.join(output_dir, filename)
     
-    with open(filepath, 'wb') as f:
-        pickle.dump(variable, f)
-    print(f"Saved {variable_name} to {filepath}")
+    # Use a try-except block to handle potential I/O errors
+    try:
+        with open(filepath, 'wb') as f:
+            pickle.dump(variable, f)
+        print(f"Saved {variable_name} to {filepath}")
+    except Exception as e:
+        print(f"Error saving {variable_name} to {filepath}: {e}")
 
 
 
