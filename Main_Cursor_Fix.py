@@ -124,6 +124,52 @@ os.makedirs(output_dir, exist_ok=True)
 
 
 # -------------------------------
+# 1.4. Saving Functions
+# -------------------------------
+
+def generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train):
+    """
+    Generate a filename with timestamp and parameters.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{variable_name}_{timestamp}_Neuron_Number_{N}_Task_Number_{num_tasks}_Time_Steps_{dt}_Driving_Time_{T_drive}_Training_Time_{T_train}.pkl"
+
+
+def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train, output_dir=None):
+    """
+    Save a variable to a pickle file with a descriptive filename in the Outputs folder.
+    """
+    # Use the current working directory to build the base directory for saving files
+    base_dir = os.getcwd()
+
+    # Create timestamp in the same format as generate_filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Allow the caller to specify an output directory; default to a subfolder 'Outputs_{timestamp}' in the current working directory
+    if output_dir is None:
+        output_dir = os.path.join(base_dir, 'Outputs',f'Outputs_{timestamp}')
+    else:
+        output_dir = os.path.join(base_dir, output_dir)
+
+    # Create the output directory if it doesn't exist (exist_ok avoids error if it does)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Generate filename with descriptive parameters
+    filename = generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train)
+    filepath = os.path.join(output_dir, filename)
+    
+    # Use a try-except block to handle potential I/O errors
+    try:
+        with open(filepath, 'wb') as f:
+            pickle.dump(variable, f)
+        print(f"Saved {variable_name} to {filepath}")
+    except Exception as e:
+        print(f"Error saving {variable_name} to {filepath}: {e}")
+
+
+
+
+# -------------------------------
 # -------------------------------
 # 2. RNN TRAINING
 # -------------------------------
@@ -951,56 +997,6 @@ plt.show()
 # -------------------------------
 # 6. SAVING RESULTS
 # -------------------------------
-# -------------------------------
-
-# -------------------------------
-# 6.1. Saving Functions
-# -------------------------------
-
-def generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train):
-    """
-    Generate a filename with timestamp and parameters.
-    """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{variable_name}_{timestamp}_Neuron_Number_{N}_Task_Number_{num_tasks}_Time_Steps_{dt}_Driving_Time_{T_drive}_Training_Time_{T_train}.pkl"
-
-
-def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train, output_dir=None):
-    """
-    Save a variable to a pickle file with a descriptive filename in the Outputs folder.
-    """
-    # Use the current working directory to build the base directory for saving files
-    base_dir = os.getcwd()
-
-    # Create timestamp in the same format as generate_filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    # Allow the caller to specify an output directory; default to a subfolder 'Outputs_{timestamp}' in the current working directory
-    if output_dir is None:
-        output_dir = os.path.join(base_dir, 'Outputs',f'Outputs_{timestamp}')
-    else:
-        output_dir = os.path.join(base_dir, output_dir)
-
-    # Create the output directory if it doesn't exist (exist_ok avoids error if it does)
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Generate filename with descriptive parameters
-    filename = generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train)
-    filepath = os.path.join(output_dir, filename)
-    
-    # Use a try-except block to handle potential I/O errors
-    try:
-        with open(filepath, 'wb') as f:
-            pickle.dump(variable, f)
-        print(f"Saved {variable_name} to {filepath}")
-    except Exception as e:
-        print(f"Error saving {variable_name} to {filepath}: {e}")
-
-
-
-
-# -------------------------------
-# 6.2. Save Results
 # -------------------------------
 
 print("\nSaving results...")
