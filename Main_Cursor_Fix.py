@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from scipy.optimize import root
 from scipy.linalg import eig
+from tqdm import tqdm
+import time
 
 # -------------------------------
 # 1. Set random seed & parameters
@@ -25,7 +27,7 @@ omegas = np.linspace(0.1, 0.6, num_tasks)
 static_inputs = np.linspace(0, num_tasks-1, num_tasks) / num_tasks + 0.25
 
 # Time parameters (in seconds)
-dt = 0.06       # integration time step
+dt = 0.02       # integration time step
 T_drive = 12.0   # driving phase duration (to set network state)
 T_train = 24.0   # training phase duration with static input (target generation)
 num_steps_drive = int(T_drive/dt)
@@ -97,7 +99,7 @@ def run_batch(J, B, b_x, w, b_z):
     fixed_point_inits = []  # store final state from drive phase as an initial guess
     
     # Loop over each task (frequency)
-    for j in range(num_tasks):
+    for j in tqdm(range(num_tasks), desc="Running batch", leave=False):
         omega = omegas[j]
         u_offset = static_inputs[j]
         
@@ -131,7 +133,7 @@ def run_batch(J, B, b_x, w, b_z):
     return loss_total, traj_states, fixed_point_inits
 
 # Define LBFGS optimizer with more conservative parameters
-optimizer = optim.LBFGS(params, lr=0.1, max_iter=10, history_size=10, line_search_fn="strong_wolfe")
+optimizer = optim.LBFGS(params, lr=0.6, max_iter=10, history_size=10, line_search_fn="strong_wolfe")
 
 num_epochs = 50  # number of training epochs
 loss_history = []
@@ -146,7 +148,11 @@ class TrainingState:
 
 state = TrainingState()
 
-for epoch in range(num_epochs):
+# Track training time
+start_time = time.time()
+print("Starting training...")
+
+for epoch in tqdm(range(num_epochs), desc="Training epochs"):
     # Clear memory between epochs
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
     
@@ -165,16 +171,20 @@ for epoch in range(num_epochs):
             best_loss = loss_val.item()
             best_params = [p.detach().clone() for p in params]
             
+        # Print epoch and loss information
         print(f"Epoch {epoch+1}/{num_epochs}, Loss: {loss_val.item():.4f}")
-        
+            
         # Check if loss is below threshold
         if loss_val.item() < loss_threshold:
-            print(f"Training converged with loss {loss_val.item():.4f} below threshold {loss_threshold}")
+            print(f"\nTraining converged with loss {loss_val.item():.4f} below threshold {loss_threshold}")
             break
             
     except RuntimeError as e:
-        print(f"Optimization failed at epoch {epoch+1}: {str(e)}")
+        print(f"\nOptimization failed at epoch {epoch+1}: {str(e)}")
         break
+
+training_time = time.time() - start_time
+print(f"\nTraining completed in {training_time:.2f} seconds")
 
 # Restore best parameters if available
 if best_params is not None:
@@ -247,54 +257,112 @@ J_trained = J_param.detach().cpu().numpy()
 B_trained = B_param.detach().cpu().numpy()
 b_x_trained = b_x_param.detach().cpu().numpy()
 
-fixed_points = []
-unstable_eig_freq = []
-jacobians = []  # Store Jacobians for visualization
+def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=10, tol=1e-6):
+    """
+    Find multiple fixed points by trying different initial conditions.
+    
+    Arguments:
+        x0_guess: Initial guess for fixed point
+        u_const: Constant input
+        J_trained, B_trained, b_x_trained: Network parameters
+        num_attempts: Number of different initial conditions to try
+        tol: Tolerance for considering two fixed points as distinct
+        
+    Returns:
+        List of distinct fixed points found
+    """
+    fixed_points = []
+    
+    # Try the original initial condition
+    try:
+        sol = root(fixed_point_func, x0_guess, args=(u_const, J_trained, B_trained, b_x_trained),
+                  method='lm', options={'maxiter': 1000})
+        if sol.success:
+            fixed_points.append(sol.x)
+    except Exception as e:
+        print(f"Fixed point search failed for initial guess: {str(e)}")
+    
+    # Try perturbed initial conditions
+    for attempt in tqdm(range(num_attempts - 1), desc="Finding fixed points", leave=False):
+        # Create a perturbed initial condition
+        x0_perturbed = x0_guess + np.random.normal(0, 0.5, size=x0_guess.shape)
+        try:
+            sol = root(fixed_point_func, x0_perturbed, args=(u_const, J_trained, B_trained, b_x_trained),
+                      method='lm', options={'maxiter': 1000})
+            if sol.success:
+                # Check if this fixed point is distinct from previous ones
+                is_distinct = True
+                for fp in fixed_points:
+                    if np.linalg.norm(sol.x - fp) < tol:
+                        is_distinct = False
+                        break
+                if is_distinct:
+                    fixed_points.append(sol.x)
+        except Exception as e:
+            print(f"Fixed point search failed for attempt {attempt+1}: {str(e)}")
+    
+    return fixed_points
 
-# For each task, perform fixed point search using the final state from the drive phase as initial guess.
-for j in range(num_tasks):
+# Initialize lists to store multiple fixed points and their properties
+all_fixed_points = []  # List of lists, one list per task
+all_jacobians = []     # List of lists of Jacobians
+all_unstable_eig_freq = []  # List of lists of unstable frequencies
+
+# Track fixed point search time
+start_time = time.time()
+print("\nStarting fixed point search...")
+
+# For each task, perform fixed point search using multiple initial conditions
+for j in tqdm(range(num_tasks), desc="Processing tasks"):
     u_const = static_inputs[j]
     x0_guess = state.fixed_point_inits[j]
     
-    # Try multiple initial conditions if root finding fails
-    max_attempts = 3
-    for attempt in range(max_attempts):
-        try:
-            sol = root(fixed_point_func, x0_guess, args=(u_const, J_trained, B_trained, b_x_trained),
-                      method='lm', options={'maxiter': 1000})
-            if sol.success:
-                x_star = sol.x
-                break
-            else:
-                # Perturb initial guess if root finding failed
-                x0_guess = x0_guess + np.random.normal(0, 0.1, size=x0_guess.shape)
-        except Exception as e:
-            print(f"Fixed point search failed for task {j}, attempt {attempt+1}: {str(e)}")
-            if attempt == max_attempts - 1:
-                x_star = x0_guess  # fallback to last guess
-    else:
-        x_star = x0_guess  # fallback if all attempts failed
+    # Find multiple fixed points
+    task_fixed_points = find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained)
+    all_fixed_points.append(task_fixed_points)
     
-    fixed_points.append(x_star)
+    # For each fixed point found, compute Jacobian and eigenvalues
+    task_jacobians = []
+    task_unstable_freqs = []
     
-    # Compute Jacobian at the fixed point and its eigen-decomposition
-    J_eff = jacobian_fixed_point(x_star, J_trained)
-    jacobians.append(J_eff)  # Store Jacobian for visualization
-    eigenvals, eigenvecs = eig(J_eff)
+    for x_star in task_fixed_points:
+        # Compute Jacobian at the fixed point
+        J_eff = jacobian_fixed_point(x_star, J_trained)
+        task_jacobians.append(J_eff)
+        
+        # Compute eigenvalues
+        eigenvals, _ = eig(J_eff)
+        
+        # Find unstable eigenvalues
+        idx_complex = np.where((np.abs(np.imag(eigenvals)) > 1e-3) & (np.real(eigenvals) > 0))[0]
+        if len(idx_complex) > 0:
+            # Sort by imaginary part magnitude and take the largest
+            sorted_idx = idx_complex[np.argsort(np.abs(np.imag(eigenvals[idx_complex])))]
+            ev = eigenvals[sorted_idx[-1]]  # take the one with largest imaginary part
+            task_unstable_freqs.append(np.abs(np.imag(ev)))
+        else:
+            task_unstable_freqs.append(0.0)
     
-    # Find all complex eigenvalues with positive real part (unstable modes)
-    idx_complex = np.where((np.abs(np.imag(eigenvals)) > 1e-3) & (np.real(eigenvals) > 0))[0]
-    if len(idx_complex) > 0:
-        # Sort by imaginary part magnitude and take the largest
-        sorted_idx = idx_complex[np.argsort(np.abs(np.imag(eigenvals[idx_complex])))]
-        ev = eigenvals[sorted_idx[-1]]  # take the one with largest imaginary part
-        unstable_eig_freq.append(np.abs(np.imag(ev)))
-    else:
-        unstable_eig_freq.append(0.0)
+    all_jacobians.append(task_jacobians)
+    all_unstable_eig_freq.append(task_unstable_freqs)
 
-# Plot unstable mode frequencies
+fixed_point_time = time.time() - start_time
+print(f"\nFixed point search completed in {fixed_point_time:.2f} seconds")
+
+# Print summary of fixed points found
+print("\nSummary of Fixed Points Found:")
+for j in range(num_tasks):
+    print(f"\nTask {j} (omega = {omegas[j]:.3f}):")
+    print(f"Number of distinct fixed points found: {len(all_fixed_points[j])}")
+    for i, (fp, freq) in enumerate(zip(all_fixed_points[j], all_unstable_eig_freq[j])):
+        print(f"  Fixed point {i+1}:")
+        print(f"    Unstable mode frequency: {freq:.4f}")
+        print(f"    Norm: {np.linalg.norm(fp):.4f}")
+
+# Plot unstable mode frequencies for the first fixed point of each task
+first_fixed_point_freqs = [freqs[0] if freqs else 0.0 for freqs in all_unstable_eig_freq]
 plt.figure(figsize=(8,5))
-plt.plot(omegas, unstable_eig_freq, 'o-', label='|Imag(eigenvalue)| (unstable mode)')
+plt.plot(omegas, first_fixed_point_freqs, 'o-', label='|Imag(eigenvalue)| (unstable mode)')
 plt.plot(omegas, omegas, 'k--', label='Target frequency')
 plt.xlabel('Target Frequency (rad/s)')
 plt.ylabel('Frequency from Linearization (rad/s)')
@@ -312,33 +380,32 @@ markers = ['o', 's', '^', 'v', '<', '>']
 # Print detailed information about unstable eigenvalues for all tasks
 print("\nDetailed Analysis of Unstable Eigenvalues:")
 for j in range(num_tasks):
-    J_eff = jacobians[j]
-    eigenvals, _ = eig(J_eff)
-    unstable_idx = np.where(np.real(eigenvals) > 0)[0]
-    num_unstable = len(unstable_idx)
-    
     print(f"\nTask {j} (omega = {omegas[j]:.3f}):")
-    print(f"Number of unstable eigenvalues: {num_unstable}")
-    if num_unstable > 0:
-        unstable_eigenvals = eigenvals[unstable_idx]
-        print("Unstable eigenvalues:")
-        for ev in unstable_eigenvals:
-            print(f"  Real: {np.real(ev):.4f}, Imag: {np.imag(ev):.4f}")
+    for i, (J_eff, freqs) in enumerate(zip(all_jacobians[j], all_unstable_eig_freq[j])):
+        eigenvals, _ = eig(J_eff)
+        unstable_idx = np.where(np.real(eigenvals) > 0)[0]
+        num_unstable = len(unstable_idx)
+        
+        print(f"\n  Fixed point {i+1}:")
+        print(f"  Number of unstable eigenvalues: {num_unstable}")
+        if num_unstable > 0:
+            unstable_eigenvals = eigenvals[unstable_idx]
+            print("  Unstable eigenvalues:")
+            for ev in unstable_eigenvals:
+                print(f"    Real: {np.real(ev):.4f}, Imag: {np.imag(ev):.4f}")
 
 # Plot unstable eigenvalues for selected tasks
 plt.figure(figsize=(12, 8))
 for idx, j in enumerate(test_js):
-    J_eff = jacobians[j]
-    eigenvals, _ = eig(J_eff)
-    
-    # Find unstable eigenvalues
-    unstable_idx = np.where(np.real(eigenvals) > 0)[0]
-    unstable_eigenvals = eigenvals[unstable_idx]
-    
-    if len(unstable_eigenvals) > 0:
-        plt.scatter(np.real(unstable_eigenvals), np.imag(unstable_eigenvals), 
-                   color=colors[idx], marker=markers[idx], 
-                   label=f'Task {j} (ω={omegas[j]:.3f})')
+    for i, (J_eff, freqs) in enumerate(zip(all_jacobians[j], all_unstable_eig_freq[j])):
+        eigenvals, _ = eig(J_eff)
+        unstable_idx = np.where(np.real(eigenvals) > 0)[0]
+        unstable_eigenvals = eigenvals[unstable_idx]
+        
+        if len(unstable_eigenvals) > 0:
+            plt.scatter(np.real(unstable_eigenvals), np.imag(unstable_eigenvals), 
+                       color=colors[idx], marker=markers[i], 
+                       label=f'Task {j} FP{i+1} (ω={omegas[j]:.3f})')
 
 plt.axvline(x=0, color='k', linestyle='--', alpha=0.3)
 plt.axhline(y=0, color='k', linestyle='--', alpha=0.3)
@@ -356,17 +423,21 @@ fig.suptitle('Jacobian and Parameter Matrices for Selected Tasks', fontsize=16)
 
 # Plot Jacobians and parameters for each selected task
 for idx, j in enumerate(test_js):
-    # Plot Jacobian
-    im = axes[idx, 0].imshow(jacobians[j], cmap='viridis')
-    axes[idx, 0].set_title(f'Jacobian Matrix (Task {j}, ω={omegas[j]:.3f})')
-    plt.colorbar(im, ax=axes[idx, 0])
-    
-    # Plot J_param (only for first row)
-    if idx == 0:
-        im = axes[idx, 1].imshow(J_param.detach().cpu().numpy(), cmap='viridis')
-        axes[idx, 1].set_title('J_param Matrix')
-        plt.colorbar(im, ax=axes[idx, 1])
+    if all_jacobians[j]:  # If any fixed points were found
+        # Plot first Jacobian for this task
+        im = axes[idx, 0].imshow(all_jacobians[j][0], cmap='viridis')
+        axes[idx, 0].set_title(f'Jacobian Matrix (Task {j}, ω={omegas[j]:.3f}, FP1)')
+        plt.colorbar(im, ax=axes[idx, 0])
+        
+        # Plot J_param (only for first row)
+        if idx == 0:
+            im = axes[idx, 1].imshow(J_param.detach().cpu().numpy(), cmap='viridis')
+            axes[idx, 1].set_title('J_param Matrix')
+            plt.colorbar(im, ax=axes[idx, 1])
+        else:
+            axes[idx, 1].axis('off')
     else:
+        axes[idx, 0].axis('off')
         axes[idx, 1].axis('off')
 
 # Add B_param and b_x_param visualizations
@@ -403,6 +474,10 @@ plt.show()
 # -------------------------------
 # 6. PCA and Visualization
 # -------------------------------
+# Track PCA computation time
+start_time = time.time()
+print("\nStarting PCA computation...")
+
 # Concatenate all states from all tasks (from training phase) to perform PCA.
 all_states = np.concatenate([traj for traj in state.traj_states], axis=0)
 pca = PCA(n_components=3)
@@ -411,13 +486,16 @@ proj_all = pca.fit_transform(all_states)
 # For plotting, also project each trajectory and each fixed point into PCA space.
 proj_trajs = []
 start = 0
-for traj in state.traj_states:
+for traj in tqdm(state.traj_states, desc="Projecting trajectories"):
     T = traj.shape[0]
     proj_traj = proj_all[start:start+T]
     proj_trajs.append(proj_traj)
     start += T
 
-proj_fixed = pca.transform(np.array(fixed_points))
+proj_fixed = pca.transform(np.array(all_fixed_points[0]))
+
+pca_time = time.time() - start_time
+print(f"\nPCA computation completed in {pca_time:.2f} seconds")
 
 # Plot trajectories (blue) and fixed points (green circles) with unstable eigen-directions (red lines)
 fig = plt.figure(figsize=(10, 8))
@@ -429,7 +507,7 @@ for traj in proj_trajs:
 ax.scatter(proj_fixed[:,0], proj_fixed[:,1], proj_fixed[:,2], color='green', s=50, label="Fixed Points")
 
 # For each fixed point, plot the unstable mode as a red line.
-for j, x_star in enumerate(fixed_points):
+for j, x_star in enumerate(all_fixed_points[0]):
     u_const = static_inputs[j]
     J_eff = jacobian_fixed_point(x_star, J_trained)
     eigenvals, eigenvecs = eig(J_eff)
