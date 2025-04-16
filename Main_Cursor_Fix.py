@@ -48,9 +48,9 @@ omegas = np.linspace(0.1, 0.6, num_tasks)
 static_inputs = np.linspace(0, num_tasks-1, num_tasks) / num_tasks + 0.25
 
 # Time parameters (in seconds) (NEED TO CHOOSE THESE CAREFULLY)
-dt = 0.08        # integration time step
+dt = 0.02        # integration time step
 T_drive = 4.0   # driving phase duration (to set network state)
-T_train = 32.0   # training phase duration with static input (target generation) (OMEGA = 0.1 NEEDS 63 SECONDS TO GO THROUGH A WHOLE CYCLE)
+T_train = 24.0   # training phase duration with static input (target generation) (OMEGA = 0.1 NEEDS 63 SECONDS TO GO THROUGH A WHOLE CYCLE)
 num_steps_drive = int(T_drive/dt)
 num_steps_train = int(T_train/dt)
 time_drive = np.arange(0, T_drive, dt)
@@ -422,6 +422,29 @@ if best_params is not None:
 if state.traj_states is None or state.fixed_point_inits is None:
     print("Running final batch to get states for analysis...")
     _, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)
+
+
+
+
+# -------------------------------
+# 2.4. Save Results from Training Procedure
+# -------------------------------
+
+print("\nSaving results...")
+
+# Save network parameters
+save_variable(J_param.detach().cpu().numpy(), "J_param", N, num_tasks, dt, T_drive, T_train, output_dir)
+save_variable(B_param.detach().cpu().numpy(), "B_param", N, num_tasks, dt, T_drive, T_train, output_dir)
+save_variable(b_x_param.detach().cpu().numpy(), "b_x_param", N, num_tasks, dt, T_drive, T_train, output_dir)
+save_variable(w_param.detach().cpu().numpy(), "w_param", N, num_tasks, dt, T_drive, T_train, output_dir)
+save_variable(b_z_param.detach().cpu().numpy(), "b_z_param", N, num_tasks, dt, T_drive, T_train, output_dir)
+
+# Save state information
+state_dict = {
+    'traj_states': state.traj_states,
+    'fixed_point_inits': state.fixed_point_inits
+}
+save_variable(state_dict, "state", N, num_tasks, dt, T_drive, T_train, output_dir)
 
 
 
@@ -997,6 +1020,20 @@ plot_frequency_comparison(all_unstable_eig_freq, omegas, save_dir=output_dir)
 
 
 # -------------------------------
+# 4.6. Save Results from Fixed Point Analysis
+# -------------------------------
+
+print("\nSaving results...")
+
+# Save fixed point analysis results
+save_variable(all_fixed_points, "all_fixed_points", N, num_tasks, dt, T_drive, T_train, output_dir)
+save_variable(all_jacobians, "all_jacobians", N, num_tasks, dt, T_drive, T_train, output_dir)
+save_variable(all_unstable_eig_freq, "all_unstable_eig_freq", N, num_tasks, dt, T_drive, T_train, output_dir)
+
+
+
+
+# -------------------------------
 # -------------------------------
 # 5. PCA RESULTS
 # -------------------------------
@@ -1096,31 +1133,10 @@ plt.show()
 
 
 # -------------------------------
-# -------------------------------
-# 6. SAVING RESULTS
-# -------------------------------
+# 5.3. Save Results from PCA
 # -------------------------------
 
 print("\nSaving results...")
-
-# Save network parameters
-save_variable(J_param.detach().cpu().numpy(), "J_param", N, num_tasks, dt, T_drive, T_train, output_dir)
-save_variable(B_param.detach().cpu().numpy(), "B_param", N, num_tasks, dt, T_drive, T_train, output_dir)
-save_variable(b_x_param.detach().cpu().numpy(), "b_x_param", N, num_tasks, dt, T_drive, T_train, output_dir)
-save_variable(w_param.detach().cpu().numpy(), "w_param", N, num_tasks, dt, T_drive, T_train, output_dir)
-save_variable(b_z_param.detach().cpu().numpy(), "b_z_param", N, num_tasks, dt, T_drive, T_train, output_dir)
-
-# Save state information
-state_dict = {
-    'traj_states': state.traj_states,
-    'fixed_point_inits': state.fixed_point_inits
-}
-save_variable(state_dict, "state", N, num_tasks, dt, T_drive, T_train, output_dir)
-
-# Save fixed point analysis results
-save_variable(all_fixed_points, "all_fixed_points", N, num_tasks, dt, T_drive, T_train, output_dir)
-save_variable(all_jacobians, "all_jacobians", N, num_tasks, dt, T_drive, T_train, output_dir)
-save_variable(all_unstable_eig_freq, "all_unstable_eig_freq", N, num_tasks, dt, T_drive, T_train, output_dir)
 
 # Save PCA results
 pca_results = {
@@ -1128,5 +1144,3 @@ pca_results = {
     'proj_fixed': proj_fixed
 }
 save_variable(pca_results, "pca_results", N, num_tasks, dt, T_drive, T_train, output_dir)
-
-print("All results saved successfully!")
