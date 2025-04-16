@@ -673,6 +673,7 @@ def plot_unstable_eigenvalues(unstable_freqs, j, omega, save_dir=None):
     
     plt.show()
 
+
 def plot_jacobian_matrices(jacobians, j, omega, save_dir=None):
     """
     Plot the Jacobian matrices for a specific task.
@@ -704,6 +705,60 @@ def plot_jacobian_matrices(jacobians, j, omega, save_dir=None):
         filepath = os.path.join(save_dir, filename.replace('.pkl', '.png'))
         plt.savefig(filepath)
         print(f"Saved Jacobian matrices plot for task {j} to {filepath}")
+    
+    plt.show()
+
+
+def plot_frequency_comparison(all_unstable_eig_freq, omegas, save_dir=None):
+    """
+    Plot a comparison between target frequencies and unstable eigenvalues' imaginary components.
+    
+    Arguments:
+        all_unstable_eig_freq: List of lists of lists of unstable eigenvalues for all tasks
+        omegas: Array of target frequencies for each task
+        save_dir: Directory to save the plot (if None, plot is only displayed)
+    """
+    # Create figure and axis
+    plt.figure(figsize=(12, 6))
+    
+    # Initialize lists to store data points
+    task_numbers = []
+    target_frequencies = []
+    unstable_frequencies = []
+    
+    # Collect data for all tasks
+    for j, task_freqs in enumerate(all_unstable_eig_freq):
+        target_freq = omegas[j]
+        
+        # Find the maximum imaginary component across all fixed points in this task
+        max_imag = 0
+        for fp_freqs in task_freqs:
+            if fp_freqs:  # if there are unstable eigenvalues
+                current_max = max(abs(np.imag(ev)) for ev in fp_freqs)
+                max_imag = max(max_imag, current_max)
+        
+        if max_imag > 0:  # only add points if there were unstable eigenvalues
+            task_numbers.append(j)
+            target_frequencies.append(target_freq)
+            unstable_frequencies.append(max_imag)
+    
+    # Plot the data
+    plt.scatter(task_numbers, target_frequencies, color='black', label='Target Frequency', s=100)
+    plt.scatter(task_numbers, unstable_frequencies, color='red', label='Max Unstable Mode Frequency', s=100)
+    
+    # Add labels and title
+    plt.xlabel('Task #')
+    plt.ylabel('Frequency (radians)')
+    plt.title('Comparison of Target Frequencies and Maximum Unstable Mode Frequencies')
+    plt.legend()
+    plt.grid(True)
+    
+    # Save the plot if a directory is provided
+    if save_dir is not None:
+        filename = generate_filename("frequency_comparison", N, num_tasks, dt, T_drive, T_train)
+        filepath = os.path.join(save_dir, filename.replace('.pkl', '.png'))
+        plt.savefig(filepath)
+        print(f"Saved frequency comparison plot to {filepath}")
     
     plt.show()
 
@@ -890,6 +945,11 @@ for j in test_js:
     if all_unstable_eig_freq[j]:  # if any fixed points were found
         # Plot unstable eigenvalues
         plot_unstable_eigenvalues(all_unstable_eig_freq[j], j, omega_j, save_dir=output_dir)
+
+
+# Plot the comparisons between target frequencies and unstable mode frequencies
+print("\nPlotting comparisons between target frequencies and unstable mode frequencies...")
+plot_frequency_comparison(all_unstable_eig_freq, omegas, save_dir=output_dir)
 
 
 
