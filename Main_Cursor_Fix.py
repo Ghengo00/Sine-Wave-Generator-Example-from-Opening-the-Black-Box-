@@ -179,39 +179,81 @@ def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train, o
 # 2.1. Trajectory Simulation Function
 # -------------------------------
 
+# def simulate_trajectory(x0, u_seq, J, B, b_x, w, b_z, dt):
+#     """
+#     Simulate the RNN dynamics with Euler integration.
+#     Vectorized implementation for better performance.
+    
+#     Arguments:
+#       x0    : initial state (torch tensor, shape (N,))
+#       u_seq : input sequence (torch tensor, shape (T, I))
+#       J, B, b_x, w, b_z : network parameters (torch tensors)
+#       dt    : time step
+      
+#     Returns:
+#       xs : (T+1, N) tensor of states over time
+#       zs : (T,) tensor of outputs computed as z = w^T tanh(x) + b_z
+#     """
+#     T = u_seq.shape[0]
+#     xs = torch.zeros(T+1, x0.shape[0], device=x0.device)    # shape (T+1, N)
+#     zs = torch.zeros(T, device=x0.device)                  # shape (T,)
+#     xs[0] = x0
+    
+#     # Pre-compute B*u for all time steps
+#     Bu = torch.matmul(B, u_seq.transpose(0, 1)).transpose(0, 1)  # shape (T, N)
+    
+#     # Main simulation loop
+#     for t in range(T):
+#         x = xs[t]
+#         # Compute nonlinear activation
+#         r = torch.tanh(x)
+#         # Compute readout
+#         zs[t] = torch.dot(w, r) + b_z
+#         # Euler integration: dx/dt = -x + J tanh(x) + B u + b_x
+#         xs[t+1] = x + dt * (-x + torch.matmul(J, r) + Bu[t] + b_x)
+    
+#     return xs, zs
+
+
 def simulate_trajectory(x0, u_seq, J, B, b_x, w, b_z, dt):
     """
-    Simulate the RNN dynamics with Euler integration.
-    Vectorized implementation for better performance.
-    
+    Simulate the RNN dynamics using a 4th order Runge–Kutta (RK4) integration scheme.
+
     Arguments:
       x0    : initial state (torch tensor, shape (N,))
       u_seq : input sequence (torch tensor, shape (T, I))
       J, B, b_x, w, b_z : network parameters (torch tensors)
-      dt    : time step
+      dt    : integration time step
       
     Returns:
       xs : (T+1, N) tensor of states over time
       zs : (T,) tensor of outputs computed as z = w^T tanh(x) + b_z
     """
     T = u_seq.shape[0]
-    xs = torch.zeros(T+1, x0.shape[0], device=x0.device)    # shape (T+1, N)
-    zs = torch.zeros(T, device=x0.device)                  # shape (T,)
+    xs = torch.zeros(T+1, x0.shape[0], device=x0.device)
+    zs = torch.zeros(T, device=x0.device)
     xs[0] = x0
-    
-    # Pre-compute B*u for all time steps
+
+    # Pre-compute B*u for all time steps for efficiency
     Bu = torch.matmul(B, u_seq.transpose(0, 1)).transpose(0, 1)  # shape (T, N)
-    
-    # Main simulation loop
+
     for t in range(T):
         x = xs[t]
-        # Compute nonlinear activation
-        r = torch.tanh(x)
-        # Compute readout
-        zs[t] = torch.dot(w, r) + b_z
-        # Euler integration: dx/dt = -x + J tanh(x) + B u + b_x
-        xs[t+1] = x + dt * (-x + torch.matmul(J, r) + Bu[t] + b_x)
-    
+        
+        # Define the derivative function f(x)
+        def f(x_val):
+            return -x_val + torch.matmul(J, torch.tanh(x_val)) + Bu[t] + b_x
+        
+        # RK4 integration steps
+        k1 = dt * f(x)
+        k2 = dt * f(x + 0.5 * k1)
+        k3 = dt * f(x + 0.5 * k2)
+        k4 = dt * f(x + k3)
+        xs[t+1] = x + (k1 + 2*k2 + 2*k3 + k4) / 6
+
+        # Compute the readout using the current state’s activation
+        zs[t] = torch.dot(w, torch.tanh(x)) + b_z
+
     return xs, zs
 
 
