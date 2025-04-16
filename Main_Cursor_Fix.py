@@ -179,82 +179,82 @@ def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train, o
 # 2.1. Trajectory Simulation Function
 # -------------------------------
 
-# def simulate_trajectory(x0, u_seq, J, B, b_x, w, b_z, dt):
-#     """
-#     Simulate the RNN dynamics with Euler integration.
-#     Vectorized implementation for better performance.
-    
-#     Arguments:
-#       x0    : initial state (torch tensor, shape (N,))
-#       u_seq : input sequence (torch tensor, shape (T, I))
-#       J, B, b_x, w, b_z : network parameters (torch tensors)
-#       dt    : time step
-      
-#     Returns:
-#       xs : (T+1, N) tensor of states over time
-#       zs : (T,) tensor of outputs computed as z = w^T tanh(x) + b_z
-#     """
-#     T = u_seq.shape[0]
-#     xs = torch.zeros(T+1, x0.shape[0], device=x0.device)    # shape (T+1, N)
-#     zs = torch.zeros(T, device=x0.device)                  # shape (T,)
-#     xs[0] = x0
-    
-#     # Pre-compute B*u for all time steps
-#     Bu = torch.matmul(B, u_seq.transpose(0, 1)).transpose(0, 1)  # shape (T, N)
-    
-#     # Main simulation loop
-#     for t in range(T):
-#         x = xs[t]
-#         # Compute nonlinear activation
-#         r = torch.tanh(x)
-#         # Compute readout
-#         zs[t] = torch.dot(w, r) + b_z
-#         # Euler integration: dx/dt = -x + J tanh(x) + B u + b_x
-#         xs[t+1] = x + dt * (-x + torch.matmul(J, r) + Bu[t] + b_x)
-    
-#     return xs, zs
-
-
 def simulate_trajectory(x0, u_seq, J, B, b_x, w, b_z, dt):
     """
-    Simulate the RNN dynamics using a 4th order Runge–Kutta (RK4) integration scheme.
-
+    Simulate the RNN dynamics with Euler integration.
+    Vectorized implementation for better performance.
+    
     Arguments:
       x0    : initial state (torch tensor, shape (N,))
       u_seq : input sequence (torch tensor, shape (T, I))
       J, B, b_x, w, b_z : network parameters (torch tensors)
-      dt    : integration time step
+      dt    : time step
       
     Returns:
       xs : (T+1, N) tensor of states over time
       zs : (T,) tensor of outputs computed as z = w^T tanh(x) + b_z
     """
     T = u_seq.shape[0]
-    xs = torch.zeros(T+1, x0.shape[0], device=x0.device)
-    zs = torch.zeros(T, device=x0.device)
+    xs = torch.zeros(T+1, x0.shape[0], device=x0.device)    # shape (T+1, N)
+    zs = torch.zeros(T, device=x0.device)                  # shape (T,)
     xs[0] = x0
-
-    # Pre-compute B*u for all time steps for efficiency
+    
+    # Pre-compute B*u for all time steps
     Bu = torch.matmul(B, u_seq.transpose(0, 1)).transpose(0, 1)  # shape (T, N)
-
+    
+    # Main simulation loop
     for t in range(T):
         x = xs[t]
-        
-        # Define the derivative function f(x)
-        def f(x_val):
-            return -x_val + torch.matmul(J, torch.tanh(x_val)) + Bu[t] + b_x
-        
-        # RK4 integration steps
-        k1 = dt * f(x)
-        k2 = dt * f(x + 0.5 * k1)
-        k3 = dt * f(x + 0.5 * k2)
-        k4 = dt * f(x + k3)
-        xs[t+1] = x + (k1 + 2*k2 + 2*k3 + k4) / 6
-
-        # Compute the readout using the current state’s activation
-        zs[t] = torch.dot(w, torch.tanh(x)) + b_z
-
+        # Compute nonlinear activation
+        r = torch.tanh(x)
+        # Compute readout
+        zs[t] = torch.dot(w, r) + b_z
+        # Euler integration: dx/dt = -x + J tanh(x) + B u + b_x
+        xs[t+1] = x + dt * (-x + torch.matmul(J, r) + Bu[t] + b_x)
+    
     return xs, zs
+
+
+# def simulate_trajectory_rk4(x0, u_seq, J, B, b_x, w, b_z, dt):
+#     """
+#     Simulate the RNN dynamics using a 4th order Runge–Kutta (RK4) integration scheme.
+
+#     Arguments:
+#       x0    : initial state (torch tensor, shape (N,))
+#       u_seq : input sequence (torch tensor, shape (T, I))
+#       J, B, b_x, w, b_z : network parameters (torch tensors)
+#       dt    : integration time step
+      
+#     Returns:
+#       xs : (T+1, N) tensor of states over time
+#       zs : (T,) tensor of outputs computed as z = w^T tanh(x) + b_z
+#     """
+#     T = u_seq.shape[0]
+#     xs = torch.zeros(T+1, x0.shape[0], device=x0.device)
+#     zs = torch.zeros(T, device=x0.device)
+#     xs[0] = x0
+
+#     # Pre-compute B*u for all time steps for efficiency
+#     Bu = torch.matmul(B, u_seq.transpose(0, 1)).transpose(0, 1)  # shape (T, N)
+
+#     for t in range(T):
+#         x = xs[t]
+        
+#         # Define the derivative function f(x)
+#         def f(x_val):
+#             return -x_val + torch.matmul(J, torch.tanh(x_val)) + Bu[t] + b_x
+        
+#         # RK4 integration steps
+#         k1 = dt * f(x)
+#         k2 = dt * f(x + 0.5 * k1)
+#         k3 = dt * f(x + 0.5 * k2)
+#         k4 = dt * f(x + k3)
+#         xs[t+1] = x + (k1 + 2*k2 + 2*k3 + k4) / 6
+
+#         # Compute the readout using the current state's activation
+#         zs[t] = torch.dot(w, torch.tanh(x)) + b_z
+
+#     return xs, zs
 
 
 
@@ -352,10 +352,11 @@ def run_batch(J, B, b_x, w, b_z):
 # 2.3. Execute Training Procedure
 # -------------------------------
 
-# Define LBFGS optimizer
-optimizer = optim.LBFGS(params, 
-                        lr=OPTIMIZER_LR, max_iter=OPTIMIZER_MAX_ITER, 
-                        history_size=OPTIMIZER_HISTORY_SIZE, line_search_fn=OPTIMIZER_LINE_SEARCH_FN)
+# Define optimizers
+adam_optimizer = optim.Adam(params, lr=0.01)  # Adam optimizer for first 10 steps
+lbfgs_optimizer = optim.LBFGS(params, 
+                             lr=OPTIMIZER_LR, max_iter=OPTIMIZER_MAX_ITER, 
+                             history_size=OPTIMIZER_HISTORY_SIZE, line_search_fn=OPTIMIZER_LINE_SEARCH_FN)
 
 num_epochs = NUM_EPOCHS  # number of training epochs
 loss_threshold = LOSS_THRESHOLD  # threshold for early stopping
@@ -378,45 +379,77 @@ state = TrainingState()
 start_time = time.time()
 print("Starting training...")
 
+# Training loop
 for epoch in tqdm(range(num_epochs), desc="Training epochs"):
     # Clear memory between epochs
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
     
-    def closure():  # required by the LBFGS optimizer to re-evaluate the model function multiple times per step
-        optimizer.zero_grad()
-        loss, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)   # forward pass
-        loss.backward() # backward pass: computes the gradient of the loss with respect to the model parameters
-        return loss
-    
-    try:
-        loss_val = optimizer.step(closure)
-        loss_history.append(loss_val.item())    # returns the computed loss value for the epoch
+    # Use Adam for first 10 epochs, then switch to LBFGS
+    if epoch < 10:
+        # Adam optimizer step
+        def adam_closure():
+            adam_optimizer.zero_grad()
+            loss, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)
+            loss.backward()
+            # Gradient clipping for Adam
+            torch.nn.utils.clip_grad_norm_(params, max_norm=1.0)
+            return loss
         
-        # Save best parameters
-        if loss_val.item() < best_loss:
-            best_loss = loss_val.item()
-            best_params = [p.detach().clone() for p in params]
+        try:
+            loss_val = adam_closure()
+            adam_optimizer.step()
+            loss_history.append(loss_val.item())
             
-        # Print epoch and loss information
-        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {loss_val.item():.4f}")
+            # Save best parameters
+            if loss_val.item() < best_loss:
+                best_loss = loss_val.item()
+                best_params = [p.detach().clone() for p in params]
             
-        # Check if loss is below threshold
-        if loss_val.item() < loss_threshold:
-            print(f"\nTraining converged with loss {loss_val.item():.4f} below threshold {loss_threshold}")
+            print(f"Epoch {epoch+1}/{num_epochs} (Adam), Loss: {loss_val.item():.4f}")
+            
+            if loss_val.item() < loss_threshold:
+                print(f"\nTraining converged with loss {loss_val.item():.4f} below threshold {loss_threshold}")
+                break
+                
+        except RuntimeError as e:
+            print(f"\nAdam optimization failed at epoch {epoch+1}: {str(e)}")
             break
             
-    except RuntimeError as e:
-        print(f"\nOptimization failed at epoch {epoch+1}: {str(e)}")
-        break
+    else:
+        # LBFGS optimizer step
+        def lbfgs_closure():
+            lbfgs_optimizer.zero_grad()
+            loss, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)
+            loss.backward()
+            return loss
+        
+        try:
+            loss_val = lbfgs_optimizer.step(lbfgs_closure)
+            loss_history.append(loss_val.item())
+            
+            # Save best parameters
+            if loss_val.item() < best_loss:
+                best_loss = loss_val.item()
+                best_params = [p.detach().clone() for p in params]
+            
+            print(f"Epoch {epoch+1}/{num_epochs} (LBFGS), Loss: {loss_val.item():.4f}")
+            
+            if loss_val.item() < loss_threshold:
+                print(f"\nTraining converged with loss {loss_val.item():.4f} below threshold {loss_threshold}")
+                break
+                
+        except RuntimeError as e:
+            print(f"\nLBFGS optimization failed at epoch {epoch+1}: {str(e)}")
+            break
 
 # Calculate training time
 training_time = time.time() - start_time
 print(f"\nTraining completed in {training_time:.2f} seconds")
 
-# Restore best parameters if available, to ensure that at the end of training, the best parameters are used
+# Restore best parameters if available
 if best_params is not None:
     for p, best_p in zip(params, best_params):
-        p.data.copy_(best_p)    # copy the best parameters to the model parameters
+        p.data.copy_(best_p)
 
 # Ensure we have the final states for analysis
 if state.traj_states is None or state.fixed_point_inits is None:
