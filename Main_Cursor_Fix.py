@@ -577,7 +577,7 @@ def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_
     # Try perturbed initial conditions
     for attempt in tqdm(range(num_attempts - 1), desc="Finding fixed points", leave=False):
         # Create a perturbed initial condition
-        x0_perturbed = x0_guess + np.random.normal(0, 0.5, size=x0_guess.shape) # 0.5 is the default for this scenario
+        x0_perturbed = x0_guess + np.random.normal(0, 1.5, size=x0_guess.shape) # 0.5 is the default for this scenario
         try:
             sol = root(fixed_point_func, x0_perturbed, args=(u_const, J_trained, B_trained, b_x_trained),
                       method='hybr', options={'maxiter': MAXITER})
