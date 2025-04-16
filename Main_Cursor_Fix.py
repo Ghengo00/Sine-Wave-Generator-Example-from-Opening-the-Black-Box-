@@ -37,9 +37,9 @@ np.random.seed(42)
 torch.manual_seed(42)
 
 # Network dimensions and task parameters (CHANGE THESE FOR TEST RUNS)
-N = 20         # number of neurons (STANDARD VALUE IS 200)
+N = 60         # number of neurons (STANDARD VALUE IS 200)
 I = 1           # input dimension (scalar input)
-num_tasks = 5  # number of different sine-wave tasks (STANDARD VALUE IS 51)
+num_tasks = 16  # number of different sine-wave tasks (STANDARD VALUE IS 51)
 
 # Frequencies: equally spaced between 0.1 and 0.6 rad/s
 omegas = np.linspace(0.1, 0.6, num_tasks)
@@ -50,7 +50,7 @@ static_inputs = np.linspace(0, num_tasks-1, num_tasks) / num_tasks + 0.25
 # Time parameters (in seconds) (NEED TO CHOOSE THESE CAREFULLY)
 dt = 0.02        # integration time step
 T_drive = 1.0   # driving phase duration (to set network state)
-T_train = 4.0   # training phase duration with static input (target generation) (OMEGA = 0.1 NEEDS 63 SECONDS TO GO THROUGH A WHOLE CYCLE)
+T_train = 8.0   # training phase duration with static input (target generation) (OMEGA = 0.1 NEEDS 63 SECONDS TO GO THROUGH A WHOLE CYCLE)
 num_steps_drive = int(T_drive/dt)
 num_steps_train = int(T_train/dt)
 time_drive = np.arange(0, T_drive, dt)
