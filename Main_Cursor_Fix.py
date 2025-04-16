@@ -251,7 +251,7 @@ def simulate_trajectory(x0, u_seq, J, B, b_x, w, b_z, dt):
 #         k4 = dt * f(x + k3)
 #         xs[t+1] = x + (k1 + 2*k2 + 2*k3 + k4) / 6
 
-#         # Compute the readout using the current state's activation
+#         # Compute the readout using the current state’s activation
 #         zs[t] = torch.dot(w, torch.tanh(x)) + b_z
 
 #     return xs, zs
@@ -352,11 +352,10 @@ def run_batch(J, B, b_x, w, b_z):
 # 2.3. Execute Training Procedure
 # -------------------------------
 
-# Define optimizers
-adam_optimizer = optim.Adam(params, lr=0.01)  # Adam optimizer for first 10 steps
-lbfgs_optimizer = optim.LBFGS(params, 
-                             lr=OPTIMIZER_LR, max_iter=OPTIMIZER_MAX_ITER, 
-                             history_size=OPTIMIZER_HISTORY_SIZE, line_search_fn=OPTIMIZER_LINE_SEARCH_FN)
+# Define LBFGS optimizer
+optimizer = optim.LBFGS(params, 
+                        lr=OPTIMIZER_LR, max_iter=OPTIMIZER_MAX_ITER, 
+                        history_size=OPTIMIZER_HISTORY_SIZE, line_search_fn=OPTIMIZER_LINE_SEARCH_FN)
 
 num_epochs = NUM_EPOCHS  # number of training epochs
 loss_threshold = LOSS_THRESHOLD  # threshold for early stopping
@@ -379,77 +378,45 @@ state = TrainingState()
 start_time = time.time()
 print("Starting training...")
 
-# Training loop
 for epoch in tqdm(range(num_epochs), desc="Training epochs"):
     # Clear memory between epochs
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
     
-    # Use Adam for first 10 epochs, then switch to LBFGS
-    if epoch < 10:
-        # Adam optimizer step
-        def adam_closure():
-            adam_optimizer.zero_grad()
-            loss, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)
-            loss.backward()
-            # Gradient clipping for Adam
-            torch.nn.utils.clip_grad_norm_(params, max_norm=1.0)
-            return loss
+    def closure():  # required by the LBFGS optimizer to re-evaluate the model function multiple times per step
+        optimizer.zero_grad()
+        loss, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)   # forward pass
+        loss.backward() # backward pass: computes the gradient of the loss with respect to the model parameters
+        return loss
+    
+    try:
+        loss_val = optimizer.step(closure)
+        loss_history.append(loss_val.item())    # returns the computed loss value for the epoch
         
-        try:
-            loss_val = adam_closure()
-            adam_optimizer.step()
-            loss_history.append(loss_val.item())
+        # Save best parameters
+        if loss_val.item() < best_loss:
+            best_loss = loss_val.item()
+            best_params = [p.detach().clone() for p in params]
             
-            # Save best parameters
-            if loss_val.item() < best_loss:
-                best_loss = loss_val.item()
-                best_params = [p.detach().clone() for p in params]
+        # Print epoch and loss information
+        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {loss_val.item():.4f}")
             
-            print(f"Epoch {epoch+1}/{num_epochs} (Adam), Loss: {loss_val.item():.4f}")
-            
-            if loss_val.item() < loss_threshold:
-                print(f"\nTraining converged with loss {loss_val.item():.4f} below threshold {loss_threshold}")
-                break
-                
-        except RuntimeError as e:
-            print(f"\nAdam optimization failed at epoch {epoch+1}: {str(e)}")
+        # Check if loss is below threshold
+        if loss_val.item() < loss_threshold:
+            print(f"\nTraining converged with loss {loss_val.item():.4f} below threshold {loss_threshold}")
             break
             
-    else:
-        # LBFGS optimizer step
-        def lbfgs_closure():
-            lbfgs_optimizer.zero_grad()
-            loss, state.traj_states, state.fixed_point_inits = run_batch(J_param, B_param, b_x_param, w_param, b_z_param)
-            loss.backward()
-            return loss
-        
-        try:
-            loss_val = lbfgs_optimizer.step(lbfgs_closure)
-            loss_history.append(loss_val.item())
-            
-            # Save best parameters
-            if loss_val.item() < best_loss:
-                best_loss = loss_val.item()
-                best_params = [p.detach().clone() for p in params]
-            
-            print(f"Epoch {epoch+1}/{num_epochs} (LBFGS), Loss: {loss_val.item():.4f}")
-            
-            if loss_val.item() < loss_threshold:
-                print(f"\nTraining converged with loss {loss_val.item():.4f} below threshold {loss_threshold}")
-                break
-                
-        except RuntimeError as e:
-            print(f"\nLBFGS optimization failed at epoch {epoch+1}: {str(e)}")
-            break
+    except RuntimeError as e:
+        print(f"\nOptimization failed at epoch {epoch+1}: {str(e)}")
+        break
 
 # Calculate training time
 training_time = time.time() - start_time
 print(f"\nTraining completed in {training_time:.2f} seconds")
 
-# Restore best parameters if available
+# Restore best parameters if available, to ensure that at the end of training, the best parameters are used
 if best_params is not None:
     for p, best_p in zip(params, best_params):
-        p.data.copy_(best_p)
+        p.data.copy_(best_p)    # copy the best parameters to the model parameters
 
 # Ensure we have the final states for analysis
 if state.traj_states is None or state.fixed_point_inits is None:
