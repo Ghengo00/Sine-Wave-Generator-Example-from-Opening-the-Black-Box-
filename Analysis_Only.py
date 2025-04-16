@@ -19,6 +19,7 @@ from tqdm import tqdm
 import time
 from datetime import datetime
 import pickle
+import glob
 
 
 
@@ -203,9 +204,44 @@ state = TrainingState()
 # 2.5. (EXTRA) Save Results from Training Procedure
 # -------------------------------
 
-# Import J_param, B_param, b_x_param, w_param, b_z_param, and state from the saved file
+# Find the most recent output folder containing J_param pickle file
+# Get all output folders
+output_folders = glob.glob(os.path.join(os.getcwd(), 'Outputs', 'Outputs_*'))
+# Sort folders alphabetically (which will be by timestamp)
+output_folders.sort()
+# Get the most recent folder
+latest_folder = output_folders[-1] if output_folders else None
 
-# Import the state file into the state instance
+if latest_folder:
+    # Find J_param pickle file in the latest folder
+    j_param_files = glob.glob(os.path.join(latest_folder, 'J_param_*.pkl'))
+    if j_param_files:
+        # Load parameters from the pickle file
+        with open(j_param_files[0], 'rb') as f:
+            J_param = pickle.load(f)
+        
+        # Load other parameters from the same folder
+        with open(os.path.join(latest_folder, 'B_param_*.pkl'), 'rb') as f:
+            B_param = pickle.load(f)
+        with open(os.path.join(latest_folder, 'b_x_param_*.pkl'), 'rb') as f:
+            b_x_param = pickle.load(f)
+        with open(os.path.join(latest_folder, 'w_param_*.pkl'), 'rb') as f:
+            w_param = pickle.load(f)
+        with open(os.path.join(latest_folder, 'b_z_param_*.pkl'), 'rb') as f:
+            b_z_param = pickle.load(f)
+        
+        # Load state from the same folder
+        state_files = glob.glob(os.path.join(latest_folder, 'state_*.pkl'))
+        if state_files:
+            with open(state_files[0], 'rb') as f:
+                state_data = pickle.load(f)
+                # Update the state instance with the loaded data
+                state.traj_states = state_data.traj_states
+                state.fixed_point_inits = state_data.fixed_point_inits
+    else:
+        print("No J_param pickle file found in the latest output folder")
+else:
+    print("No output folders found")
 
 
 
