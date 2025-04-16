@@ -107,10 +107,13 @@ TEST_INDICES_EXTREMES = [0, omegas.shape[0] - 1]
 COLORS = ['b', 'g', 'r', 'c', 'm']
 MARKERS = ['o', 's', '^', 'v', '<']
 
-# Jacobians, fixed points, and unstable mode frequencies parameters
+# Jacobians, fixed points, slow points, and unstable mode frequencies parameters
 NUM_ATTEMPTS = 10
 TOL = 1e-2
 MAXITER = 1000
+NUM_ATTEMPTS_SLOW = 10
+TOL_SLOW = 1e-2
+MAXITER_SLOW = 1000
 JACOBIAN_TOL = 1e-2
 EVALUE_TOL = 1e-3
 SEARCH_BATCH_SIZE = 5
@@ -251,7 +254,7 @@ def simulate_trajectory(x0, u_seq, J, B, b_x, w, b_z, dt):
 #         k4 = dt * f(x + k3)
 #         xs[t+1] = x + (k1 + 2*k2 + 2*k3 + k4) / 6
 
-#         # Compute the readout using the current state’s activation
+#         # Compute the readout using the current state's activation
 #         zs[t] = torch.dot(w, torch.tanh(x)) + b_z
 
 #     return xs, zs
@@ -569,12 +572,12 @@ for j in test_js:
 
 # -------------------------------
 # -------------------------------
-# 4. FIXED POINTS AND UNSTABLE MODES RESULTS
+# 4. FIXED POINTS, SLOW POINTS, AND UNSTABLE MODES RESULTS
 # -------------------------------
 # -------------------------------
 
 # -------------------------------
-# 4.1. Jacobians, Fixed Points, and Unstable Mode Frequencies Functions
+# 4.1. Jacobians, Fixed Points, Slow Points, and Unstable Mode Frequencies Functions
 # -------------------------------
 
 def fixed_point_func(x_np, u_val, J_np, B_np, b_x_np):
@@ -595,6 +598,24 @@ def fixed_point_func(x_np, u_val, J_np, B_np, b_x_np):
     x = x_np
     # Note that np.array([u_val]) has shape (1,), so the dot product has shape (N,1), which means that it must be flattened to (N,)
     return -x + np.dot(J_np, np.tanh(x)) + np.dot(B_np, np.array([u_val])).flatten() + b_x_np
+
+
+def slow_point_func(x_np, u_val, J_np, B_np, b_x_np):
+    """
+    Compute q(x) = 0.5 * F(x) \cdot F(x), where F(x) = -x + J*tanh(x) + B*u + b_x
+    
+    Arguments:
+        x_np: Input vector (numpy array, shape (N,))
+        u_val: Constant input value (float)
+        J_np: Recurrent weight matrix (numpy array, shape (N, N))
+        B_np: Input weight matrix (numpy array, shape (N, I))
+        b_x_np: Bias vector (numpy array, shape (N,))
+    
+    Returns:
+        q_x: Output scalar (float)
+    """
+    F_x = fixed_point_func(x_np, u_val, J_np, B_np, b_x_np)
+    return 0.5 * np.dot(F_x, F_x)
 
 
 def jacobian_fixed_point(x_star, J_np):
@@ -659,6 +680,53 @@ def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_
             print(f"Fixed point search failed for attempt {attempt+1}: {str(e)}")
     
     return fixed_points
+
+
+def find_slow_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=NUM_ATTEMPTS_SLOW, tol=TOL_SLOW):
+    """
+    Find multiple slow points for a given task by trying different initial conditions.
+
+    Arguments:
+        x0_guess: Initial guess for fixed point for the given task
+        u_const: Constant input for the given task
+        J_trained, B_trained, b_x_trained: Network parameters
+        num_attempts: Number of different initial conditions to try
+        tol: Tolerance for considering two fixed points as distinct
+        
+    Returns:
+        List of distinct slow points found for the given task
+    """
+    slow_points = []
+    
+    # Try the original initial condition
+    try:
+        sol = root(slow_point_func, x0_guess, args=(u_const, J_trained, B_trained, b_x_trained),
+                  method='lm', options={'maxiter': MAXITER_SLOW})
+        if sol.success:
+            slow_points.append(sol.x)
+    except Exception as e:
+        print(f"Slow point search failed for initial guess: {str(e)}")
+    
+    # Try perturbed initial conditions
+    for attempt in tqdm(range(num_attempts - 1), desc="Finding slow points", leave=False):
+        # Create a perturbed initial condition
+        x0_perturbed = x0_guess + np.random.normal(0, 0.5, size=x0_guess.shape) # 0.5 is the default for this scenario
+        try:
+            sol = root(slow_point_func, x0_perturbed, args=(u_const, J_trained, B_trained, b_x_trained),
+                      method='lm', options={'maxiter': MAXITER_SLOW})
+            if sol.success:
+                # Check if this slow point is distinct from previous ones
+                is_distinct = True
+                for sp in slow_points:
+                    if np.linalg.norm(sol.x - sp) < tol:
+                        is_distinct = False
+                        break
+                if is_distinct:
+                    slow_points.append(sol.x)
+        except Exception as e:
+            print(f"Slow point search failed for attempt {attempt+1}: {str(e)}")
+    
+    return slow_points
 
 
 def analyze_fixed_points(fixed_points, J_trained):
@@ -831,7 +899,7 @@ def plot_frequency_comparison(all_unstable_eig_freq, omegas, save_dir=None):
 
 
 # -------------------------------
-# 4.2. Find Jacobians, Fixed Points, and Unstable Mode Frequencies
+# 4.2. Find Jacobians, Fixed Points, Slow Points, and Unstable Mode Frequencies
 # -------------------------------
 
 # Extract trained parameters as NumPy arrays
