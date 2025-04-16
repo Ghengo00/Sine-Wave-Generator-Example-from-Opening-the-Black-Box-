@@ -1332,7 +1332,13 @@ for traj in tqdm(state.traj_states, desc="Projecting trajectories"):
 all_fixed_points_flat = []
 for task_fps in all_fixed_points:
     all_fixed_points_flat.extend(task_fps)
-proj_fixed = pca.transform(np.array(all_fixed_points_flat)) # projects all fixed points from all tasks into the PCA space, resulting shape is (num_total_fixed_points, 3)
+if all_fixed_points_flat:  # Check if there are any fixed points
+    all_fixed_points_flat = np.array(all_fixed_points_flat)
+    if all_fixed_points_flat.ndim == 1:  # If it's a 1D array, reshape it
+        all_fixed_points_flat = all_fixed_points_flat.reshape(1, -1)
+    proj_fixed = pca.transform(all_fixed_points_flat)  # projects all fixed points from all tasks into the PCA space, resulting shape is (num_total_fixed_points, 3)
+else:
+    proj_fixed = np.array([]).reshape(0, 3)  # Empty array with correct shape for plotting
 # Note that np.array(all_fixed_points_flat) has shape (num_total_fixed_points, N)
 
 # Calculate PCA computation time
@@ -1347,7 +1353,7 @@ print(f"\nPCA computation completed in {pca_time:.2f} seconds")
 # -------------------------------
 
 # Track PCA computation time
-start_time = time.time()
+start_time_slow = time.time()
 print("\nStarting PCA computation...")
 
 
@@ -1355,11 +1361,17 @@ print("\nStarting PCA computation...")
 all_slow_points_flat = []
 for task_sps in all_slow_points:
     all_slow_points_flat.extend(task_sps)
-proj_slow = pca.transform(np.array(all_slow_points_flat)) # projects all slow points from all tasks into the PCA space, resulting shape is (num_total_slow_points, 3)
+if all_slow_points_flat:  # Check if there are any slow points
+    all_slow_points_flat = np.array(all_slow_points_flat)
+    if all_slow_points_flat.ndim == 1:  # If it's a 1D array, reshape it
+        all_slow_points_flat = all_slow_points_flat.reshape(1, -1)
+    proj_slow = pca.transform(all_slow_points_flat)  # projects all slow points from all tasks into the PCA space, resulting shape is (num_total_slow_points, 3)
+else:
+    proj_slow = np.array([]).reshape(0, 3)  # Empty array with correct shape for plotting
 # Note that np.array(all_slow_points_flat) has shape (num_total_slow_points, N)
 
 # Calculate PCA computation time
-pca_time_slow = time.time() - start_time
+pca_time_slow = time.time() - start_time_slow
 print(f"\nPCA computation completed in {pca_time_slow:.2f} seconds")
 
 
