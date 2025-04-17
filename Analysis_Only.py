@@ -89,8 +89,26 @@ LOSS_THRESHOLD = 1e-4
 # Plotting parameters
 TEST_INDICES = np.linspace(0, omegas.shape[0] - 1, 5, dtype=int)
 TEST_INDICES_EXTREMES = [0, omegas.shape[0] - 1]
-COLORS = ['b', 'g', 'r', 'c', 'm']
-MARKERS = ['o', 's', '^', 'v', '<']
+COLORS = [
+    'b', 'g', 'r', 'c', 'm',        # original 5
+    'y', 'k',                       # yellow, black
+    'orange', 'purple', 'brown',    # named colors
+    'pink', 'gray', 'olive', 'teal',
+    'navy', 'gold', 'lime', 'coral',
+    'slateblue', 'darkgreen', 'cyan'
+]
+
+MARKERS = [
+    'o', 's', '^', 'v', '<',        # original 5
+    '>',                            # right‑pointing triangle
+    'd', 'D',                       # thin & fat diamonds
+    'p',                            # pentagon
+    'h', 'H',                       # hexagon1 & hexagon2
+    '*',                            # star
+    '+', 'x',                       # plus & x
+    '|', '_',                       # vertical & horizontal lines
+    '1', '2', '3', '4'              # tripod markers
+]
 
 # Jacobians, fixed points, slow points, and unstable mode frequencies parameters
 NUM_ATTEMPTS = 10
@@ -200,11 +218,11 @@ state = TrainingState()
 # 2.5. (EXTRA) Save Results from Training Procedure
 # -------------------------------
 
-# Find the most recent output folder containing J_param pickle file
+# Find the most recent output folder containing all required files
 # Get all output folders
 output_folders = glob.glob(os.path.join(os.getcwd(), 'Outputs', 'Outputs_*'))
 # Sort folders alphabetically (which will be by timestamp)
-output_folders.sort(reverse=True)  # Sort in reverse to get newest first
+output_folders.sort(reverse=True)  # sort in reverse to get newest first
 
 # Initialize variables
 J_param = None
@@ -213,65 +231,195 @@ b_x_param = None
 w_param = None
 b_z_param = None
 state_data = None
+selected_folder = None
 
-# Search through folders until we find one with J_param
+# Search through folders until we find one with all required files
 for folder in output_folders:
-    # Find J_param pickle file in the current folder
-    j_param_files = glob.glob(os.path.join(folder, 'J_param_*.pkl'))
-    if j_param_files:
-        try:
-            # Load parameters from the pickle file
-            with open(j_param_files[0], 'rb') as f:
-                J_param = pickle.load(f)
-            
-            # Load other parameters from the same folder
-            b_param_files = glob.glob(os.path.join(folder, 'B_param_*.pkl'))
-            if b_param_files:
-                with open(b_param_files[0], 'rb') as f:
-                    B_param = pickle.load(f)
-            
-            b_x_param_files = glob.glob(os.path.join(folder, 'b_x_param_*.pkl'))
-            if b_x_param_files:
-                with open(b_x_param_files[0], 'rb') as f:
-                    b_x_param = pickle.load(f)
-            
-            w_param_files = glob.glob(os.path.join(folder, 'w_param_*.pkl'))
-            if w_param_files:
-                with open(w_param_files[0], 'rb') as f:
-                    w_param = pickle.load(f)
-            
-            b_z_param_files = glob.glob(os.path.join(folder, 'b_z_param_*.pkl'))
-            if b_z_param_files:
-                with open(b_z_param_files[0], 'rb') as f:
-                    b_z_param = pickle.load(f)
-            
-            # Load state from the same folder
-            state_files = glob.glob(os.path.join(folder, 'state_*.pkl'))
-            if state_files:
-                with open(state_files[0], 'rb') as f:
-                    state_data = pickle.load(f)
-                    # Update the state instance with the loaded data
-                    state.traj_states = state_data.traj_states
-                    state.fixed_point_inits = state_data.fixed_point_inits
-            
-            # If we successfully loaded all parameters, break the loop
-            if all(param is not None for param in [J_param, B_param, b_x_param, w_param, b_z_param]):
-                print(f"Successfully loaded parameters from folder: {folder}")
-                break
-                
-        except Exception as e:
-            print(f"Error loading parameters from folder {folder}: {str(e)}")
-            # Reset parameters if there was an error
-            J_param = None
-            B_param = None
-            b_x_param = None
-            w_param = None
-            b_z_param = None
-            state_data = None
-            continue
+    try:
+        # Check for all required files
+        j_param_files = glob.glob(os.path.join(folder, 'J_param_*.pkl'))
+        b_param_files = glob.glob(os.path.join(folder, 'B_param_*.pkl'))
+        b_x_param_files = glob.glob(os.path.join(folder, 'b_x_param_*.pkl'))
+        w_param_files = glob.glob(os.path.join(folder, 'w_param_*.pkl'))
+        b_z_param_files = glob.glob(os.path.join(folder, 'b_z_param_*.pkl'))
+        state_files = glob.glob(os.path.join(folder, 'state_*.pkl'))
+        
+        if (j_param_files and b_param_files and b_x_param_files and 
+            w_param_files and b_z_param_files and state_files):
+            selected_folder = folder
+            break
+    except Exception as e:
+        print(f"Error checking files in folder {folder}: {str(e)}")
+        continue
 
-if J_param is None:
-    print("No valid parameter files found in any output folder")
+if selected_folder is None:
+    raise RuntimeError("No folder found containing all required files. Please ensure you have run the training script first and that all output files exist in the Outputs directory.")
+
+# Load all files from the selected folder
+try:
+    # Load J_param first to extract parameters
+    j_param_files = glob.glob(os.path.join(selected_folder, 'J_param_*.pkl'))
+    with open(j_param_files[0], 'rb') as f:
+        J_param = pickle.load(f)
+        print(f"\nLoaded J_param from: {j_param_files[0]}")
+    
+    # Extract parameters from J_param filename
+    filename = os.path.basename(j_param_files[0])
+    print(f"\nParsing filename: {filename}")
+    
+    # Try to extract parameters from filename
+    try:
+        # Split filename and remove .pkl
+        parts = filename.replace('.pkl', '').split('_')
+        
+        # Find indices of parameter names
+        n_idx = parts.index('Neuron') + 2  # Skip 'Neuron' and 'Number'
+        tasks_idx = parts.index('Task') + 2  # Skip 'Task' and 'Number'
+        dt_idx = parts.index('Time') + 2  # Skip 'Time' and 'Steps'
+        drive_idx = parts.index('Driving') + 1  # Skip 'Driving'
+        train_idx = parts.index('Training') + 1  # Skip 'Training'
+        
+        # Extract parameters
+        N = int(parts[n_idx])
+        num_tasks = int(parts[tasks_idx])
+        dt = float(parts[dt_idx])
+        T_drive = float(parts[drive_idx])
+        T_train = float(parts[train_idx])
+        
+        print("\nSuccessfully extracted parameters from filename:")
+        print(f"N (number of neurons): {N}")
+        print(f"num_tasks: {num_tasks}")
+        print(f"dt: {dt}")
+        print(f"T_drive: {T_drive}")
+        print(f"T_train: {T_train}")
+        
+    except (ValueError, IndexError) as e:
+        print("\nWarning: Could not extract parameters from filename. Using default values.")
+        print(f"Error: {str(e)}")
+        
+        # Use default values if extraction fails
+        N = 200         # number of neurons
+        num_tasks = 51  # number of different sine-wave tasks
+        dt = 0.02       # integration time step
+        T_drive = 4.0   # driving phase duration
+        T_train = 24.0  # training phase duration
+        
+        print("\nUsing default parameters:")
+        print(f"N (number of neurons): {N}")
+        print(f"num_tasks: {num_tasks}")
+        print(f"dt: {dt}")
+        print(f"T_drive: {T_drive}")
+        print(f"T_train: {T_train}")
+
+    # Calculate derived parameters
+    num_steps_drive = int(T_drive/dt)
+    num_steps_train = int(T_train/dt)
+    time_drive = np.arange(0, T_drive, dt)
+    time_train = np.arange(0, T_train, dt)
+    time_full = np.concatenate([time_drive, T_drive + time_train])
+    
+    # Frequencies and static inputs
+    omegas = np.linspace(0.1, 0.6, num_tasks)
+    static_inputs = np.linspace(0, num_tasks-1, num_tasks) / num_tasks + 0.25
+    
+    print("\nExtracted parameters from filename:")
+    print(f"N (number of neurons): {N}")
+    print(f"num_tasks: {num_tasks}")
+    print(f"dt: {dt}")
+    print(f"T_drive: {T_drive}")
+    print(f"T_train: {T_train}")
+    
+    # Load other parameters from the same folder
+    b_param_files = glob.glob(os.path.join(selected_folder, 'B_param_*.pkl'))
+    with open(b_param_files[0], 'rb') as f:
+        B_param = pickle.load(f)
+        print(f"Loaded B_param from: {b_param_files[0]}")
+    
+    b_x_param_files = glob.glob(os.path.join(selected_folder, 'b_x_param_*.pkl'))
+    with open(b_x_param_files[0], 'rb') as f:
+        b_x_param = pickle.load(f)
+        print(f"Loaded b_x_param from: {b_x_param_files[0]}")
+    
+    w_param_files = glob.glob(os.path.join(selected_folder, 'w_param_*.pkl'))
+    with open(w_param_files[0], 'rb') as f:
+        w_param = pickle.load(f)
+        print(f"Loaded w_param from: {w_param_files[0]}")
+    
+    b_z_param_files = glob.glob(os.path.join(selected_folder, 'b_z_param_*.pkl'))
+    with open(b_z_param_files[0], 'rb') as f:
+        b_z_param = pickle.load(f)
+        print(f"Loaded b_z_param from: {b_z_param_files[0]}")
+    
+    # Load state from the same folder
+    state_files = glob.glob(os.path.join(selected_folder, 'state_*.pkl'))
+    with open(state_files[0], 'rb') as f:
+        state_data = pickle.load(f)
+        print(f"Loaded state from: {state_files[0]}")
+        
+        # Create a new TrainingState instance
+        state = TrainingState()
+        
+        # Check if state_data is a dictionary with the expected keys
+        if isinstance(state_data, dict):
+            if 'traj_states' in state_data and 'fixed_point_inits' in state_data:
+                state.traj_states = state_data['traj_states']
+                state.fixed_point_inits = state_data['fixed_point_inits']
+                print(f"Successfully loaded {len(state.traj_states)} trajectories and {len(state.fixed_point_inits)} fixed point initializations")
+            else:
+                print("Warning: State dictionary missing required keys 'traj_states' or 'fixed_point_inits'")
+                # Initialize with empty lists if keys are missing
+                state.traj_states = []
+                state.fixed_point_inits = []
+        else:
+            print("Warning: State data is not a dictionary")
+            # Initialize with empty lists if data is not a dictionary
+            state.traj_states = []
+            state.fixed_point_inits = []
+    
+    # Verify state data and initialize fixed_point_inits if empty
+    if not state.fixed_point_inits:
+        print("\nInitializing fixed_point_inits with zeros...")
+        state.fixed_point_inits = [np.zeros(N) for _ in range(num_tasks)]
+        print(f"Initialized {len(state.fixed_point_inits)} fixed point initializations")
+    
+    # Print state data summary
+    print("\nState data summary:")
+    print(f"Number of trajectories: {len(state.traj_states)}")
+    print(f"Number of fixed point initializations: {len(state.fixed_point_inits)}")
+    
+except Exception as e:
+    raise RuntimeError(f"Error loading files from folder {selected_folder}: {str(e)}")
+
+# Print parameter types and shapes
+print("\nParameter types and shapes:")
+print(f"J_param type: {type(J_param)}, shape: {J_param.shape if hasattr(J_param, 'shape') else 'N/A'}")
+print(f"B_param type: {type(B_param)}, shape: {B_param.shape if hasattr(B_param, 'shape') else 'N/A'}")
+print(f"b_x_param type: {type(b_x_param)}, shape: {b_x_param.shape if hasattr(b_x_param, 'shape') else 'N/A'}")
+print(f"w_param type: {type(w_param)}, shape: {w_param.shape if hasattr(w_param, 'shape') else 'N/A'}")
+print(f"b_z_param type: {type(b_z_param)}, shape: {b_z_param.shape if hasattr(b_z_param, 'shape') else 'N/A'}")
+
+# Convert parameters to NumPy arrays if they are PyTorch tensors
+def to_numpy(param):
+    if torch.is_tensor(param):
+        return param.detach().cpu().numpy()
+    elif isinstance(param, np.ndarray):
+        return param
+    else:
+        raise TypeError(f"Parameter must be either a PyTorch tensor or NumPy array, got {type(param)}")
+
+# Extract trained parameters as NumPy arrays
+J_trained = to_numpy(J_param)
+B_trained = to_numpy(B_param)
+b_x_trained = to_numpy(b_x_param)
+w_trained = to_numpy(w_param)
+b_z_trained = to_numpy(b_z_param)
+
+print("\nConverted parameters to NumPy arrays:")
+print(f"J_trained shape: {J_trained.shape}")
+print(f"B_trained shape: {B_trained.shape}")
+print(f"b_x_trained shape: {b_x_trained.shape}")
+print(f"w_trained shape: {w_trained.shape}")
+print(f"b_z_trained shape: {b_z_trained.shape}")
 
 
 
@@ -328,7 +476,8 @@ def fixed_point_func(x_np, u_val, J_np, B_np, b_x_np):
 
 def slow_point_func(x_np, u_val, J_np, B_np, b_x_np):
     """
-    Compute q(x) = 0.5 * F(x) \cdot F(x), where F(x) = -x + J*tanh(x) + B*u + b_x
+    Compute the gradient of q(x) = 0.5 * F(x) \cdot F(x), where F(x) = -x + J*tanh(x) + B*u + b_x.
+    This is used to find slow points where the norm of the vector field is minimized.
     
     Arguments:
         x_np: Input vector (numpy array, shape (N,))
@@ -338,10 +487,20 @@ def slow_point_func(x_np, u_val, J_np, B_np, b_x_np):
         b_x_np: Bias vector (numpy array, shape (N,))
     
     Returns:
-        q_x: Output scalar (float)
+        grad_q: Gradient of q(x) (numpy array, shape (N,))
     """
-    F_x = fixed_point_func(x_np, u_val, J_np, B_np, b_x_np)
-    return 0.5 * np.dot(F_x, F_x)
+    # Compute F(x)
+    F_x = -x_np + np.dot(J_np, np.tanh(x_np)) + np.dot(B_np, np.array([u_val])).flatten() + b_x_np
+    
+    # Compute the Jacobian of F(x)
+    # dF/dx = -I + J * diag(1 - tanh(x)^2)
+    diag_term = 1 - np.tanh(x_np)**2
+    J_F = -np.eye(len(x_np)) + J_np * diag_term[np.newaxis, :]
+    
+    # Compute gradient of q(x) = F(x)^T * J_F
+    grad_q = np.dot(F_x, J_F)
+    
+    return grad_q
 
 
 def jacobian_fixed_point(x_star, J_np):
@@ -628,11 +787,6 @@ def plot_frequency_comparison(all_unstable_eig_freq, omegas, save_dir=None):
 # 4.2.1. Fixed Points: Find Jacobians, Fixed Points, and Unstable Mode Frequencies
 # -------------------------------
 
-# Extract trained parameters as NumPy arrays
-J_trained = J_param.detach().cpu().numpy()
-B_trained = B_param.detach().cpu().numpy()
-b_x_trained = b_x_param.detach().cpu().numpy()
-
 # Initialize lists to store multiple fixed points and their properties
 all_fixed_points = []  # List of lists of fixed points, one list per task, and the inner lists contain the fixed points for each task
 all_jacobians = []     # List of lists of Jacobians, one list per task, and the inner lists contain the Jacobians for each fixed point
@@ -685,11 +839,6 @@ save_variable(all_unstable_eig_freq, "all_unstable_eig_freq", N, num_tasks, dt, 
 # -------------------------------
 # 4.2.2. Slow Points: Find Jacobians, Slow Points, and Unstable Mode Frequencies
 # -------------------------------
-
-# Extract trained parameters as NumPy arrays
-J_trained = J_param.detach().cpu().numpy()
-B_trained = B_param.detach().cpu().numpy()
-b_x_trained = b_x_param.detach().cpu().numpy()
 
 # Initialize lists to store multiple fixed points and their properties
 all_slow_points = []  # List of lists of slow points, one list per task, and the inner lists contain the slow points for each task
@@ -869,7 +1018,7 @@ for j in test_js:
 # Select the tasks to plot
 test_js = TEST_INDICES
 # Plot Jacobian matrices for selected tasks
-print("\nPlotting Jacobian matrices for selected tasks...")
+print("\nFixed Points: Plotting Jacobian matrices for selected tasks...")
 for j in test_js:
     omega_j = omegas[j]
     
@@ -879,7 +1028,7 @@ for j in test_js:
 
 
 # Check for equal Jacobians within each task
-print("\nChecking for Equal Jacobians within Tasks:")
+print("\nFixed Points: Checking for Equal Jacobians within Tasks:")
 for j in range(num_tasks):
     # Get the Jacobians for this task
     task_jacobians = all_jacobians[j]
@@ -923,7 +1072,7 @@ for j in range(num_tasks):
 # Select the tasks to plot
 test_js = TEST_INDICES
 # Plot Jacobian matrices for selected tasks
-print("\nPlotting Jacobian matrices for selected tasks...")
+print("\nSlow Points: Plotting Jacobian matrices for selected tasks...")
 for j in test_js:
     omega_j = omegas[j]
     
@@ -933,7 +1082,7 @@ for j in test_js:
 
 
 # Check for equal Jacobians within each task
-print("\nChecking for Equal Jacobians within Tasks:")
+print("\nSlow Points: Checking for Equal Jacobians within Tasks:")
 for j in range(num_tasks):
     # Get the Jacobians for this task
     task_jacobians = all_slow_jacobians[j]
@@ -981,7 +1130,7 @@ colors = COLORS
 markers = MARKERS
 
 # Plot unstable eigenvalues for selected tasks
-print("\nPlotting unstable eigenvalues for selected tasks...")
+print("\nFixed Points: Plotting unstable eigenvalues for selected tasks...")
 for j in test_js:
     omega_j = omegas[j]
     
@@ -991,7 +1140,7 @@ for j in test_js:
 
 
 # Plot the comparisons between target frequencies and unstable mode frequencies
-print("\nPlotting comparisons between target frequencies and unstable mode frequencies...")
+print("\nFixed Points: Plotting comparisons between target frequencies and unstable mode frequencies...")
 plot_frequency_comparison(all_unstable_eig_freq, omegas, save_dir=output_dir)
 
 
@@ -1008,7 +1157,7 @@ colors = COLORS
 markers = MARKERS
 
 # Plot unstable eigenvalues for selected tasks
-print("\nPlotting unstable eigenvalues for selected tasks...")
+print("\nSlow Points: Plotting unstable eigenvalues for selected tasks...")
 for j in test_js:
     omega_j = omegas[j]
     
@@ -1018,7 +1167,7 @@ for j in test_js:
 
 
 # Plot the comparisons between target frequencies and unstable mode frequencies
-print("\nPlotting comparisons between target frequencies and unstable mode frequencies...")
+print("\nSlow Points: Plotting comparisons between target frequencies and unstable mode frequencies...")
 plot_frequency_comparison(all_slow_unstable_eig_freq, omegas, save_dir=output_dir)
 
 
@@ -1036,7 +1185,7 @@ plot_frequency_comparison(all_slow_unstable_eig_freq, omegas, save_dir=output_di
 
 # Track PCA computation time
 start_time = time.time()
-print("\nStarting PCA computation...")
+print("\nFixed Points: Starting PCA computation...")
 
 # Concatenate all states from all tasks (from training phase) to perform PCA
 all_states = np.concatenate([traj for traj in state.traj_states], axis=0)   # resulting shape is (num_tasks * num_steps_train, N)
@@ -1080,7 +1229,7 @@ print(f"\nPCA computation completed in {pca_time:.2f} seconds")
 
 # Track PCA computation time
 start_time_slow = time.time()
-print("\nStarting PCA computation...")
+print("\nSlow Points: Starting PCA computation...")
 
 
 # Project all slow points from all tasks

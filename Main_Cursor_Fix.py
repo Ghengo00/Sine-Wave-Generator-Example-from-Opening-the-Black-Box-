@@ -37,9 +37,9 @@ np.random.seed(42)
 torch.manual_seed(42)
 
 # Network dimensions and task parameters (CHANGE THESE FOR TEST RUNS)
-N = 200         # number of neurons (STANDARD VALUE IS 200)
+N = 60         # number of neurons (STANDARD VALUE IS 200)
 I = 1           # input dimension (scalar input)
-num_tasks = 51  # number of different sine-wave tasks (STANDARD VALUE IS 51)
+num_tasks = 16  # number of different sine-wave tasks (STANDARD VALUE IS 51)
 
 # Frequencies: equally spaced between 0.1 and 0.6 rad/s
 omegas = np.linspace(0.1, 0.6, num_tasks)
@@ -50,7 +50,7 @@ static_inputs = np.linspace(0, num_tasks-1, num_tasks) / num_tasks + 0.25
 # Time parameters (in seconds) (NEED TO CHOOSE THESE CAREFULLY)
 dt = 0.08        # integration time step
 T_drive = 4.0   # driving phase duration (to set network state)
-T_train = 32.0   # training phase duration with static input (target generation) (OMEGA = 0.1 NEEDS 63 SECONDS TO GO THROUGH A WHOLE CYCLE)
+T_train = 20.0   # training phase duration with static input (target generation) (OMEGA = 0.1 NEEDS 63 SECONDS TO GO THROUGH A WHOLE CYCLE)
 num_steps_drive = int(T_drive/dt)
 num_steps_train = int(T_train/dt)
 time_drive = np.arange(0, T_drive, dt)
@@ -104,8 +104,26 @@ LOSS_THRESHOLD = 1e-4
 # Plotting parameters
 TEST_INDICES = np.linspace(0, omegas.shape[0] - 1, 5, dtype=int)
 TEST_INDICES_EXTREMES = [0, omegas.shape[0] - 1]
-COLORS = ['b', 'g', 'r', 'c', 'm']
-MARKERS = ['o', 's', '^', 'v', '<']
+COLORS = [
+    'b', 'g', 'r', 'c', 'm',        # original 5
+    'y', 'k',                       # yellow, black
+    'orange', 'purple', 'brown',    # named colors
+    'pink', 'gray', 'olive', 'teal',
+    'navy', 'gold', 'lime', 'coral',
+    'slateblue', 'darkgreen', 'cyan'
+]
+
+MARKERS = [
+    'o', 's', '^', 'v', '<',        # original 5
+    '>',                            # right‑pointing triangle
+    'd', 'D',                       # thin & fat diamonds
+    'p',                            # pentagon
+    'h', 'H',                       # hexagon1 & hexagon2
+    '*',                            # star
+    '+', 'x',                       # plus & x
+    '|', '_',                       # vertical & horizontal lines
+    '1', '2', '3', '4'              # tripod markers
+]
 
 # Jacobians, fixed points, slow points, and unstable mode frequencies parameters
 NUM_ATTEMPTS = 10
@@ -598,7 +616,8 @@ def fixed_point_func(x_np, u_val, J_np, B_np, b_x_np):
 
 def slow_point_func(x_np, u_val, J_np, B_np, b_x_np):
     """
-    Compute q(x) = 0.5 * F(x) \cdot F(x), where F(x) = -x + J*tanh(x) + B*u + b_x
+    Compute the gradient of q(x) = 0.5 * F(x) cdot F(x), where F(x) = -x + J*tanh(x) + B*u + b_x.
+    This is used to find slow points where the norm of the vector field is minimized.
     
     Arguments:
         x_np: Input vector (numpy array, shape (N,))
@@ -608,10 +627,20 @@ def slow_point_func(x_np, u_val, J_np, B_np, b_x_np):
         b_x_np: Bias vector (numpy array, shape (N,))
     
     Returns:
-        q_x: Output scalar (float)
+        grad_q: Gradient of q(x) (numpy array, shape (N,))
     """
-    F_x = fixed_point_func(x_np, u_val, J_np, B_np, b_x_np)
-    return 0.5 * np.dot(F_x, F_x)
+    # Compute F(x)
+    F_x = -x_np + np.dot(J_np, np.tanh(x_np)) + np.dot(B_np, np.array([u_val])).flatten() + b_x_np
+    
+    # Compute the Jacobian of F(x)
+    # dF/dx = -I + J * diag(1 - tanh(x)^2)
+    diag_term = 1 - np.tanh(x_np)**2
+    J_F = -np.eye(len(x_np)) + J_np * diag_term[np.newaxis, :]
+    
+    # Compute gradient of q(x) = F(x)^T * J_F
+    grad_q = np.dot(F_x, J_F)
+    
+    return grad_q
 
 
 def jacobian_fixed_point(x_star, J_np):
@@ -681,7 +710,6 @@ def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_
 def find_slow_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=NUM_ATTEMPTS_SLOW, tol=TOL_SLOW):
     """
     Find multiple slow points for a given task by trying different initial conditions.
-    A slow point is defined as a point where the norm of the vector field is minimized.
 
     Arguments:
         x0_guess: Initial guess for fixed point for the given task
@@ -698,7 +726,7 @@ def find_slow_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_a
     # Try the original initial condition
     try:
         sol = root(slow_point_func, x0_guess, args=(u_const, J_trained, B_trained, b_x_trained),
-                  method='hybr', options={'maxiter': MAXITER_SLOW})
+                  method='lm', options={'maxiter': MAXITER_SLOW})
         if sol.success:
             slow_points.append(sol.x)
     except Exception as e:
@@ -710,7 +738,7 @@ def find_slow_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_a
         x0_perturbed = x0_guess + np.random.normal(0, 0.5, size=x0_guess.shape) # 0.5 is the default for this scenario
         try:
             sol = root(slow_point_func, x0_perturbed, args=(u_const, J_trained, B_trained, b_x_trained),
-                      method='hybr', options={'maxiter': MAXITER_SLOW})
+                      method='lm', options={'maxiter': MAXITER_SLOW})
             if sol.success:
                 # Check if this slow point is distinct from previous ones
                 is_distinct = True
@@ -1140,7 +1168,7 @@ for j in test_js:
 # Select the tasks to plot
 test_js = TEST_INDICES
 # Plot Jacobian matrices for selected tasks
-print("\nPlotting Jacobian matrices for selected tasks...")
+print("\nFixed Points: Plotting Jacobian matrices for selected tasks...")
 for j in test_js:
     omega_j = omegas[j]
     
@@ -1150,7 +1178,7 @@ for j in test_js:
 
 
 # Check for equal Jacobians within each task
-print("\nChecking for Equal Jacobians within Tasks:")
+print("\nFixed Points: Checking for Equal Jacobians within Tasks:")
 for j in range(num_tasks):
     # Get the Jacobians for this task
     task_jacobians = all_jacobians[j]
@@ -1194,7 +1222,7 @@ for j in range(num_tasks):
 # Select the tasks to plot
 test_js = TEST_INDICES
 # Plot Jacobian matrices for selected tasks
-print("\nPlotting Jacobian matrices for selected tasks...")
+print("\nSlow Points: Plotting Jacobian matrices for selected tasks...")
 for j in test_js:
     omega_j = omegas[j]
     
@@ -1204,7 +1232,7 @@ for j in test_js:
 
 
 # Check for equal Jacobians within each task
-print("\nChecking for Equal Jacobians within Tasks:")
+print("\nSlow Points: Checking for Equal Jacobians within Tasks:")
 for j in range(num_tasks):
     # Get the Jacobians for this task
     task_jacobians = all_slow_jacobians[j]
@@ -1252,7 +1280,7 @@ colors = COLORS
 markers = MARKERS
 
 # Plot unstable eigenvalues for selected tasks
-print("\nPlotting unstable eigenvalues for selected tasks...")
+print("\nFixed Points: Plotting unstable eigenvalues for selected tasks...")
 for j in test_js:
     omega_j = omegas[j]
     
@@ -1262,7 +1290,7 @@ for j in test_js:
 
 
 # Plot the comparisons between target frequencies and unstable mode frequencies
-print("\nPlotting comparisons between target frequencies and unstable mode frequencies...")
+print("\nFixed Points: Plotting comparisons between target frequencies and unstable mode frequencies...")
 plot_frequency_comparison(all_unstable_eig_freq, omegas, save_dir=output_dir)
 
 
@@ -1279,7 +1307,7 @@ colors = COLORS
 markers = MARKERS
 
 # Plot unstable eigenvalues for selected tasks
-print("\nPlotting unstable eigenvalues for selected tasks...")
+print("\nSlow Points: Plotting unstable eigenvalues for selected tasks...")
 for j in test_js:
     omega_j = omegas[j]
     
@@ -1289,7 +1317,7 @@ for j in test_js:
 
 
 # Plot the comparisons between target frequencies and unstable mode frequencies
-print("\nPlotting comparisons between target frequencies and unstable mode frequencies...")
+print("\nSlow Points: Plotting comparisons between target frequencies and unstable mode frequencies...")
 plot_frequency_comparison(all_slow_unstable_eig_freq, omegas, save_dir=output_dir)
 
 
@@ -1307,7 +1335,7 @@ plot_frequency_comparison(all_slow_unstable_eig_freq, omegas, save_dir=output_di
 
 # Track PCA computation time
 start_time = time.time()
-print("\nStarting PCA computation...")
+print("\nFixed Points: Starting PCA computation...")
 
 # Concatenate all states from all tasks (from training phase) to perform PCA
 all_states = np.concatenate([traj for traj in state.traj_states], axis=0)   # resulting shape is (num_tasks * num_steps_train, N)
@@ -1351,7 +1379,7 @@ print(f"\nPCA computation completed in {pca_time:.2f} seconds")
 
 # Track PCA computation time
 start_time_slow = time.time()
-print("\nStarting PCA computation...")
+print("\nSlow Points: Starting PCA computation...")
 
 
 # Project all slow points from all tasks
