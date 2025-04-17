@@ -104,8 +104,8 @@ EVALUE_TOL = 1e-3
 SEARCH_BATCH_SIZE = 5
 
 # Create output directory for saving files
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-output_dir = os.path.join(os.getcwd(), 'Outputs', f'Outputs_{timestamp}')
+RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+output_dir = os.path.join(os.getcwd(), 'Outputs', f'Outputs_{RUN_TIMESTAMP}')
 os.makedirs(output_dir, exist_ok=True)
 
 
@@ -119,8 +119,7 @@ def generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train):
     """
     Generate a filename with timestamp and parameters.
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{variable_name}_{timestamp}_Neuron_Number_{N}_Task_Number_{num_tasks}_Time_Steps_{dt}_Driving_Time_{T_drive}_Training_Time_{T_train}.pkl"
+    return f"{variable_name}_{RUN_TIMESTAMP}_Neuron_Number_{N}_Task_Number_{num_tasks}_Time_Steps_{dt}_Driving_Time_{T_drive}_Training_Time_{T_train}.pkl"
 
 
 def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train, output_dir=None):
@@ -129,13 +128,10 @@ def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train, o
     """
     # Use the current working directory to build the base directory for saving files
     base_dir = os.getcwd()
-
-    # Create timestamp in the same format as generate_filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # Allow the caller to specify an output directory; default to a subfolder 'Outputs_{timestamp}' in the current working directory
+    # Allow the caller to specify an output directory; default to the global output_dir
     if output_dir is None:
-        output_dir = os.path.join(base_dir, 'Outputs',f'Outputs_{timestamp}')
+        output_dir = os.path.join(base_dir, 'Outputs', f'Outputs_{RUN_TIMESTAMP}')
     else:
         output_dir = os.path.join(base_dir, output_dir)
 
@@ -208,40 +204,74 @@ state = TrainingState()
 # Get all output folders
 output_folders = glob.glob(os.path.join(os.getcwd(), 'Outputs', 'Outputs_*'))
 # Sort folders alphabetically (which will be by timestamp)
-output_folders.sort()
-# Get the most recent folder
-latest_folder = output_folders[-1] if output_folders else None
+output_folders.sort(reverse=True)  # Sort in reverse to get newest first
 
-if latest_folder:
-    # Find J_param pickle file in the latest folder
-    j_param_files = glob.glob(os.path.join(latest_folder, 'J_param_*.pkl'))
+# Initialize variables
+J_param = None
+B_param = None
+b_x_param = None
+w_param = None
+b_z_param = None
+state_data = None
+
+# Search through folders until we find one with J_param
+for folder in output_folders:
+    # Find J_param pickle file in the current folder
+    j_param_files = glob.glob(os.path.join(folder, 'J_param_*.pkl'))
     if j_param_files:
-        # Load parameters from the pickle file
-        with open(j_param_files[0], 'rb') as f:
-            J_param = pickle.load(f)
-        
-        # Load other parameters from the same folder
-        with open(os.path.join(latest_folder, 'B_param_*.pkl'), 'rb') as f:
-            B_param = pickle.load(f)
-        with open(os.path.join(latest_folder, 'b_x_param_*.pkl'), 'rb') as f:
-            b_x_param = pickle.load(f)
-        with open(os.path.join(latest_folder, 'w_param_*.pkl'), 'rb') as f:
-            w_param = pickle.load(f)
-        with open(os.path.join(latest_folder, 'b_z_param_*.pkl'), 'rb') as f:
-            b_z_param = pickle.load(f)
-        
-        # Load state from the same folder
-        state_files = glob.glob(os.path.join(latest_folder, 'state_*.pkl'))
-        if state_files:
-            with open(state_files[0], 'rb') as f:
-                state_data = pickle.load(f)
-                # Update the state instance with the loaded data
-                state.traj_states = state_data.traj_states
-                state.fixed_point_inits = state_data.fixed_point_inits
-    else:
-        print("No J_param pickle file found in the latest output folder")
-else:
-    print("No output folders found")
+        try:
+            # Load parameters from the pickle file
+            with open(j_param_files[0], 'rb') as f:
+                J_param = pickle.load(f)
+            
+            # Load other parameters from the same folder
+            b_param_files = glob.glob(os.path.join(folder, 'B_param_*.pkl'))
+            if b_param_files:
+                with open(b_param_files[0], 'rb') as f:
+                    B_param = pickle.load(f)
+            
+            b_x_param_files = glob.glob(os.path.join(folder, 'b_x_param_*.pkl'))
+            if b_x_param_files:
+                with open(b_x_param_files[0], 'rb') as f:
+                    b_x_param = pickle.load(f)
+            
+            w_param_files = glob.glob(os.path.join(folder, 'w_param_*.pkl'))
+            if w_param_files:
+                with open(w_param_files[0], 'rb') as f:
+                    w_param = pickle.load(f)
+            
+            b_z_param_files = glob.glob(os.path.join(folder, 'b_z_param_*.pkl'))
+            if b_z_param_files:
+                with open(b_z_param_files[0], 'rb') as f:
+                    b_z_param = pickle.load(f)
+            
+            # Load state from the same folder
+            state_files = glob.glob(os.path.join(folder, 'state_*.pkl'))
+            if state_files:
+                with open(state_files[0], 'rb') as f:
+                    state_data = pickle.load(f)
+                    # Update the state instance with the loaded data
+                    state.traj_states = state_data.traj_states
+                    state.fixed_point_inits = state_data.fixed_point_inits
+            
+            # If we successfully loaded all parameters, break the loop
+            if all(param is not None for param in [J_param, B_param, b_x_param, w_param, b_z_param]):
+                print(f"Successfully loaded parameters from folder: {folder}")
+                break
+                
+        except Exception as e:
+            print(f"Error loading parameters from folder {folder}: {str(e)}")
+            # Reset parameters if there was an error
+            J_param = None
+            B_param = None
+            b_x_param = None
+            w_param = None
+            b_z_param = None
+            state_data = None
+            continue
+
+if J_param is None:
+    print("No valid parameter files found in any output folder")
 
 
 
