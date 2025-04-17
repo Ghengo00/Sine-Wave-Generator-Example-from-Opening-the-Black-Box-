@@ -48,9 +48,9 @@ omegas = np.linspace(0.1, 0.6, num_tasks)
 static_inputs = np.linspace(0, num_tasks-1, num_tasks) / num_tasks + 0.25
 
 # Time parameters (in seconds) (NEED TO CHOOSE THESE CAREFULLY)
-dt = 0.02        # integration time step
+dt = 0.08        # integration time step
 T_drive = 4.0   # driving phase duration (to set network state)
-T_train = 24.0   # training phase duration with static input (target generation) (OMEGA = 0.1 NEEDS 63 SECONDS TO GO THROUGH A WHOLE CYCLE)
+T_train = 32.0   # training phase duration with static input (target generation) (OMEGA = 0.1 NEEDS 63 SECONDS TO GO THROUGH A WHOLE CYCLE)
 num_steps_drive = int(T_drive/dt)
 num_steps_train = int(T_train/dt)
 time_drive = np.arange(0, T_drive, dt)
@@ -119,8 +119,8 @@ EVALUE_TOL = 1e-3
 SEARCH_BATCH_SIZE = 5
 
 # Create output directory for saving files
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-output_dir = os.path.join(os.getcwd(), 'Outputs', f'Outputs_{timestamp}')
+RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+output_dir = os.path.join(os.getcwd(), 'Outputs', f'Outputs_{RUN_TIMESTAMP}')
 os.makedirs(output_dir, exist_ok=True)
 
 
@@ -134,8 +134,7 @@ def generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train):
     """
     Generate a filename with timestamp and parameters.
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{variable_name}_{timestamp}_Neuron_Number_{N}_Task_Number_{num_tasks}_Time_Steps_{dt}_Driving_Time_{T_drive}_Training_Time_{T_train}.pkl"
+    return f"{variable_name}_{RUN_TIMESTAMP}_Neuron_Number_{N}_Task_Number_{num_tasks}_Time_Steps_{dt}_Driving_Time_{T_drive}_Training_Time_{T_train}.pkl"
 
 
 def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train, output_dir=None):
@@ -144,13 +143,10 @@ def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train, o
     """
     # Use the current working directory to build the base directory for saving files
     base_dir = os.getcwd()
-
-    # Create timestamp in the same format as generate_filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # Allow the caller to specify an output directory; default to a subfolder 'Outputs_{timestamp}' in the current working directory
+    # Allow the caller to specify an output directory; default to the global output_dir
     if output_dir is None:
-        output_dir = os.path.join(base_dir, 'Outputs',f'Outputs_{timestamp}')
+        output_dir = os.path.join(base_dir, 'Outputs', f'Outputs_{RUN_TIMESTAMP}')
     else:
         output_dir = os.path.join(base_dir, output_dir)
 
@@ -685,6 +681,7 @@ def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_
 def find_slow_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=NUM_ATTEMPTS_SLOW, tol=TOL_SLOW):
     """
     Find multiple slow points for a given task by trying different initial conditions.
+    A slow point is defined as a point where the norm of the vector field is minimized.
 
     Arguments:
         x0_guess: Initial guess for fixed point for the given task
@@ -701,7 +698,7 @@ def find_slow_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_a
     # Try the original initial condition
     try:
         sol = root(slow_point_func, x0_guess, args=(u_const, J_trained, B_trained, b_x_trained),
-                  method='lm', options={'maxiter': MAXITER_SLOW})
+                  method='hybr', options={'maxiter': MAXITER_SLOW})
         if sol.success:
             slow_points.append(sol.x)
     except Exception as e:
@@ -713,7 +710,7 @@ def find_slow_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_a
         x0_perturbed = x0_guess + np.random.normal(0, 0.5, size=x0_guess.shape) # 0.5 is the default for this scenario
         try:
             sol = root(slow_point_func, x0_perturbed, args=(u_const, J_trained, B_trained, b_x_trained),
-                      method='lm', options={'maxiter': MAXITER_SLOW})
+                      method='hybr', options={'maxiter': MAXITER_SLOW})
             if sol.success:
                 # Check if this slow point is distinct from previous ones
                 is_distinct = True
