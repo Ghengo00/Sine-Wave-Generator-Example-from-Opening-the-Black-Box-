@@ -44,15 +44,14 @@ w_param   = torch.zeros(N,O,device=device)                  # read-out weights -
 b_z_param = torch.zeros(O,device=device)                    # biases, kept 0, only included to match the sine wave generator example
 P         = torch.eye(N,device=device)/alpha                # RLS state, P = I / alpha is the inverse correlation matrix used by FORCE
 
-# ATTENTION: Normally, the equation for the feedback weights should be:
-# W_fb_param= torch.randn(N,O,device=device)/np.sqrt(N)                 # feedback weights, sends the current output back into the network
+# ATTENTION: Normally, you would not use this (set fb_scale to 1.0)
 # However, here I changed it to try to improve RNN training by giving it stronger, orthogonal feedback weights
 # Use a stronger feedback weight to facilitate training
-fb_scale = 5.0                                                          # tune as needed (standard is 5.0)
-W_fb_param = fb_scale * torch.randn(N, O, device=device) / np.sqrt(O)   # feedback weights, sends the current output back into the network
+fb_scale = 1.0                                                          # scaling parameter, tune as needed (standard is 5.0)
+W_fb_param = fb_scale * torch.randn(N, O, device=device) / np.sqrt(N)   # feedback weights, sends the current output back into the network
 # Make columns of the feedback weight orthonormal so they do not cross-talk
-W_fb_param, _ = torch.linalg.qr(W_fb_param)     # keeps scale≈fb_scale
-W_fb_param = W_fb_param[:, :O].contiguous()
+# W_fb_param, _ = torch.linalg.qr(W_fb_param)     # keeps scale≈fb_scale
+# W_fb_param = W_fb_param[:, :O].contiguous()
 
 
 
@@ -63,9 +62,13 @@ W_fb_param = W_fb_param[:, :O].contiguous()
 force_max_iter = 1                                  # maximum number of FORCE passes to run
 force_tol      = 1e-6                               # loss tolerance for early stopping
 
-# ATTENTION: Normally, you would not use this (set this to 0)
+# ATTENTION: Normally, you would not use this (set lam to 0.0)
+# However, here I changed it to try to improve RNN training by giving it a slower leak
+lam = 0.0                                           # leak rate, tune as needed (standard is 1.0)
+
+# ATTENTION: Normally, you would not use this (set TEACHER_FORCING_STEPS to 0)
 # However, here I changed it to try to improve RNN training in the early stages
-TEACHER_FORCING_STEPS = min(5000, int(T_train/dt))  # number of steps to use teacher forcing (standard is 5000)
+TEACHER_FORCING_STEPS = min(0, int(T_train/dt))  # number of steps to use teacher forcing (standard is 5000)
 
 
 
@@ -187,6 +190,8 @@ def simulate(u_seq, z_tgt, train=True, teacher_forcing_steps=TEACHER_FORCING_STE
         
         if train:
             force_step(r, z, z_tgt[t])
+            # ATTENTION: Normally, you would not use this (set TEACHER_FORCING_STEPS to 0)
+            # However, here I changed it to try to improve RNN training in the early stages
             z_fb = z_tgt[t] if t < teacher_forcing_steps else z
         else:
             z_fb = z
@@ -195,7 +200,7 @@ def simulate(u_seq, z_tgt, train=True, teacher_forcing_steps=TEACHER_FORCING_STE
         # ATTENTION: Normally, this should be:
         # x += dt * (J_param @ r + B_param @ u_seq[t] + W_fb_param @ z)
         # However, here I changed it to try to improve RNN training by giving it a slower leak
-        x = (1. - dt) * x + dt * (J_param @ r + B_param @ u_seq[t] + W_fb_param @ z_fb)
+        x = (1. - lam * dt) * x + dt * (J_param @ r + B_param @ u_seq[t] + W_fb_param @ z_fb)
 
     return zs.cpu()
 
