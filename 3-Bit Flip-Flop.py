@@ -60,11 +60,12 @@ W_fb_param = W_fb_param[:, :O].contiguous()
 # ------------------------------------------------------------
 # 1.3 TRAINING PARAMETERS
 # ------------------------------------------------------------
-force_max_iter = 5                            # maximum number of FORCE passes to run
-force_tol      = 1e-6                          # loss tolerance for early stopping
+force_max_iter = 1                                  # maximum number of FORCE passes to run
+force_tol      = 1e-6                               # loss tolerance for early stopping
 
-# ATTENTION: Normally, you would set this to 1.
-lam = 0.995                                  # forgetting factor (normally should be set to 1.)
+# ATTENTION: Normally, you would not use this (set this to 0)
+# However, here I changed it to try to improve RNN training in the early stages
+TEACHER_FORCING_STEPS = min(5000, int(T_train/dt))  # number of steps to use teacher forcing (standard is 5000)
 
 
 
@@ -148,17 +149,9 @@ def force_step(r, z_hat, z_tgt):
 
     global w_param, P                         # global variables to be updated
 
-    # ATTENTION: You would not normally do this
-    # I do this here to try and improve RNN convergence
-    # Normally, lam = 1.
-    P.mul_(1 / lam)                           # inflate P
-
     err = z_hat - z_tgt                       # instantaneous error between current and target output, dimensions (3,)
     Pr = P @ r                                # dimesnions (N,)
-    # ATTENTION: You would not normally do this
-    # I do this here to try and improve RNN convergence
-    # Normally, lam = 1.
-    k = Pr / (lam + (r * Pr).sum())           # Sherman-Morrison gain vector, dimesions (N,)
+    k = Pr / (1. + (r * Pr).sum())            # Sherman-Morrison gain vector, dimesions (N,)
     P -= torch.ger(k, Pr)                     # rank-1 update, torch.ger(a,b) = a[:,None] @ b[None,:] produces an outer product
     w_param -= torch.ger(k, err)              # rank-1 update, torch.ger(a,b) = a[:,None] @ b[None,:] produces an outer product
 
@@ -169,7 +162,7 @@ def force_step(r, z_hat, z_tgt):
 # 4. SIMULATION CORE
 # ------------------------------------------------------------
 @torch.no_grad()
-def simulate(u_seq, z_tgt, train=True):
+def simulate(u_seq, z_tgt, train=True, teacher_forcing_steps=TEACHER_FORCING_STEPS):
     """
     Simulates the network with the given input sequence u_seq.
     The simulation is done using the Euler method, which is a simple numerical method for solving ordinary differential equations.
@@ -194,12 +187,15 @@ def simulate(u_seq, z_tgt, train=True):
         
         if train:
             force_step(r, z, z_tgt[t])
+            z_fb = z_tgt[t] if t < teacher_forcing_steps else z
+        else:
+            z_fb = z
 
         # Update the state of the network
         # ATTENTION: Normally, this should be:
         # x += dt * (J_param @ r + B_param @ u_seq[t] + W_fb_param @ z)
         # However, here I changed it to try to improve RNN training by giving it a slower leak
-        x = (1. - dt) * x + dt * (J_param @ r + B_param @ u_seq[t] + W_fb_param @ z)
+        x = (1. - dt) * x + dt * (J_param @ r + B_param @ u_seq[t] + W_fb_param @ z_fb)
 
     return zs.cpu()
 
