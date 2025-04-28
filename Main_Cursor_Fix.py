@@ -678,7 +678,7 @@ def jacobian_fixed_point(x_star, J_np):
     return -np.eye(len(x_star)) + J_np * diag_term[np.newaxis, :]
 
 
-def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=NUM_ATTEMPTS, tol=TOL):
+def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=NUM_ATTEMPTS, tol=TOL, alt_inits=None):
     """
     Find multiple fixed points for a given task by trying different initial conditions.
     
@@ -694,7 +694,7 @@ def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_
     """
     fixed_points = []
     
-    # Try the original initial condition
+    # (I) Try the original initial condition
     try:
         sol = root(fixed_point_func, x0_guess, args=(u_const, J_trained, B_trained, b_x_trained),
                   method='lm', options={'maxiter': MAXITER})
@@ -703,7 +703,7 @@ def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_
     except Exception as e:
         print(f"Fixed point search failed for initial guess: {str(e)}")
     
-    # Try perturbed initial conditions
+    # (II) Try Gaussian perturbations around x0_guess
     for attempt in tqdm(range(num_attempts - 1), desc="Finding fixed points", leave=False):
         # Create a perturbed initial condition
         x0_perturbed = x0_guess + np.random.normal(0, 0.5, size=x0_guess.shape) # 0.5 is the default for this scenario
@@ -721,6 +721,24 @@ def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_
                     fixed_points.append(sol.x)
         except Exception as e:
             print(f"Fixed point search failed for attempt {attempt+1}: {str(e)}")
+    
+    # # (III) Try states drawn from training trajectories
+    # if alt_inits is not None:
+    #     for cand in alt_inits:
+    #         try:
+    #             sol = root(fixed_point_func, cand, args=(u_const, J_trained, B_trained, b_x_trained),
+    #                     method='lm', options={'maxiter': MAXITER})
+    #             if sol.success:
+    #                 # Check if this fixed point is distinct from previous ones
+    #                 is_distinct = True
+    #                 for fp in fixed_points:
+    #                     if np.linalg.norm(sol.x - fp) < tol:
+    #                         is_distinct = False
+    #                         break
+    #                 if is_distinct:
+    #                     fixed_points.append(sol.x)
+    #         except Exception as e:
+    #             print(f"Fixed point search failed for attempt {attempt+1}: {str(e)}")
     
     return fixed_points
 
@@ -798,12 +816,12 @@ def find_slow_points_gn(x0_guess,
 
     slow_points = []
 
-    # (i) original guess
+    # (I) Original guess
     fp = _try(x0_guess)
     if fp is not None:
         slow_points.append(fp)
 
-    # (ii) Gaussian perturbations around x0_guess
+    # (II) Gaussian perturbations around x0_guess
     for _ in tqdm(range(num_attempts - 1),
                   desc="Finding slow points", leave=False):
         cand = x0_guess + np.random.normal(0.0, 0.5, size=x0_guess.shape)
@@ -813,8 +831,8 @@ def find_slow_points_gn(x0_guess,
             slow_points.append(fp)
             # keep going – there may be more distinct slow points
 
-    # (iii) fallback: states drawn from training trajectories
-    if not slow_points and alt_inits is not None:
+    # (III) States drawn from training trajectories
+    if alt_inits is not None:
         for cand in alt_inits:
             fp = _try(cand)
             if fp is not None and all(np.linalg.norm(fp - sp) >= tol
@@ -1021,8 +1039,18 @@ for batch_start in range(0, num_tasks, batch_size):
         u_const = static_inputs[j]
         x0_guess = state.fixed_point_inits[j]
         
+        # Build NUM_ATTEMPTS fallback states from the saved trajectories
+        idxs = np.random.choice(len(state.traj_states),
+                                size=min(num_tasks, NUM_ATTEMPTS), replace=False)
+        
+        fallback_inits = []
+        for idx in idxs:
+            traj = state.traj_states[idx]                # (T, N) ndarray
+            row = np.random.randint(0, traj.shape[0])
+            fallback_inits.append(traj[row])             # shape (N,)
+        
         # Find multiple fixed points
-        task_fixed_points = find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained)
+        task_fixed_points = find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=NUM_ATTEMPTS, tol=TOL, alt_inits=fallback_inits)
         all_fixed_points.append(task_fixed_points)
         
         # Analyze fixed points
