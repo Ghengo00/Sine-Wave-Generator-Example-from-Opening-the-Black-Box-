@@ -1,11 +1,19 @@
 # ------------------------------------------------------------
 # 0. IMPORTS
 # ------------------------------------------------------------
+from tqdm import tqdm
+import time
+from datetime import datetime
+import os
+import pickle
+
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-from tqdm import tqdm
-import time
+
+from scipy.optimize import root, least_squares
+from scipy.linalg import eig
+from sklearn.decomposition import PCA
 
 np.random.seed(42)
 torch.manual_seed(42)
@@ -31,6 +39,11 @@ pulse_prob = 4.0                        # expected pulses per second per line (s
 pulse_amp = 1.0                         # ±1 flip amplitude (standard is 1.0)
 
 alpha = 1.0                             # FORCE ridge parameter (P = I/alpha at start) (standard is 1.0)
+
+# Create output directory for saving files
+RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+output_dir = os.path.join(os.getcwd(), 'Outputs', f'3_Bit_Outputs_{RUN_TIMESTAMP}')
+os.makedirs(output_dir, exist_ok=True)
 
 
 
@@ -60,7 +73,8 @@ W_fb_param = fb_scale * torch.randn(N, O, device=device) / np.sqrt(N)   # feedba
 # 1.3 TRAINING PARAMETERS
 # ------------------------------------------------------------
 force_max_iter = 1                                  # maximum number of FORCE passes to run
-force_tol      = 1e-6                               # loss tolerance for early stopping
+force_tol      = 1e-2                               # loss tolerance for early stopping
+
 
 # ATTENTION: Normally, you would not use this (set lam to 0.0)
 # However, here I changed it to try to improve RNN training by giving it a slower leak
@@ -69,6 +83,46 @@ lam = 0.0                                           # leak rate, tune as needed 
 # ATTENTION: Normally, you would not use this (set TEACHER_FORCING_STEPS to 0)
 # However, here I changed it to try to improve RNN training in the early stages
 TEACHER_FORCING_STEPS = min(0, int(T_train/dt))  # number of steps to use teacher forcing (standard is 5000)
+
+
+NUM_ATTEMPTS_FIXED   = 50      # number of candidate initialisations for fixed points
+NUM_ATTEMPTS_SLOW    = 50      # numer of candidate initialisations for slow points
+TOL_FIXED            = 1e-2    # tolerance for finding distinct fixed points
+TOL_SLOW             = 1e-2    # tolerance for finding distinct slow points
+MAXITER_FIXED        = 5000    # maximum number of iterations for finding fixed points
+MAXITER_SLOW         = 5000    # maximum number of iterations for finding slow points
+
+
+
+
+# -------------------------------
+# 1.4. SAVING FUNCTIONS
+# -------------------------------
+
+def generate_filename(variable_name):
+    """
+    Generate a filename with timestamp.
+    """
+
+    return f"{variable_name}_{RUN_TIMESTAMP}.pkl"
+
+
+def save_variable(variable, variable_name, output_directory=output_dir):
+    """
+    Save a variable to a pickle file with a descriptive filename in the Outputs folder.
+    """
+
+    # Generate filename with descriptive parameters
+    filename = generate_filename(variable_name)
+    filepath = os.path.join(output_directory, filename)
+    
+    # Use a try-except block to handle potential I/O errors
+    try:
+        with open(filepath, 'wb') as f:
+            pickle.dump(variable, f)
+        print(f"Saved {variable_name} to {filepath}")
+    except Exception as e:
+        print(f"Error saving {variable_name} to {filepath}: {e}")
 
 
 
@@ -125,7 +179,7 @@ def generate_pulse_task(dt, T, prob, amp):
 
 
 # ------------------------------------------------------------
-# 3. FORCE UPDATE
+# 3.1 FORCE UPDATE
 # ------------------------------------------------------------
 @torch.no_grad()
 def force_step(r, z_hat, z_tgt):
@@ -162,7 +216,7 @@ def force_step(r, z_hat, z_tgt):
 
 
 # ------------------------------------------------------------
-# 4. SIMULATION CORE
+# 3.2 SIMULATION CORE
 # ------------------------------------------------------------
 @torch.no_grad()
 def simulate(u_seq, z_tgt, train=True, teacher_forcing_steps=TEACHER_FORCING_STEPS):
@@ -208,18 +262,20 @@ def simulate(u_seq, z_tgt, train=True, teacher_forcing_steps=TEACHER_FORCING_STE
 
 
 # ------------------------------------------------------------
-# 5. TRAINING
+# 3.3 TRAINING
 # ------------------------------------------------------------
-def plot_test_run(u_test, z_test, z_target_test, dt):
+def plot_test_run(u_test, z_test, z_target_test, dt, to_save=True):
     """
     Plots the test run outputs for the network.
 
     Parameters:
     u_test: input sequence for testing, dimensions (steps, O)
     z_test: output sequence from testing, dimensions (steps, O)
+    z_target_test: target output sequence, dimensions (steps, O)
     dt: time step
+    to_save: boolean, if True, saves the plot as a png file using save_variable()
     """
-
+    
     t = np.arange(u_test.shape[0]) * dt
     colors = ['r', 'g', 'b']
     fig, ax = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
@@ -231,6 +287,13 @@ def plot_test_run(u_test, z_test, z_target_test, dt):
         ax[k].legend(loc='upper right')
     ax[-1].set_xlabel('time (s)')
     plt.tight_layout()
+    
+    if to_save:
+        # Save the plot as a PNG file and then log its path with save_variable()
+        filename = f"3_Bit_{RUN_TIMESTAMP}.png"
+        filepath = os.path.join(output_dir, filename)
+        fig.savefig(filepath)
+    
     plt.show()
 
 
@@ -273,7 +336,7 @@ def train_force(max_iter=force_max_iter, tol=force_tol):
             plt.show()
             u_test, z_target_test = generate_pulse_task(dt, T_test, pulse_prob, pulse_amp)
             z_test = simulate(u_test, z_target_test, train=False)
-            plot_test_run(u_test, z_test, z_target_test, dt)
+            plot_test_run(u_test, z_test, z_target_test, dt, to_save=False)
 
         iter_time = time.time() - start_time
         pbar.set_postfix(loss=f'{loss:.3e}', time=f'{iter_time:.3f}s')
@@ -289,11 +352,15 @@ def train_force(max_iter=force_max_iter, tol=force_tol):
 
 train_force(force_max_iter, force_tol)
 
+# Save the final parameters
+save_variable(w_param.cpu().numpy(), 'w')
+save_variable(P.cpu().numpy(), 'P')
+
 
 
 
 # ------------------------------------------------------------
-# 6. TESTING
+# 4.1 TESTING
 # ------------------------------------------------------------
 u_test, z_target_test = generate_pulse_task(dt, T_test, pulse_prob, pulse_amp)
 z_test = simulate(u_test, z_target_test, train=False)
@@ -302,6 +369,6 @@ z_test = simulate(u_test, z_target_test, train=False)
 
 
 # ------------------------------------------------------------
-# 7. PLOTTING
+# 4.2 PLOTTING
 # ------------------------------------------------------------
 plot_test_run(u_test, z_test, z_target_test, dt)
