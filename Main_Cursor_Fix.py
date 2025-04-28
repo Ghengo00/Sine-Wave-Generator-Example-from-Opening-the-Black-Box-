@@ -48,9 +48,9 @@ omegas = np.linspace(0.1, 0.6, num_tasks)
 static_inputs = np.linspace(0, num_tasks-1, num_tasks) / num_tasks + 0.25
 
 # Time parameters (in seconds) (NEED TO CHOOSE THESE CAREFULLY)
-dt = 0.08        # integration time step
-T_drive = 4.0   # driving phase duration (to set network state)
-T_train = 20.0   # training phase duration with static input (target generation) (OMEGA = 0.1 NEEDS 63 SECONDS TO GO THROUGH A WHOLE CYCLE)
+dt = 0.02        # integration time step
+T_drive = 1.0   # driving phase duration (to set network state)
+T_train = 8.0   # training phase duration with static input (target generation) (OMEGA = 0.1 NEEDS 63 SECONDS TO GO THROUGH A WHOLE CYCLE)
 num_steps_drive = int(T_drive/dt)
 num_steps_train = int(T_train/dt)
 time_drive = np.arange(0, T_drive, dt)
@@ -612,6 +612,24 @@ def fixed_point_func(x_np, u_val, J_np, B_np, b_x_np):
     x = x_np
     # Note that np.array([u_val]) has shape (1,), so the dot product has shape (N,1), which means that it must be flattened to (N,)
     return -x + np.dot(J_np, np.tanh(x)) + np.dot(B_np, np.array([u_val])).flatten() + b_x_np
+
+
+# def slow_point_func_base_not_gradient(x_np, u_val, J_np, B_np, b_x_np):
+#     """
+#     Compute q(x) = 0.5 * F(x) \cdot F(x), where F(x) = -x + J*tanh(x) + B*u + b_x
+    
+#     Arguments:
+#         x_np: Input vector (numpy array, shape (N,))
+#         u_val: Constant input value (float)
+#         J_np: Recurrent weight matrix (numpy array, shape (N, N))
+#         B_np: Input weight matrix (numpy array, shape (N, I))
+#         b_x_np: Bias vector (numpy array, shape (N,))
+    
+#     Returns:
+#         q_x: Output scalar (float)
+#     """
+#     F_x = fixed_point_func(x_np, u_val, J_np, B_np, b_x_np)
+#     return 0.5 * np.dot(F_x, F_x)
 
 
 def slow_point_func(x_np, u_val, J_np, B_np, b_x_np):
@@ -1374,7 +1392,7 @@ print(f"\nPCA computation completed in {pca_time:.2f} seconds")
 
 
 # -------------------------------
-# 5.1.2. Slow Points: Perform PCA on Trajectories and Fixed Points
+# 5.1.2. Slow Points: Perform PCA on Trajectories and Slow Points
 # -------------------------------
 
 # Track PCA computation time
