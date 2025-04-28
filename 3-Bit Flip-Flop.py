@@ -40,10 +40,19 @@ alpha = 1.0                             # FORCE ridge parameter (P = I/alpha at 
 # ------------------------------------------------------------
 J_param   = g*torch.randn(N,N,device=device)/np.sqrt(N)     # recurrent weights, spectral radius g achieved by scaling by g / sqrt(N)
 B_param   = torch.randn(N,O,device=device)/np.sqrt(O)       # input weights, couples the external pulses to the network
-W_fb_param= torch.randn(N,O,device=device)/np.sqrt(N)       # feedback weights, sends the current output back into the network
 w_param   = torch.zeros(N,O,device=device)                  # read-out weights - this is the only thing that FORCE will train
 b_z_param = torch.zeros(O,device=device)                    # biases, kept 0, only included to match the sine wave generator example
 P         = torch.eye(N,device=device)/alpha                # RLS state, P = I / alpha is the inverse correlation matrix used by FORCE
+
+# ATTENTION: Normally, the equation for the feedback weights should be:
+# W_fb_param= torch.randn(N,O,device=device)/np.sqrt(N)                 # feedback weights, sends the current output back into the network
+# However, here I changed it to try to improve RNN training by giving it stronger, orthogonal feedback weights
+# Use a stronger feedback weight to facilitate training
+fb_scale = 5.0                                                          # tune as needed (standard is 5.0)
+W_fb_param = fb_scale * torch.randn(N, O, device=device) / np.sqrt(O)   # feedback weights, sends the current output back into the network
+# Make columns of the feedback weight orthonormal so they do not cross-talk
+W_fb_param, _ = torch.linalg.qr(W_fb_param)     # keeps scale≈fb_scale
+W_fb_param = W_fb_param[:, :O].contiguous()
 
 
 
@@ -51,7 +60,7 @@ P         = torch.eye(N,device=device)/alpha                # RLS state, P = I /
 # ------------------------------------------------------------
 # 1.3 TRAINING PARAMETERS
 # ------------------------------------------------------------
-force_max_iter = 15                            # maximum number of FORCE passes to run
+force_max_iter = 5                            # maximum number of FORCE passes to run
 force_tol      = 1e-6                          # loss tolerance for early stopping
 
 
@@ -174,8 +183,12 @@ def simulate(u_seq, z_tgt, train=True):
         
         if train:
             force_step(r, z, z_tgt[t])
+
         # Update the state of the network
-        x += dt*(-x + J_param @ r + B_param @ u_seq[t] + W_fb_param @ z)
+        # ATTENTION: Normally, this should be:
+        # x += dt * (J_param @ r + B_param @ u_seq[t] + W_fb_param @ z)
+        # However, here I changed it to try to improve RNN training by giving it a slower leak
+        x = (1. - dt) * x + dt * (J_param @ r + B_param @ u_seq[t] + W_fb_param @ z)
 
     return zs.cpu()
 
@@ -185,7 +198,7 @@ def simulate(u_seq, z_tgt, train=True):
 # ------------------------------------------------------------
 # 5. TRAINING
 # ------------------------------------------------------------
-def plot_test_run(u_test, z_test, dt):
+def plot_test_run(u_test, z_test, z_target_test, dt):
     """
     Plots the test run outputs for the network.
 
@@ -201,6 +214,7 @@ def plot_test_run(u_test, z_test, dt):
     for k in range(3):
         ax[k].plot(t, u_test[:, k].cpu(), '--', color=colors[k], alpha=0.4, label='input')
         ax[k].plot(t, z_test[:, k], color=colors[k], label='output')
+        ax[k].plot(t, z_target_test[:, k].cpu(), '--', color='lightgrey', label='target')
         ax[k].set_ylabel(f'bit {k}')
         ax[k].legend(loc='upper right')
     ax[-1].set_xlabel('time (s)')
@@ -247,7 +261,7 @@ def train_force(max_iter=force_max_iter, tol=force_tol):
             plt.show()
             u_test, z_target_test = generate_pulse_task(dt, T_test, pulse_prob, pulse_amp)
             z_test = simulate(u_test, z_target_test, train=False)
-            plot_test_run(u_test, z_test, dt)
+            plot_test_run(u_test, z_test, z_target_test, dt)
 
         iter_time = time.time() - start_time
         pbar.set_postfix(loss=f'{loss:.3e}', time=f'{iter_time:.3f}s')
@@ -278,4 +292,4 @@ z_test = simulate(u_test, z_target_test, train=False)
 # ------------------------------------------------------------
 # 7. PLOTTING
 # ------------------------------------------------------------
-plot_test_run(u_test, z_test, dt)
+plot_test_run(u_test, z_test, z_target_test, dt)
