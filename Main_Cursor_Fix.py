@@ -11,7 +11,7 @@ import torch
 import torch.optim as optim
 import torch.nn.functional as F
 from sklearn.decomposition import PCA
-from scipy.optimize import root
+from scipy.optimize import root, least_squares
 from scipy.linalg import eig
 
 import os
@@ -126,12 +126,12 @@ MARKERS = [
 ]
 
 # Jacobians, fixed points, slow points, and unstable mode frequencies parameters
-NUM_ATTEMPTS = 10
+NUM_ATTEMPTS = 50
 TOL = 1e-2
-MAXITER = 1000
-NUM_ATTEMPTS_SLOW = 10
+MAXITER = 5000
+NUM_ATTEMPTS_SLOW = 50
 TOL_SLOW = 1e-2
-MAXITER_SLOW = 1000
+MAXITER_SLOW = 5000
 JACOBIAN_TOL = 1e-2
 EVALUE_TOL = 1e-3
 SEARCH_BATCH_SIZE = 5
@@ -772,6 +772,59 @@ def find_slow_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_a
     return slow_points
 
 
+def find_slow_points_gn(x0_guess,
+                     u_const,
+                     J_trained, B_trained, b_x_trained,
+                     num_attempts=NUM_ATTEMPTS_SLOW,
+                     tol=TOL_SLOW,
+                     alt_inits=None):
+    """
+    Uses Gauss-Newton (least_squares, method='lm') to find slow points.
+    If the usual perturbed guesses fail, we fall back to `alt_inits`
+    taken from the training trajectories.
+    """
+    def _try(initial_x):
+        try:
+            res = least_squares(slow_point_func,
+                                initial_x,
+                                args=(u_const, J_trained, B_trained, b_x_trained),
+                                method='lm',           # Gauss-Newton / LM
+                                max_nfev=MAXITER_SLOW)
+            if res.success and np.linalg.norm(res.fun) < tol:
+                return res.x
+        except Exception as e:
+            print(f"Gauss-Newton slow-point search failed: {e}")
+        return None
+
+    slow_points = []
+
+    # (i) original guess
+    fp = _try(x0_guess)
+    if fp is not None:
+        slow_points.append(fp)
+
+    # (ii) Gaussian perturbations around x0_guess
+    for _ in tqdm(range(num_attempts - 1),
+                  desc="Finding slow points", leave=False):
+        cand = x0_guess + np.random.normal(0.0, 0.5, size=x0_guess.shape)
+        fp = _try(cand)
+        if fp is not None and all(np.linalg.norm(fp - sp) >= tol
+                                  for sp in slow_points):
+            slow_points.append(fp)
+            # keep going – there may be more distinct slow points
+
+    # (iii) fallback: states drawn from training trajectories
+    if not slow_points and alt_inits is not None:
+        for cand in alt_inits:
+            fp = _try(cand)
+            if fp is not None and all(np.linalg.norm(fp - sp) >= tol
+                                      for sp in slow_points):
+                slow_points.append(fp)
+                # keep going – there may be more distinct slow points
+
+    return slow_points
+
+
 def analyze_fixed_points(fixed_points, J_trained):
     """
     Analyze fixed points for a given task and compute their properties in a memory-efficient way.
@@ -1026,8 +1079,18 @@ for batch_start in range(0, num_tasks, batch_size):
         u_const = static_inputs[j]
         x0_guess = state.fixed_point_inits[j]
         
+        # Build NUM_ATTEMPTS_SLOW fallback states from the saved trajectories
+        idxs = np.random.choice(len(state.traj_states),
+                                size=min(num_tasks, NUM_ATTEMPTS_SLOW), replace=False)
+        
+        fallback_inits = []
+        for idx in idxs:
+            traj = state.traj_states[idx]                # (T, N) ndarray
+            row = np.random.randint(0, traj.shape[0])
+            fallback_inits.append(traj[row])             # shape (N,)
+        
         # Find multiple slow points
-        task_slow_points = find_slow_points(x0_guess, u_const, J_trained, B_trained, b_x_trained)
+        task_slow_points = find_slow_points_gn(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=NUM_ATTEMPTS_SLOW, tol=TOL_SLOW, alt_inits=fallback_inits)
         all_slow_points.append(task_slow_points)
         
         # Analyze slow points
