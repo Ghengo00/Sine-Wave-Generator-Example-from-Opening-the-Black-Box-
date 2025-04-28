@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import time
 
 np.random.seed(42)
 torch.manual_seed(42)
@@ -15,7 +16,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 # ------------------------------------------------------------
-# 1. PARAMETERS (3-Bit Flip-Flop Task)
+# 1.1 TASK PARAMETERS (3-Bit Flip-Flop Task)
 # ------------------------------------------------------------
 N = 1000                                # neurons (standard is 1,000)
 O = 3                                   # outputs (=inputs) (stnadard is 3)
@@ -35,7 +36,7 @@ alpha = 1.0                             # FORCE ridge parameter (P = I/alpha at 
 
 
 # ------------------------------------------------------------
-# 1.1 WEIGHTS
+# 1.2 WEIGHTS
 # ------------------------------------------------------------
 J_param   = g*torch.randn(N,N,device=device)/np.sqrt(N)     # recurrent weights, spectral radius g achieved by scaling by g / sqrt(N)
 B_param   = torch.randn(N,O,device=device)/np.sqrt(O)       # input weights, couples the external pulses to the network
@@ -43,6 +44,15 @@ W_fb_param= torch.randn(N,O,device=device)/np.sqrt(N)       # feedback weights, 
 w_param   = torch.zeros(N,O,device=device)                  # read-out weights - this is the only thing that FORCE will train
 b_z_param = torch.zeros(O,device=device)                    # biases, kept 0, only included to match the sine wave generator example
 P         = torch.eye(N,device=device)/alpha                # RLS state, P = I / alpha is the inverse correlation matrix used by FORCE
+
+
+
+
+# ------------------------------------------------------------
+# 1.3 TRAINING PARAMETERS
+# ------------------------------------------------------------
+force_max_iter = 15                            # maximum number of FORCE passes to run
+force_tol      = 1e-6                          # loss tolerance for early stopping
 
 
 
@@ -174,10 +184,29 @@ def simulate(u_seq, train=True):
 # ------------------------------------------------------------
 # 5. TRAINING
 # ------------------------------------------------------------
-u_seq, z_tgt = generate_pulse_task(dt, T_train, pulse_prob, pulse_amp)
-zs = simulate(u_seq, train=True)
-loss = torch.mean((zs - z_tgt.cpu())**2).item()
-print(f'After one FORCE pass: MSE = {loss:.3e}')
+def train_force(max_iter=force_max_iter, tol=force_tol):
+    """
+    Trains the network using FORCE until max_iter iterations or until the MSE falls below tol.
+
+    Parameters:
+    max_iter: int - maximum number of FORCE passes to run
+    tol: float - loss tolerance for early stopping
+    """
+    global w_param, P  # access global parameters updated by FORCE
+
+    pbar = tqdm(range(max_iter), desc="Training iterations", unit="iter")
+    for i in pbar:
+        start_time = time.time()
+        u_seq, z_tgt = generate_pulse_task(dt, T_train, pulse_prob, pulse_amp)
+        zs = simulate(u_seq, train=True)
+        loss = torch.mean((zs - z_tgt.cpu())**2).item()
+        iter_time = time.time() - start_time
+        pbar.set_postfix(loss=f'{loss:.3e}', time=f'{iter_time:.3f}s')
+        if loss < tol:
+            break
+
+# Example call to the training function with max_iter=100 and tol=1e-3
+train_force()
 
 
 
