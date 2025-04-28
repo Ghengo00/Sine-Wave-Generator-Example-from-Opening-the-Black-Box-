@@ -149,7 +149,7 @@ def force_step(r, z_hat, z_tgt):
 # 4. SIMULATION CORE
 # ------------------------------------------------------------
 @torch.no_grad()
-def simulate(u_seq, train=True):
+def simulate(u_seq, z_tgt, train=True):
     """
     Simulates the network with the given input sequence u_seq.
     The simulation is done using the Euler method, which is a simple numerical method for solving ordinary differential equations.
@@ -172,7 +172,8 @@ def simulate(u_seq, train=True):
         z  = r @ w_param + b_z_param            # (3,)
         zs[t] = z
         
-        if train: force_step(r, z, z_tgt[t])
+        if train:
+            force_step(r, z, z_tgt[t])
         # Update the state of the network
         x += dt*(-x + J_param @ r + B_param @ u_seq[t] + W_fb_param @ z)
 
@@ -184,29 +185,83 @@ def simulate(u_seq, train=True):
 # ------------------------------------------------------------
 # 5. TRAINING
 # ------------------------------------------------------------
+def plot_test_run(u_test, z_test, dt):
+    """
+    Plots the test run outputs for the network.
+
+    Parameters:
+    u_test: input sequence for testing, dimensions (steps, O)
+    z_test: output sequence from testing, dimensions (steps, O)
+    dt: time step
+    """
+
+    t = np.arange(u_test.shape[0]) * dt
+    colors = ['r', 'g', 'b']
+    fig, ax = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
+    for k in range(3):
+        ax[k].plot(t, u_test[:, k].cpu(), '--', color=colors[k], alpha=0.4, label='input')
+        ax[k].plot(t, z_test[:, k], color=colors[k], label='output')
+        ax[k].set_ylabel(f'bit {k}')
+        ax[k].legend(loc='upper right')
+    ax[-1].set_xlabel('time (s)')
+    plt.tight_layout()
+    plt.show()
+
+
 def train_force(max_iter=force_max_iter, tol=force_tol):
     """
     Trains the network using FORCE until max_iter iterations or until the MSE falls below tol.
-
+    Every 10 iterations, generates and plots a test run with current network parameters.
+    Stores and restores the parameters that yield the smallest loss.
+    
     Parameters:
     max_iter: int - maximum number of FORCE passes to run
     tol: float - loss tolerance for early stopping
     """
+
     global w_param, P  # access global parameters updated by FORCE
+    best_loss = float('inf')
+    best_w = w_param.clone()
+    best_P = P.clone()
 
     pbar = tqdm(range(max_iter), desc="Training iterations", unit="iter")
     for i in pbar:
         start_time = time.time()
+        
         u_seq, z_tgt = generate_pulse_task(dt, T_train, pulse_prob, pulse_amp)
-        zs = simulate(u_seq, train=True)
-        loss = torch.mean((zs - z_tgt.cpu())**2).item()
+        zs = simulate(u_seq, z_tgt, train=True)
+        loss = torch.mean((zs - z_tgt.cpu()) ** 2).item()
+        
+        # Save the parameters if they yield a lower loss
+        if loss < best_loss:
+            best_loss = loss
+            best_w = w_param.clone()
+            best_P = P.clone()
+            # THE FOLLOWING IS A CHECK - remove when done
+            plt.figure()
+            plt.imshow(w_param.cpu().numpy(), aspect='auto', cmap='viridis')
+            plt.colorbar()
+            plt.title(f"Visualization of w at iteration {i} | New Best Loss = {loss:.3e} | Norm = {torch.norm(best_w):.3e}")
+            plt.xlabel("Output dimension")
+            plt.ylabel("Neuron index")
+            plt.show()
+            u_test, z_target_test = generate_pulse_task(dt, T_test, pulse_prob, pulse_amp)
+            z_test = simulate(u_test, z_target_test, train=False)
+            plot_test_run(u_test, z_test, dt)
+
         iter_time = time.time() - start_time
         pbar.set_postfix(loss=f'{loss:.3e}', time=f'{iter_time:.3f}s')
+
+        # Early stopping if the loss is below the tolerance
         if loss < tol:
             break
 
-# Example call to the training function with max_iter=100 and tol=1e-3
-train_force()
+    # Restore the best parameters before finishing training
+    w_param = best_w.clone()
+    P = best_P.clone()
+
+
+train_force(force_max_iter, force_tol)
 
 
 
@@ -215,7 +270,7 @@ train_force()
 # 6. TESTING
 # ------------------------------------------------------------
 u_test, z_target_test = generate_pulse_task(dt, T_test, pulse_prob, pulse_amp)
-z_test = simulate(u_test, train=False)
+z_test = simulate(u_test, z_target_test, train=False)
 
 
 
@@ -223,13 +278,4 @@ z_test = simulate(u_test, train=False)
 # ------------------------------------------------------------
 # 7. PLOTTING
 # ------------------------------------------------------------
-t = np.arange(u_test.shape[0]) * dt
-colors=['r','g','b']
-fig,ax = plt.subplots(3,1,figsize=(10,6),sharex=True)
-for k in range(3):
-    ax[k].plot(t, u_test[:,k].cpu(),  '--', color=colors[k],alpha=.4,label='input')
-    ax[k].plot(t, z_test[:,k],        color=colors[k],       label='output')
-    ax[k].set_ylabel(f'bit {k}')
-    ax[k].legend(loc='upper right')
-ax[-1].set_xlabel('time (s)')
-plt.tight_layout();  plt.show()
+plot_test_run(u_test, z_test, dt)
