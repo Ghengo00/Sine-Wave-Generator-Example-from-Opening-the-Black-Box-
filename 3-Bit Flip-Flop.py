@@ -448,3 +448,48 @@ def calculate_q(F_x):
     return q_x
 
 
+def calculate_grad_F(x, u, J, B, W_fb, w):
+    """
+    Compute the gradient of F(x) with respect to x.
+
+    Arguments:
+        x: Input vector (numpy array, shape (N,))
+        u: Input vector (numpy array, shape (O,))
+        J: Recurrent weight matrix (numpy array, shape (N, N))
+        B: Input weight matrix (numpy array, shape (N, O))
+        W_fb: Feedback weight matrix (numpy array, shape (N, O))
+        w: Readout weight matrix (numpy array, shape (N, O))
+    
+    Returns:
+        grad_F_x: Gradient vector (numpy array, shape (N,N))
+    """
+
+    # Compute the activation
+    r = np.tanh(x)  # (N,)
+    # Compute the output (/feedback)
+    z = w @ r       # (O,)
+    
+    # Compute the Jacobian of the activation
+    grad_r = np.diag(1 - r ** 2)  # (N, N)
+
+    # Compute the gradient of F(x)
+    grad_F_x = -np.eye(len(x)) + (J + W_fb @ w) @ grad_r
+
+    return grad_F_x
+
+
+def calculate_grad_q(F_x, grad_F_x):
+    """
+    Compute the gradient of q(x) with respect to x.
+
+    Arguments:
+        F_x: Input vector (numpy array, shape (N,))
+    
+    Returns:
+        grad_q_x: Gradient vector (numpy array, shape (N,))
+    """
+
+    # Compute the gradient of q(x)
+    grad_q_x = F_x @ grad_F_x
+
+    return grad_q_x
