@@ -24,6 +24,12 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 # ------------------------------------------------------------
+# ------------------------------------------------------------
+# A. TRAIN RNN
+# ------------------------------------------------------------
+# ------------------------------------------------------------
+
+# ------------------------------------------------------------
 # 1.1 TASK PARAMETERS (3-Bit Flip-Flop Task)
 # ------------------------------------------------------------
 N = 1000                                # neurons (standard is 1,000)
@@ -98,7 +104,6 @@ MAXITER_SLOW         = 5000    # maximum number of iterations for finding slow p
 # -------------------------------
 # 1.4. SAVING FUNCTIONS
 # -------------------------------
-
 def generate_filename(variable_name):
     """
     Generate a filename with timestamp.
@@ -123,6 +128,44 @@ def save_variable(variable, variable_name, output_directory=output_dir):
         print(f"Saved {variable_name} to {filepath}")
     except Exception as e:
         print(f"Error saving {variable_name} to {filepath}: {e}")
+
+
+
+
+# ------------------------------------------------------------
+# 1.5 PLOTTING FUNCTIONS
+# ------------------------------------------------------------
+def plot_test_run(u_test, z_test, z_target_test, dt, to_save=True):
+    """
+    Plots the test run outputs for the network.
+
+    Parameters:
+    u_test: input sequence for testing, dimensions (steps, O)
+    z_test: output sequence from testing, dimensions (steps, O)
+    z_target_test: target output sequence, dimensions (steps, O)
+    dt: time step
+    to_save: boolean, if True, saves the plot as a png file using save_variable()
+    """
+    
+    t = np.arange(u_test.shape[0]) * dt
+    colors = ['r', 'g', 'b']
+    fig, ax = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
+    for k in range(3):
+        ax[k].plot(t, u_test[:, k].cpu(), '--', color=colors[k], alpha=0.4, label='input')
+        ax[k].plot(t, z_test[:, k], color=colors[k], label='output')
+        ax[k].plot(t, z_target_test[:, k].cpu(), '--', color='lightgrey', label='target')
+        ax[k].set_ylabel(f'bit {k}')
+        ax[k].legend(loc='upper right')
+    ax[-1].set_xlabel('time (s)')
+    plt.tight_layout()
+    
+    if to_save:
+        # Save the plot as a PNG file and then log its path with save_variable()
+        filename = f"3_Bit_{RUN_TIMESTAMP}.png"
+        filepath = os.path.join(output_dir, filename)
+        fig.savefig(filepath)
+    
+    plt.show()
 
 
 
@@ -219,29 +262,33 @@ def force_step(r, z_hat, z_tgt):
 # 3.2 SIMULATION CORE
 # ------------------------------------------------------------
 @torch.no_grad()
-def simulate(u_seq, z_tgt, train=True, teacher_forcing_steps=TEACHER_FORCING_STEPS):
+def simulate(u_seq, z_tgt, train=True, teacher_forcing_steps=TEACHER_FORCING_STEPS, record_trajectory=False):
     """
     Simulates the network with the given input sequence u_seq.
     The simulation is done using the Euler method, which is a simple numerical method for solving ordinary differential equations.
 
     Parameters:
     u_seq: input sequence, dimensions (steps,O)
+    z_tgt: target output sequence, dimensions (steps,O)
     train: boolean, if True, the network is trained using the FORCE algorithm, if False, the network is run in inference mode with fixed weights
-    
+    tacher_forcing_steps: number of steps to use teacher forcing
+    record_trajectory: boolean, if True, the trajectory of the network state is recorded and returned
+
     Returns:
     zs: output sequence, dimensions (steps,O)
     Note that the outputs are returned on device, because after this they are only used for the loss calculation
     """
 
     steps = u_seq.shape[0]
-    x  = torch.zeros(N,device=device)
-    zs = torch.zeros(steps,O,device=device)
-    
+    x  = torch.zeros(N, device=device)
+    zs = torch.zeros(steps, O, device=device)
+    xs_traj = [] if record_trajectory else None
+
     for t in range(steps):
         r  = torch.tanh(x)
-        z  = r @ w_param + b_z_param            # (3,)
+        z  = r @ w_param + b_z_param
         zs[t] = z
-        
+
         if train:
             force_step(r, z, z_tgt[t])
             # ATTENTION: Normally, you would not use this (set TEACHER_FORCING_STEPS to 0)
@@ -249,14 +296,13 @@ def simulate(u_seq, z_tgt, train=True, teacher_forcing_steps=TEACHER_FORCING_STE
             z_fb = z_tgt[t] if t < teacher_forcing_steps else z
         else:
             z_fb = z
-
-        # Update the state of the network
-        # ATTENTION: Normally, this should be:
-        # x += dt * (J_param @ r + B_param @ u_seq[t] + W_fb_param @ z)
+        # ATTENTION: Normally, you should set lam = 0.0
         # However, here I changed it to try to improve RNN training by giving it a slower leak
         x = (1. - lam * dt) * x + dt * (J_param @ r + B_param @ u_seq[t] + W_fb_param @ z_fb)
-
-    return zs.cpu()
+        
+        if record_trajectory:
+            xs_traj.append(x.clone())
+    return (zs.cpu(), xs_traj) if record_trajectory else zs.cpu()
 
 
 
@@ -264,39 +310,6 @@ def simulate(u_seq, z_tgt, train=True, teacher_forcing_steps=TEACHER_FORCING_STE
 # ------------------------------------------------------------
 # 3.3 TRAINING
 # ------------------------------------------------------------
-def plot_test_run(u_test, z_test, z_target_test, dt, to_save=True):
-    """
-    Plots the test run outputs for the network.
-
-    Parameters:
-    u_test: input sequence for testing, dimensions (steps, O)
-    z_test: output sequence from testing, dimensions (steps, O)
-    z_target_test: target output sequence, dimensions (steps, O)
-    dt: time step
-    to_save: boolean, if True, saves the plot as a png file using save_variable()
-    """
-    
-    t = np.arange(u_test.shape[0]) * dt
-    colors = ['r', 'g', 'b']
-    fig, ax = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
-    for k in range(3):
-        ax[k].plot(t, u_test[:, k].cpu(), '--', color=colors[k], alpha=0.4, label='input')
-        ax[k].plot(t, z_test[:, k], color=colors[k], label='output')
-        ax[k].plot(t, z_target_test[:, k].cpu(), '--', color='lightgrey', label='target')
-        ax[k].set_ylabel(f'bit {k}')
-        ax[k].legend(loc='upper right')
-    ax[-1].set_xlabel('time (s)')
-    plt.tight_layout()
-    
-    if to_save:
-        # Save the plot as a PNG file and then log its path with save_variable()
-        filename = f"3_Bit_{RUN_TIMESTAMP}.png"
-        filepath = os.path.join(output_dir, filename)
-        fig.savefig(filepath)
-    
-    plt.show()
-
-
 def train_force(max_iter=force_max_iter, tol=force_tol):
     """
     Trains the network using FORCE until max_iter iterations or until the MSE falls below tol.
@@ -308,7 +321,8 @@ def train_force(max_iter=force_max_iter, tol=force_tol):
     tol: float - loss tolerance for early stopping
     """
 
-    global w_param, P  # access global parameters updated by FORCE
+    global w_param, P, trajectories  # make trajectories accessible outside this function
+    trajectories = {'trajectories_x': [], 'final_values_x': []}
     best_loss = float('inf')
     best_w = w_param.clone()
     best_P = P.clone()
@@ -316,11 +330,13 @@ def train_force(max_iter=force_max_iter, tol=force_tol):
     pbar = tqdm(range(max_iter), desc="Training iterations", unit="iter")
     for i in pbar:
         start_time = time.time()
-        
+
         u_seq, z_tgt = generate_pulse_task(dt, T_train, pulse_prob, pulse_amp)
-        zs = simulate(u_seq, z_tgt, train=True)
+        zs, xs = simulate(u_seq, z_tgt, train=True, record_trajectory=True)
+        trajectories['trajectories_x'].append(xs)           # dimensions (steps, N)
+        trajectories['final_values_x'].append(xs[-1])       # dimensions (N,)
         loss = torch.mean((zs - z_tgt.cpu()) ** 2).item()
-        
+
         # Save the parameters if they yield a lower loss
         if loss < best_loss:
             best_loss = loss
@@ -345,16 +361,17 @@ def train_force(max_iter=force_max_iter, tol=force_tol):
         if loss < tol:
             break
 
-    # Restore the best parameters before finishing training
+    # Restore the best parameters
     w_param = best_w.clone()
     P = best_P.clone()
+    # Save the trajectories dictionary to file
+    # Note that the dictionary has two keys, and the value of each key is a list of length number_of_iterations
+    # Each element in the list of key 'trajectories_x' is a tensor of shape (steps, N)
+    # Each element in the list of key 'final_values_x' is a tensor of shape (N,)
+    save_variable(trajectories, "trajectories")
 
 
 train_force(force_max_iter, force_tol)
-
-# Save the final parameters
-save_variable(w_param.cpu().numpy(), 'w')
-save_variable(P.cpu().numpy(), 'P')
 
 
 
@@ -372,3 +389,62 @@ z_test = simulate(u_test, z_target_test, train=False)
 # 4.2 PLOTTING
 # ------------------------------------------------------------
 plot_test_run(u_test, z_test, z_target_test, dt)
+
+
+
+
+# ------------------------------------------------------------
+# ------------------------------------------------------------
+# B. ANALYSE DYNAMICS
+# ------------------------------------------------------------
+# ------------------------------------------------------------
+
+# ------------------------------------------------------------
+# 5.1 FUNCTIONS TO FIND FIXED AND SLOW POINTS
+# ------------------------------------------------------------
+def calculate_F(x, u, J, B, W_fb, w):
+    """
+    Compute F(x) = -x + J*tanh(x) + B*u + b_x for given x and fixed u.
+
+    Arguments:
+        x: Input vector (numpy array, shape (N,))
+        u: Input vector (numpy array, shape (O,))
+        J: Recurrent weight matrix (numpy array, shape (N, N))
+        B: Input weight matrix (numpy array, shape (N, O))
+        W_fb: Feedback weight matrix (numpy array, shape (N, O))
+        w: Readout weight matrix (numpy array, shape (N, O))
+    
+    Returns:
+        F_x: Output vector (numpy array, shape (N,))
+    """
+
+    # Compute the activation
+    r = np.tanh(x)  # (N,)
+    # Compute the output (/feedback)
+    z = w @ r       # (O,)
+
+    # Compute F(x)
+    F_x = -x + J @ r + B @ u + W_fb @ z
+
+    return F_x
+
+
+def calculate_q(F_x):
+    """
+    Compute q(x) = 0.5 * ||F(x)||^2.
+
+    Arguments:
+        F_x: Input vector (numpy array, shape (N,))
+    
+    Returns:
+        q_x: Output scalar (float)
+    """
+
+    # Compute the norm of F(x)
+    norm_F_x = np.linalg.norm(F_x)
+    # Compute q(x)
+    q_x = 0.5 * norm_F_x ** 2
+
+    return q_x
+
+
