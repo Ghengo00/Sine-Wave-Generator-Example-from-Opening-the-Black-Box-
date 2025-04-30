@@ -1,4 +1,10 @@
 # ------------------------------------------------------------
+# ------------------------------------------------------------
+# A. SET-UP
+# ------------------------------------------------------------
+# ------------------------------------------------------------
+
+# ------------------------------------------------------------
 # 0. IMPORTS
 # ------------------------------------------------------------
 from tqdm import tqdm
@@ -22,12 +28,6 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 
-
-# ------------------------------------------------------------
-# ------------------------------------------------------------
-# A. TRAIN RNN
-# ------------------------------------------------------------
-# ------------------------------------------------------------
 
 # ------------------------------------------------------------
 # 1.1 TASK PARAMETERS (3-Bit Flip-Flop Task)
@@ -91,18 +91,32 @@ lam = 0.0                                           # leak rate, tune as needed 
 TEACHER_FORCING_STEPS = min(0, int(T_train/dt))  # number of steps to use teacher forcing (standard is 5000)
 
 
-NUM_ATTEMPTS_FIXED   = 50      # number of candidate initialisations for fixed points
-NUM_ATTEMPTS_SLOW    = 50      # numer of candidate initialisations for slow points
-TOL_FIXED            = 1e-2    # tolerance for finding distinct fixed points
-TOL_SLOW             = 1e-2    # tolerance for finding distinct slow points
+
+
+# ------------------------------------------------------------
+# 1.4 ROOT-FINDING PARAMETERS
+# ------------------------------------------------------------
+NUM_ATTEMPTS_FIXED_TRAJECTORIES   = 20      # number of candidate initialisations for fixed points to pull from trajectories
+NUM_ATTEMPTS_SLOW_TRAJECTORIES    = 20      # numer of candidate initialisations for slow points to pull from trajectories
+NUM_ATTEMPS_FIXED_PERTURBATIONS   = 4       # number of perturbations to apply to each candidate initialisation from trajectory
+NUM_ATTEMPS_SLOW_PERTURBATIONS    = 4       # number of perturbations to apply to each candidate initialisation from trajectory
+
 MAXITER_FIXED        = 5000    # maximum number of iterations for finding fixed points
 MAXITER_SLOW         = 5000    # maximum number of iterations for finding slow points
+
+SCALE_OF_PERTURBATIONS_FIXED      = 0.1    # scale of perturbations to apply to candidate initialisations from trajectory for fixed points
+SCALE_OF_PERTURBATIONS_SLOW       = 0.1    # scale of perturbations to apply to candidate initialisations from trajectory for slow points
+
+TOL_FIXED_ROOT       = 1e-6    # tolerance for finding fixed points as roots of F(x)
+TOL_SLOW_ROOT        = 1e-6    # tolerance for finding slow points as roots of grad_q(x)
+TOL_FIXED            = 1e-3    # tolerance for ascertaining two fixed points are distinct
+TOL_SLOW             = 1e-3    # tolerance for ascertaining two slow points are distinct
 
 
 
 
 # -------------------------------
-# 1.4. SAVING FUNCTIONS
+# 1.5 SAVING FUNCTIONS
 # -------------------------------
 def generate_filename(variable_name):
     """
@@ -169,6 +183,12 @@ def plot_test_run(u_test, z_test, z_target_test, dt, to_save=True):
 
 
 
+
+# ------------------------------------------------------------
+# ------------------------------------------------------------
+# B. TRAIN RNN
+# ------------------------------------------------------------
+# ------------------------------------------------------------
 
 # ------------------------------------------------------------
 # 2. TASK GENERATOR
@@ -395,12 +415,12 @@ plot_test_run(u_test, z_test, z_target_test, dt)
 
 # ------------------------------------------------------------
 # ------------------------------------------------------------
-# B. ANALYSE DYNAMICS
+# C. ANALYSE DYNAMICS
 # ------------------------------------------------------------
 # ------------------------------------------------------------
 
 # ------------------------------------------------------------
-# 5.1 FUNCTIONS TO FIND FIXED AND SLOW POINTS
+# 5.1 FUNCTIONS TO CALCULATE F, q, AND GRADIENTS
 # ------------------------------------------------------------
 def calculate_F(x, u, J, B, W_fb, w):
     """
@@ -493,3 +513,201 @@ def calculate_grad_q(F_x, grad_F_x):
     grad_q_x = F_x @ grad_F_x
 
     return grad_q_x
+
+
+
+
+# ------------------------------------------------------------
+# 5.2 FUNCTIONS TO FIND FIXED AND SLOW POINTS
+# ------------------------------------------------------------
+# Find fixed points by finding roots of F(x)
+def find_fixed_points_by_roots_of_F(initial_guess, u, J, B, W_fb, w,
+                                    num_candidate_pts = NUM_ATTEMPTS_FIXED_TRAJECTORIES,
+                                    num_perturbs_of_candidates = NUM_ATTEMPS_FIXED_PERTURBATIONS,
+                                    max_iter = MAXITER_FIXED,
+                                    perturbs_scale = SCALE_OF_PERTURBATIONS_FIXED,
+                                    tol_root = TOL_FIXED_ROOT,
+                                    tol_distinct=TOL_FIXED):
+    """
+    Find fixed points by finding roots of F(x) = 0.
+
+    Arguments:
+        initial_guess: Initial guess for the fixed point (numpy array, shape (N,))
+        u: Input vector (numpy array, shape (O,))
+        J: Recurrent weight matrix (numpy array, shape (N, N))
+        B: Input weight matrix (numpy array, shape (N, O))
+        W_fb: Feedback weight matrix (numpy array, shape (N, O))
+        w: Readout weight matrix (numpy array, shape (N, O))
+        num_candidate_pts: Number of candidate points to generate
+        num_perturbs_of_candidates: Number of perturbations to apply to each candidate point
+        max_iter: Maximum number of iterations for the root-finding algorithm
+        perturbs_scale: Scale of the perturbations
+        tol_root: Tolerance for the root-finding algorithm
+        tol_distinct: Tolerance for determining if two fixed points are distinct
+
+    Returns:
+        fixed_points: List of fixed points found (list of numpy arrays, each shape (N,))
+    """
+
+    fixed_points = []
+
+    # Define a function to check if a found fixed point is new
+    def is_new(fp, points, tol):
+        for pt in points:
+            if np.linalg.norm(fp - pt) < tol:
+                return False
+        return True
+
+    # Initialise a list of candidate initial guesses
+    candidate_guesses = [np.array(initial_guess)]
+
+    # STEP 1) FIND CANDIDATE SOLUTIONS
+    # STEP 1)A) ADD CANDIDATES FROM TRAJECTORIES
+    # If the trajectories dictionary exists, add candidate guesses from final_values_x and, if we have more space, from trajectories_x
+    try:
+        final_vals = trajectories['final_values_x']
+        trajs = trajectories['trajectories_x']
+        num_final = len(final_vals)
+        n = min(num_final, num_candidate_pts - 1)
+        # Append the last n elements from final_values_x
+        for cand in final_vals[-n:]:
+            cand_np = cand.cpu().numpy() if hasattr(cand, 'cpu') else np.array(cand)
+            candidate_guesses.append(cand_np)
+        # If we have fewer candidates than num_candidate_pts-1, supplement with random rows from all trajectories_x
+        if n < num_candidate_pts - 1:
+            num_needed = (num_candidate_pts - 1) - n
+            # Concatenate all trajectories_x into a single tensor
+            all_traj = torch.cat(trajs, dim=0) if isinstance(trajs[0], torch.Tensor) else np.concatenate(trajs, axis=0)
+            all_traj_np = all_traj.cpu().numpy() if hasattr(all_traj, 'cpu') else np.array(all_traj)
+            # Randomly select num_needed rows from all_traj_np
+            indices = np.random.choice(all_traj_np.shape[0], size=num_needed, replace=False)
+            for idx in indices:
+                candidate_guesses.append(all_traj_np[idx])
+    except NameError:
+        # trajectories not defined; skip this step
+        pass
+
+    # STEP 1)B) PERTURB CANDIDATES TO OBTAIN MORE CANDIDATES
+    # Add random perturbations to candidate guesses to create more candidates
+    base_candidates = candidate_guesses.copy()
+    for base in base_candidates:
+        for _ in range(num_perturbs_of_candidates):
+            perturbation = np.random.normal(scale = perturbs_scale, size = base.shape)
+            candidate_guesses.append(base + perturbation)
+
+    # STEP 2) TRY FINDING FIXED POINTS FROM CHOSEN CANDIDATES
+    # Try finding a fixed point from each candidate initial guess
+    for guess in candidate_guesses:
+        sol = root(lambda x: calculate_F(x, u, J, B, W_fb, w), guess,
+                   method='lm', options={'maxiter': max_iter})
+        if sol.success and np.linalg.norm(calculate_F(sol.x, u, J, B, W_fb, w)) < tol_root:
+            fp = sol.x
+            if is_new(fp, fixed_points, tol_distinct):
+                fixed_points.append(fp)
+                
+    return fixed_points
+
+
+# Find slow points by finding roots of grad_q(x) using the Gauss-Newton approximation of the Hessian
+def find_slow_points_by_roots_of_grad_q(initial_guess, u, J, B, W_fb, w,
+                                         num_candidate_pts=NUM_ATTEMPTS_SLOW_TRAJECTORIES,
+                                         num_perturbs_of_candidates=NUM_ATTEMPS_SLOW_PERTURBATIONS,
+                                         max_iter=MAXITER_SLOW,
+                                         perturbs_scale=SCALE_OF_PERTURBATIONS_SLOW,
+                                         tol_root=TOL_SLOW_ROOT,
+                                         tol_distinct=TOL_SLOW):
+    """
+    Find slow points by finding roots of grad_q(x) = 0.
+    We use the Gauss-Newton approximation of the Hessian 
+    (i.e. H ≈ grad_F(x).T @ grad_F(x)) in our iterative procedure.
+    
+    Arguments:
+        initial_guess: Initial guess for the slow point (numpy array, shape (N,))
+        u: Input vector (numpy array, shape (O,))
+        J: Recurrent weight matrix (numpy array, shape (N, N))
+        B: Input weight matrix (numpy array, shape (N, O))
+        W_fb: Feedback weight matrix (numpy array, shape (N, O))
+        w: Readout weight matrix (numpy array, shape (N, O))
+        num_candidate_pts: Number of candidate points to generate from trajectories.
+        num_perturbs_of_candidates: Number of perturbations to apply to each candidate.
+        max_iter: Maximum number of iterations for the Gauss-Newton procedure.
+        perturbs_scale: Scale of the random perturbations.
+        tol_root: Tolerance for the norm of grad_q(x) to decide convergence.
+        tol_distinct: Tolerance to consider two slow points as distinct.
+    
+    Returns:
+        slow_points: List of slow points found (list of numpy arrays, each shape (N,))
+    """
+
+    slow_points = []
+
+    # Function to check if a found slow point is new
+    def is_new(pt, points, tol):
+        for existing in points:
+            if np.linalg.norm(pt - existing) < tol:
+                return False
+        return True
+
+    # STEP 1) FIND CANDIDATE SOLUTIONS
+    # STEP 1)A) ADD CANDIDATES FROM TRAJECTORIES
+    # Generate candidate initial guesses
+    candidate_guesses = [np.array(initial_guess)]
+    try:
+        final_vals = trajectories['final_values_x']
+        trajs = trajectories['trajectories_x']
+        num_final = len(final_vals)
+        n = min(num_final, num_candidate_pts - 1)
+        for cand in final_vals[-n:]:
+            cand_np = cand.cpu().numpy() if hasattr(cand, 'cpu') else np.array(cand)
+            candidate_guesses.append(cand_np)
+        if n < num_candidate_pts - 1:
+            num_needed = (num_candidate_pts - 1) - n
+            all_traj = torch.cat(trajs, dim=0) if isinstance(trajs[0], torch.Tensor) else np.concatenate(trajs, axis=0)
+            all_traj_np = all_traj.cpu().numpy() if hasattr(all_traj, 'cpu') else np.array(all_traj)
+            indices = np.random.choice(all_traj_np.shape[0], size=num_needed, replace=False)
+            for idx in indices:
+                candidate_guesses.append(all_traj_np[idx])
+    except NameError:
+        # trajectories not defined; only use the provided initial_guess
+        pass
+
+    # STEP 1)B) PERTURB CANDIDATES TO OBTAIN MORE CANDIDATES
+    # Augment candidate guesses by applying random perturbations
+    base_candidates = candidate_guesses.copy()
+    for base in base_candidates:
+        for _ in range(num_perturbs_of_candidates):
+            perturbation = np.random.normal(scale = perturbs_scale, size = base.shape)
+            candidate_guesses.append(base + perturbation)
+
+    # STEP 2) TRY FINDING FIXED POINTS FROM CHOSEN CANDIDATES
+    # Iterate over each candidate using a Gauss-Newton method
+    for guess in candidate_guesses:
+        x_current = np.array(guess)
+        for iteration in range(max_iter):
+            # Compute F(x) and its Jacobian grad_F(x)
+            F_x = calculate_F(x_current, u, J, B, W_fb, w)
+            grad_F_x = calculate_grad_F(x_current, u, J, B, W_fb, w)
+            # Evaluate grad_q(x) = F(x) @ grad_F(x)
+            f_val = calculate_grad_q(F_x, grad_F_x)
+            
+            # Check convergence: if the norm of grad_q is below tolerance, break
+            if np.linalg.norm(f_val) < tol_root:
+                break
+
+            # --- Gauss-Newton approximation ---
+            # Approximate the Hessian of q(x) using H ≈ grad_F(x).T @ grad_F(x)
+            H_approx = grad_F_x.T @ grad_F_x
+            try:
+                # Solve for the update: delta = H_approx^{-1} * grad_q(x)
+                delta = np.linalg.solve(H_approx, f_val)
+            except np.linalg.LinAlgError:
+                # If H_approx is singular, use least squares to find delta
+                delta = np.linalg.lstsq(H_approx, f_val, rcond=None)[0]
+            # Update the current solution estimate
+            x_current = x_current - delta
+
+        # After iterations, accept the candidate if converged and is new
+        if np.linalg.norm(f_val) < tol_root and is_new(x_current, slow_points, tol_distinct):
+            slow_points.append(x_current)
+
+    return slow_points
