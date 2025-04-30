@@ -96,21 +96,21 @@ TEACHER_FORCING_STEPS = min(0, int(T_train/dt))  # number of steps to use teache
 # ------------------------------------------------------------
 # 1.4 ROOT-FINDING PARAMETERS
 # ------------------------------------------------------------
-NUM_ATTEMPTS_FIXED_TRAJECTORIES   = 20      # number of candidate initialisations for fixed points to pull from trajectories
-NUM_ATTEMPTS_SLOW_TRAJECTORIES    = 20      # numer of candidate initialisations for slow points to pull from trajectories
-NUM_ATTEMPS_FIXED_PERTURBATIONS   = 4       # number of perturbations to apply to each candidate initialisation from trajectory
-NUM_ATTEMPS_SLOW_PERTURBATIONS    = 4       # number of perturbations to apply to each candidate initialisation from trajectory
+NUM_ATTEMPTS_FIXED_TRAJECTORIES   = 3      # number of candidate initialisations for fixed points to pull from trajectories
+NUM_ATTEMPTS_SLOW_TRAJECTORIES    = 3      # numer of candidate initialisations for slow points to pull from trajectories
+NUM_ATTEMPS_FIXED_PERTURBATIONS   = 1       # number of perturbations to apply to each candidate initialisation from trajectory
+NUM_ATTEMPS_SLOW_PERTURBATIONS    = 1       # number of perturbations to apply to each candidate initialisation from trajectory
 
-MAXITER_FIXED        = 5000    # maximum number of iterations for finding fixed points
-MAXITER_SLOW         = 5000    # maximum number of iterations for finding slow points
+MAXITER_FIXED        = 1000    # maximum number of iterations for finding fixed points
+MAXITER_SLOW         = 1000    # maximum number of iterations for finding slow points
 
-SCALE_OF_PERTURBATIONS_FIXED      = 0.1    # scale of perturbations to apply to candidate initialisations from trajectory for fixed points
-SCALE_OF_PERTURBATIONS_SLOW       = 0.1    # scale of perturbations to apply to candidate initialisations from trajectory for slow points
+SCALE_OF_PERTURBATIONS_FIXED      = 0.1     # scale of perturbations to apply to candidate initialisations from trajectory for fixed points
+SCALE_OF_PERTURBATIONS_SLOW       = 0.1     # scale of perturbations to apply to candidate initialisations from trajectory for slow points
 
-TOL_FIXED_ROOT       = 1e-6    # tolerance for finding fixed points as roots of F(x)
-TOL_SLOW_ROOT        = 1e-6    # tolerance for finding slow points as roots of grad_q(x)
-TOL_FIXED            = 1e-3    # tolerance for ascertaining two fixed points are distinct
-TOL_SLOW             = 1e-3    # tolerance for ascertaining two slow points are distinct
+TOL_FIXED_ROOT       = 1e-3    # tolerance for finding fixed points as roots of F(x)
+TOL_SLOW_ROOT        = 1e-3    # tolerance for finding slow points as roots of grad_q(x)
+TOL_FIXED            = 1e-2    # tolerance for ascertaining two fixed points are distinct
+TOL_SLOW             = 1e-2    # tolerance for ascertaining two slow points are distinct
 
 
 
@@ -291,7 +291,7 @@ def simulate(u_seq, z_tgt, train=True, teacher_forcing_steps=TEACHER_FORCING_STE
     u_seq: input sequence, dimensions (steps,O)
     z_tgt: target output sequence, dimensions (steps,O)
     train: boolean, if True, the network is trained using the FORCE algorithm, if False, the network is run in inference mode with fixed weights
-    tacher_forcing_steps: number of steps to use teacher forcing
+    teacher_forcing_steps: number of steps to use teacher forcing
     record_trajectory: boolean, if True, the trajectory of the network state is recorded and returned
 
     Returns:
@@ -370,6 +370,8 @@ def train_force(max_iter=force_max_iter, tol=force_tol):
             plt.xlabel("Output dimension")
             plt.ylabel("Neuron index")
             plt.show()
+            plt.close()
+            # Generate a test run with the current network parameters
             u_test, z_target_test = generate_pulse_task(dt, T_test, pulse_prob, pulse_amp)
             z_test = simulate(u_test, z_target_test, train=False)
             plot_test_run(u_test, z_test, z_target_test, dt, to_save=False)
@@ -441,7 +443,7 @@ def calculate_F(x, u, J, B, W_fb, w):
     # Compute the activation
     r = np.tanh(x)  # (N,)
     # Compute the output (/feedback)
-    z = w @ r       # (O,)
+    z = r @ w       # (O,)
 
     # Compute F(x)
     F_x = -x + J @ r + B @ u + W_fb @ z
@@ -485,15 +487,15 @@ def calculate_grad_F(x, u, J, B, W_fb, w):
     """
 
     # Compute the activation
-    r = np.tanh(x)  # (N,)
+    r = np.tanh(x)        # (N,)
     # Compute the output (/feedback)
-    z = w @ r       # (O,)
+    z = r @ w             # (O,)
     
     # Compute the Jacobian of the activation
-    grad_r = np.diag(1 - r ** 2)  # (N, N)
+    sech2 = 1 - r**2      # shape (N,) - memory-efficient compared to np.diag(1 - r ** 2)
 
     # Compute the gradient of F(x)
-    grad_F_x = -np.eye(len(x)) + (J + W_fb @ w) @ grad_r
+    grad_F_x = -np.eye(len(x)) + (J + W_fb @ w.T) * sech2[np.newaxis, :]
 
     return grad_F_x
 
@@ -559,7 +561,7 @@ def find_fixed_points_by_roots_of_F(initial_guess, u, J, B, W_fb, w,
         return True
 
     # Initialise a list of candidate initial guesses
-    candidate_guesses = [np.array(initial_guess)]
+    candidate_guesses = [np.zeros_like(initial_guess), np.array(initial_guess)]
 
     # STEP 1) FIND CANDIDATE SOLUTIONS
     # STEP 1)A) ADD CANDIDATES FROM TRAJECTORIES
@@ -568,14 +570,14 @@ def find_fixed_points_by_roots_of_F(initial_guess, u, J, B, W_fb, w,
         final_vals = trajectories['final_values_x']
         trajs = trajectories['trajectories_x']
         num_final = len(final_vals)
-        n = min(num_final, num_candidate_pts - 1)
+        n = min(num_final, num_candidate_pts - 2)
         # Append the last n elements from final_values_x
         for cand in final_vals[-n:]:
             cand_np = cand.cpu().numpy() if hasattr(cand, 'cpu') else np.array(cand)
             candidate_guesses.append(cand_np)
-        # If we have fewer candidates than num_candidate_pts-1, supplement with random rows from all trajectories_x
-        if n < num_candidate_pts - 1:
-            num_needed = (num_candidate_pts - 1) - n
+        # If we have fewer candidates than num_candidate_pts-2, supplement with random rows from all trajectories_x
+        if n < num_candidate_pts - 2:
+            num_needed = (num_candidate_pts - 2) - n
             # Concatenate all trajectories_x into a single tensor
             all_traj = torch.cat(trajs, dim=0) if isinstance(trajs[0], torch.Tensor) else np.concatenate(trajs, axis=0)
             all_traj_np = all_traj.cpu().numpy() if hasattr(all_traj, 'cpu') else np.array(all_traj)
@@ -597,7 +599,7 @@ def find_fixed_points_by_roots_of_F(initial_guess, u, J, B, W_fb, w,
 
     # STEP 2) TRY FINDING FIXED POINTS FROM CHOSEN CANDIDATES
     # Try finding a fixed point from each candidate initial guess
-    for guess in candidate_guesses:
+    for guess in tqdm(candidate_guesses, desc="Finding fixed points", unit="point"):
         sol = root(lambda x: calculate_F(x, u, J, B, W_fb, w), guess,
                    method='lm', options={'maxiter': max_iter})
         if sol.success and np.linalg.norm(calculate_F(sol.x, u, J, B, W_fb, w)) < tol_root:
@@ -651,19 +653,22 @@ def find_slow_points_by_roots_of_grad_q(initial_guess, u, J, B, W_fb, w,
     # STEP 1) FIND CANDIDATE SOLUTIONS
     # STEP 1)A) ADD CANDIDATES FROM TRAJECTORIES
     # Generate candidate initial guesses
-    candidate_guesses = [np.array(initial_guess)]
+    candidate_guesses = [np.zeros_like(initial_guess), np.array(initial_guess)]
     try:
         final_vals = trajectories['final_values_x']
         trajs = trajectories['trajectories_x']
         num_final = len(final_vals)
-        n = min(num_final, num_candidate_pts - 1)
+        n = min(num_final, num_candidate_pts - 2)
+        # Append the last n elements from final_values_x
         for cand in final_vals[-n:]:
             cand_np = cand.cpu().numpy() if hasattr(cand, 'cpu') else np.array(cand)
             candidate_guesses.append(cand_np)
-        if n < num_candidate_pts - 1:
-            num_needed = (num_candidate_pts - 1) - n
+        # If we have fewer candidates than num_candidate_pts-2, supplement with random rows from all trajectories_x
+        if n < num_candidate_pts - 2:
+            num_needed = (num_candidate_pts - 2) - n
             all_traj = torch.cat(trajs, dim=0) if isinstance(trajs[0], torch.Tensor) else np.concatenate(trajs, axis=0)
             all_traj_np = all_traj.cpu().numpy() if hasattr(all_traj, 'cpu') else np.array(all_traj)
+            # Randomly select num_needed rows from all_traj_np
             indices = np.random.choice(all_traj_np.shape[0], size=num_needed, replace=False)
             for idx in indices:
                 candidate_guesses.append(all_traj_np[idx])
@@ -681,7 +686,7 @@ def find_slow_points_by_roots_of_grad_q(initial_guess, u, J, B, W_fb, w,
 
     # STEP 2) TRY FINDING FIXED POINTS FROM CHOSEN CANDIDATES
     # Iterate over each candidate using a Gauss-Newton method
-    for guess in candidate_guesses:
+    for guess in tqdm(candidate_guesses, desc="Finding slow points", unit="point"):
         x_current = np.array(guess)
         for iteration in range(max_iter):
             # Compute F(x) and its Jacobian grad_F(x)
@@ -705,9 +710,63 @@ def find_slow_points_by_roots_of_grad_q(initial_guess, u, J, B, W_fb, w,
                 delta = np.linalg.lstsq(H_approx, f_val, rcond=None)[0]
             # Update the current solution estimate
             x_current = x_current - delta
+        
+        F_x  = calculate_F(x_current, u, J, B, W_fb, w)
+        grad_F_x = calculate_grad_F(x_current, u, J, B, W_fb, w)
+        f_val = calculate_grad_q(F_x, grad_F_x)
 
         # After iterations, accept the candidate if converged and is new
         if np.linalg.norm(f_val) < tol_root and is_new(x_current, slow_points, tol_distinct):
             slow_points.append(x_current)
 
     return slow_points
+
+
+
+
+# ------------------------------------------------------------
+# 6 FIND FIXED AND SLOW POINTS
+# ------------------------------------------------------------
+# Find fixed points
+fixed_points = find_fixed_points_by_roots_of_F(
+    initial_guess = np.random.normal(size=(N,)),
+    u = torch.zeros(O).cpu().numpy(),
+    J = J_param.cpu().numpy(),
+    B = B_param.cpu().numpy(),
+    W_fb = W_fb_param.cpu().numpy(),
+    w = w_param.cpu().numpy()
+)
+
+# Save the fixed points to file
+save_variable(fixed_points, "fixed_points")
+
+# Check if any fixed points were found
+if len(fixed_points) == 0:
+    print("No fixed points found.")
+else:
+    # Print the number of fixed points found and the norm of each
+    print(f"Number of fixed points found: {len(fixed_points)}")
+    for i, fp in enumerate(fixed_points):
+        print(f"Fixed point {i}: norm = {np.linalg.norm(fp):.3e}")
+
+# Find slow points
+slow_points = find_slow_points_by_roots_of_grad_q(
+    initial_guess = np.random.normal(size=(N,)),
+    u = torch.zeros(O).cpu().numpy(),
+    J = J_param.cpu().numpy(),
+    B = B_param.cpu().numpy(),
+    W_fb = W_fb_param.cpu().numpy(),
+    w = w_param.cpu().numpy()
+)
+
+# Save the slow points to file
+save_variable(slow_points, "slow_points")
+
+# Check if any slow points were found
+if len(slow_points) == 0:
+    print("No slow points found.")
+else:
+    # Print the number of slow points found and the norm of each
+    print(f"Number of slow points found: {len(slow_points)}")
+    for i, sp in enumerate(slow_points):
+        print(f"Slow point {i}: norm = {np.linalg.norm(sp):.3e}")
