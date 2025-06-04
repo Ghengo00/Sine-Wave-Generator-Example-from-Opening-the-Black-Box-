@@ -37,9 +37,9 @@ np.random.seed(42)
 torch.manual_seed(42)
 
 # Network dimensions and task parameters (CHANGE THESE FOR TEST RUNS)
-N = 60         # number of neurons (STANDARD VALUE IS 200)
+N = 200         # number of neurons (STANDARD VALUE IS 200)
 I = 1           # input dimension (scalar input)
-num_tasks = 16  # number of different sine-wave tasks (STANDARD VALUE IS 51)
+num_tasks = 51  # number of different sine-wave tasks (STANDARD VALUE IS 51)
 
 # Frequencies: equally spaced between 0.1 and 0.6 rad/s
 omegas = np.linspace(0.1, 0.6, num_tasks)
@@ -50,7 +50,7 @@ static_inputs = np.linspace(0, num_tasks-1, num_tasks) / num_tasks + 0.25
 # Time parameters (in seconds) (NEED TO CHOOSE THESE CAREFULLY)
 dt = 0.02        # integration time step
 T_drive = 1.0   # driving phase duration (to set network state)
-T_train = 8.0   # training phase duration with static input (target generation) (OMEGA = 0.1 NEEDS 63 SECONDS TO GO THROUGH A WHOLE CYCLE)
+T_train = 32.0   # training phase duration with static input (target generation) (OMEGA = 0.1 NEEDS 63 SECONDS TO GO THROUGH A WHOLE CYCLE)
 num_steps_drive = int(T_drive/dt)
 num_steps_train = int(T_train/dt)
 time_drive = np.arange(0, T_drive, dt)
@@ -98,7 +98,7 @@ OPTIMIZER_HISTORY_SIZE = 10
 OPTIMIZER_LINE_SEARCH_FN = "strong_wolfe"
 
 # Training parameters
-NUM_EPOCHS = 50
+NUM_EPOCHS = 50                     # STANDARD VALUE IS 50
 LOSS_THRESHOLD = 1e-4
 
 # Plotting parameters
@@ -352,8 +352,6 @@ def run_batch(J, B, b_x, w, b_z):
             
             # Clear intermediate tensors
             del xs_drive, xs_train, zs_train
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
         
         # Accumulate batch loss
         loss_total += batch_loss
@@ -523,6 +521,7 @@ print("\nPlotting produced trajectories vs. target signals for selected tasks...
 
 plt.tight_layout()
 plt.show()
+plt.close()
 
 
 
@@ -566,6 +565,7 @@ def plot_parameter_matrices(J_param, B_param, b_x_param, j, omega, u_offset):
     
     plt.tight_layout()
     plt.show()
+    plt.close()
 
 
 # Select the tasks to plot
@@ -748,18 +748,18 @@ def find_slow_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_a
     Find multiple slow points for a given task by trying different initial conditions.
 
     Arguments:
-        x0_guess: Initial guess for fixed point for the given task
+        x0_guess: Initial guess for slow point for the given task
         u_const: Constant input for the given task
         J_trained, B_trained, b_x_trained: Network parameters
         num_attempts: Number of different initial conditions to try
-        tol: Tolerance for considering two fixed points as distinct
+        tol: Tolerance for considering two slow points as distinct
         
     Returns:
         List of distinct slow points found for the given task
     """
     slow_points = []
     
-    # Try the original initial condition
+    # (I) Try the original initial condition
     try:
         sol = root(slow_point_func, x0_guess, args=(u_const, J_trained, B_trained, b_x_trained),
                   method='lm', options={'maxiter': MAXITER_SLOW})
@@ -768,7 +768,7 @@ def find_slow_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_a
     except Exception as e:
         print(f"Slow point search failed for initial guess: {str(e)}")
     
-    # Try perturbed initial conditions
+    # (II) Try perturbed initial conditions
     for attempt in tqdm(range(num_attempts - 1), desc="Finding slow points", leave=False):
         # Create a perturbed initial condition
         x0_perturbed = x0_guess + np.random.normal(0, 0.5, size=x0_guess.shape) # 0.5 is the default for this scenario
@@ -850,7 +850,6 @@ def analyze_fixed_points(fixed_points, J_trained):
     Arguments:
         fixed_points: List of fixed points (numpy array, shape (N,))
         J_trained: Recurrent weight matrix (numpy array, shape (N, N))
-        static_inputs: List of constant input values (numpy array, shape (I,))
     
     Returns:
         jacobians: List of Jacobian matrices of length len(fixed_points) (where each element is a numpy array, shape (N, N))
@@ -1089,7 +1088,7 @@ J_trained = J_param.detach().cpu().numpy()
 B_trained = B_param.detach().cpu().numpy()
 b_x_trained = b_x_param.detach().cpu().numpy()
 
-# Initialize lists to store multiple fixed points and their properties
+# Initialize lists to store multiple slow points and their properties
 all_slow_points = []  # List of lists of slow points, one list per task, and the inner lists contain the slow points for each task
 all_slow_jacobians = []     # List of lists of Jacobians, one list per task, and the inner lists contain the Jacobians for each slow point
 all_slow_unstable_eig_freq = []  # List of lists of lists of unstable frequencies, one list per task, one middle list per slow point for that task, and the inner list contains the unstable frequencies for each slow point
@@ -1284,6 +1283,7 @@ for j in test_js:
     if all_jacobians[j]:  # if any fixed points were found
         # Plot Jacobian matrices
         plot_jacobian_matrices(all_jacobians[j], j, omega_j, save_dir=output_dir)
+        plt.close()  # Close the plot to free memory
 
 
 # Check for equal Jacobians within each task
@@ -1338,6 +1338,7 @@ for j in test_js:
     if all_slow_jacobians[j]:  # if any slow points were found
         # Plot Jacobian matrices
         plot_jacobian_matrices(all_slow_jacobians[j], j, omega_j, save_dir=output_dir)
+        plt.close()  # Close the plot to free memory
 
 
 # Check for equal Jacobians within each task
@@ -1396,11 +1397,13 @@ for j in test_js:
     if all_unstable_eig_freq[j]:  # if any fixed points were found
         # Plot unstable eigenvalues
         plot_unstable_eigenvalues(all_unstable_eig_freq[j], j, omega_j, save_dir=output_dir)
+        plt.close()  # Close the plot to free memory
 
 
 # Plot the comparisons between target frequencies and unstable mode frequencies
 print("\nFixed Points: Plotting comparisons between target frequencies and unstable mode frequencies...")
 plot_frequency_comparison(all_unstable_eig_freq, omegas, save_dir=output_dir)
+plt.close()  # Close the plot to free memory
 
 
 
@@ -1423,11 +1426,13 @@ for j in test_js:
     if all_slow_unstable_eig_freq[j]:  # if any slow points were found
         # Plot unstable eigenvalues
         plot_unstable_eigenvalues(all_slow_unstable_eig_freq[j], j, omega_j, save_dir=output_dir)
+        plt.close() # Close the plot to free memory
 
 
 # Plot the comparisons between target frequencies and unstable mode frequencies
 print("\nSlow Points: Plotting comparisons between target frequencies and unstable mode frequencies...")
 plot_frequency_comparison(all_slow_unstable_eig_freq, omegas, save_dir=output_dir)
+plt.close()  # Close the plot to free memory
 
 
 
@@ -1562,6 +1567,7 @@ plt.savefig(filepath)
 print(f"Saved PCA plot to {filepath}")
 
 plt.show()
+plt.close()  # Close the plot to free memory
 
 
 # -------------------------------
@@ -1615,6 +1621,7 @@ plt.savefig(filepath)
 print(f"Saved PCA plot to {filepath}")
 
 plt.show()
+plt.close()  # Close the plot to free memory
 
 
 

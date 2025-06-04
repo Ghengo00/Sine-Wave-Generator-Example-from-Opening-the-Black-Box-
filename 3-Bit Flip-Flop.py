@@ -711,6 +711,7 @@ def find_slow_points_by_roots_of_grad_q(initial_guess, u, J, B, W_fb, w,
             # Update the current solution estimate
             x_current = x_current - delta
         
+        # Update one last time in case the loop breaks early
         F_x  = calculate_F(x_current, u, J, B, W_fb, w)
         grad_F_x = calculate_grad_F(x_current, u, J, B, W_fb, w)
         f_val = calculate_grad_q(F_x, grad_F_x)
