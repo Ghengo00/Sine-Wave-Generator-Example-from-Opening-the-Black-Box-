@@ -26,6 +26,18 @@ from scipy.linalg import eig
 
 
 # -------------------------------
+# EXECUTION TIMING
+# -------------------------------
+
+# Start timing the full execution
+EXECUTION_START_TIME = time.time()
+print(f"Starting execution at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+print("=" * 60)
+
+
+
+
+# -------------------------------
 # -------------------------------
 # 1. RNN SETUP
 # -------------------------------
@@ -40,6 +52,7 @@ key = random.PRNGKey(42)
 # key is for random noise during training; subkey is for initialization of parameters
 key, subkey = random.split(key)
 
+
 # Network dimensions and task parameters (CHANGE THESE FOR TEST RUNS)
 N = 200         # number of neurons (STANDARD VALUE IS 200)
 I = 1           # input dimension (scalar input)
@@ -51,6 +64,7 @@ omegas = jnp.linspace(0.1, 0.6, num_tasks, dtype=jnp.float32)
 # Static input offset for each task: j/51 + 0.25, j=0,...,50
 static_inputs = jnp.linspace(0, num_tasks - 1, num_tasks, dtype=jnp.float32) / num_tasks + 0.25
 
+
 # Time parameters (in seconds)
 dt = 0.02        # integration time step
 T_drive = 4.0    # driving phase duration
@@ -60,6 +74,7 @@ num_steps_train = int(T_train / dt)
 time_drive = jnp.arange(0, T_drive, dt, dtype=jnp.float32)
 time_train = jnp.arange(0, T_train, dt, dtype=jnp.float32)
 time_full = np.concatenate([time_drive, T_drive + time_train])
+
 
 # Build the driving phase and training phase inputs for all tasks, as well as the training phase targets
 # Driving phase inputs: shape (num_tasks, num_steps_drive, I)
@@ -108,8 +123,8 @@ BATCH_SIZE = 10
 
 
 # Optimization parameters
-NUM_EPOCHS_ADAM = 200
-NUM_EPOCHS_LBFGS = 50
+NUM_EPOCHS_ADAM = 500
+NUM_EPOCHS_LBFGS = 200
 CHUNK_SIZE_ADAM = 50
 CHUNK_SIZE_LBFGS = 25
 LOSS_THRESHOLD = 1e-4
@@ -496,7 +511,7 @@ loss_history_total = []
 best_params_total = None
 
 
-def _scan_steps(params, opt_state, step_fn, steps, drive_u, train_u, targets):
+def scan_with_history(params, opt_state, step_fn, steps, drive_u, train_u, targets, tag):
     """
     Function to run multiple steps of the chosen optimization method via lax.scan.
 
@@ -526,80 +541,25 @@ def _scan_steps(params, opt_state, step_fn, steps, drive_u, train_u, targets):
             carry : updated tuple (params, opt_state, loss)
             loss  : loss value for this step
         """
-        p, s, _ = carry
+        p, s, _, i = carry
         p, s, l = step_fn(p, s, drive_u, train_u, targets)
+
+        # This will emit at host-side for each iteration
+        jax.debug.print("[{tag}] step {i}: loss {loss:.6e}", 
+                        tag=tag, i=i+1, loss=l)
         
-        return (p, s, l), l
+        return (p, s, l, i+1), (p, l)
 
 
     # Run lax.scan to perform multiple optimization steps
-    (p_final, s_final, _), losses = lax.scan(
+    (p_final, s_final, _, _), (param_hist, loss_hist) = lax.scan(
         body,
-        (params, opt_state, 0.0),
+        (params, opt_state, 0.0, 0),
         None,                       # No input to the scan function, we just need to iterate `steps` times
         length = steps
     )
 
-    return p_final, s_final, losses
-
-
-def train(
-    params,
-    optimizer_name: str,
-    opt_state,
-    total_steps: int,
-    chunk_size: int,
-    drive_u,
-    train_u,
-    targets
-):
-    """
-    Function to train the model using the chosen optimization method.
-
-    Arguments:
-        params         : current parameters of the model
-        optimizer_name : name of the optimizer to use ("adam" or "l-bfgs")
-        opt_state      : current state of the optimizer
-        total_steps    : total number of optimization steps to perform
-        chunk_size     : number of steps to perform in each scan chunk
-        drive_u        : driving phase inputs for all tasks (num_tasks, num_steps_drive, I)
-        train_u        : training phase inputs for all tasks (num_tasks, num_steps_train, I)
-        targets        : training targets for all tasks (num_tasks, num_steps_train)
-
-    Returns:
-        params        : parameters after training
-        opt_state     : optimizer state after training
-        loss_history  : list of loss values recorded during training
-    """
-    name = optimizer_name.lower()
-    if name == "adam":
-        step_fn = adam_step
-        tag     = "Adam"
-    elif name in ("lbfgs", "l-bfgs"):
-        step_fn = lbfgs_step
-        tag     = "L-BFGS"
-    else:
-        raise ValueError(f"Unknown optimizer '{optimizer_name}'")
-
-    loss_history = []
-    done = 0
-
-    while done < total_steps:
-        n = min(chunk_size, total_steps - done)
-        params, opt_state, losses = _scan_steps(
-            params, opt_state, step_fn,
-            n, drive_u, train_u, targets
-        )
-
-        # Record losses
-        l_np = np.array(losses)
-        loss_history.extend(l_np.tolist())
-        # Update number of iterations completed
-        done += n
-        # Print progress and loss
-        print(f"[{tag}] {done}/{total_steps} → loss {l_np[-1]:.6e}")
-
-    return params, opt_state, loss_history
+    return param_hist, loss_hist
 
 
 
@@ -608,24 +568,24 @@ def train(
 # 2.4.1. Execute Adam Phase of Training Procedure
 # -------------------------------
 
-print("Begin Adam Phase")
-params_adam, adam_state, loss_history_adam = train(
-    params, "adam", adam_state,
-    total_steps=NUM_EPOCHS_ADAM,
-    chunk_size=CHUNK_SIZE_ADAM,
-    drive_u=drive_inputs,
-    train_u=train_inputs,
-    targets=train_targets
+param_hist_adam, losses_adam = scan_with_history(
+    params, adam_state, adam_step,
+    NUM_EPOCHS_ADAM,
+    drive_inputs, train_inputs, train_targets, tag = "ADAM"
 )
 
+losses_adam = np.array(losses_adam)                # shape (NUM_EPOCHS_ADAM,)
+# Extract the index of the best loss from history
+i_best_adam = int(losses_adam.argmin())
+# Extract best loss from history
+best_loss_adam = float(losses_adam[i_best_adam])
+# Extract best paramater values from history
+best_params_adam = jax.tree_util.tree_map(lambda x: x[i_best_adam], param_hist_adam)
 
-# Store results from Adam phase
-loss_history_total = loss_history_adam
-best_params_total = jax.tree_util.tree_map(lambda x: x.copy(), params_adam)
+print(f"Lowest-Loss Adam Iteration: {i_best_adam+1}/{NUM_EPOCHS_ADAM} → Loss {best_loss_adam:.6e}")
 
-# Restore best parameters if we stored them
-if best_params_total is not None:
-    params = best_params_total
+# Restore the best parameters
+params = best_params_adam
 
 
 
@@ -634,36 +594,37 @@ if best_params_total is not None:
 # 2.4.2. Execute L-BFGS Phase of Training Procedure
 # -------------------------------
 
-
-# Begin L-BFGS phase only if needed
-if loss_history_adam[-1] > LOSS_THRESHOLD:
-    # Re-initialize L-BFGS state on top of Adam’s final params
-    lbfgs_state = lbfgs_opt.init(params)
-
-    print("Begin L-BFGS Phase")
-    params_lbfgs, lbfgs_state, loss_history_lbfgs = train(
-        params, "l-bfgs", lbfgs_state,
-        total_steps=NUM_EPOCHS_LBFGS,
-        chunk_size=CHUNK_SIZE_LBFGS,
-        drive_u=drive_inputs,
-        train_u=train_inputs,
-        targets=train_targets
+if best_loss_adam > LOSS_THRESHOLD:
+    # Run L-BFGS optimization phase
+    param_hist_lbfgs, losses_lbfgs = scan_with_history(
+        params, lbfgs_state, lbfgs_step,
+        NUM_EPOCHS_LBFGS,
+        drive_inputs, train_inputs, train_targets, tag = "L-BFGS"
     )
 
-    final_losses = loss_history_lbfgs
+    losses_lbfgs = np.array(losses_lbfgs)         # shape (NUM_EPOCHS_LBFGS,)
+    # Extract the index of the best loss from history
+    i_best_lbfgs = int(losses_lbfgs.argmin())
+    # Extract best loss from history
+    best_loss_lbfgs = float(losses_lbfgs[i_best_lbfgs])
+    # Extract best parameter values from history
+    best_params_lbfgs = jax.tree_util.tree_map(lambda x: x[i_best_lbfgs], param_hist_lbfgs)
 
-    # Store results from Adam phase
-    loss_history_total += loss_history_lbfgs
-    best_params_total = jax.tree_util.tree_map(lambda x: x.copy(), params_lbfgs)
+    print(f"Lowest-Loss L-BFGS Iteration: {i_best_lbfgs+1}/{NUM_EPOCHS_LBFGS} → loss {best_loss_lbfgs:.6e}")
 
-    # Restore best parameters if we stored them
-    if best_params_total is not None:
-        params = best_params_total
-
+    if best_loss_lbfgs < best_loss_adam:
+        params = best_params_lbfgs
+        best_loss_total = best_loss_lbfgs
+        best_params_total = best_params_lbfgs
+    else:
+        params = best_params_adam
+        best_loss_total = best_loss_adam
+        best_params_total = best_params_adam
 else:
-    final_losses = adam_losses
+    best_loss_total = best_loss_adam
+    best_params_total = best_params_adam
 
-print(f"Best loss = {final_losses[-1]:.6e}")
+print(f"Overall best loss = {best_loss_total:.6e}")
 
 
 
@@ -798,6 +759,32 @@ for j in TEST_INDICES_EXTREMES:
     omega = omegas[j]
     u_off = static_inputs[j]
     plot_parameter_matrices(params["J"], params["B"], params["b_x"], j, omega, u_off)
+
+
+
+
+# -------------------------------
+# EXECUTION TIMING
+# -------------------------------
+
+# End timing the full execution
+EXECUTION_END_TIME = time.time()
+TOTAL_EXECUTION_TIME = EXECUTION_END_TIME - EXECUTION_START_TIME
+
+print("\n" + "=" * 60)
+print(f"Total execution time: {TOTAL_EXECUTION_TIME:.2f} seconds")
+
+# Convert to more readable format
+hours = int(TOTAL_EXECUTION_TIME // 3600)
+minutes = int((TOTAL_EXECUTION_TIME % 3600) // 60)
+seconds = TOTAL_EXECUTION_TIME % 60
+
+if hours > 0:
+    print(f"Total execution time: {hours:02d}:{minutes:02d}:{seconds:06.3f} (HH:MM:SS.mmm)")
+elif minutes > 0:
+    print(f"Total execution time: {minutes:02d}:{seconds:06.3f} (MM:SS.mmm)")
+else:
+    print(f"Total execution time: {seconds:.3f} seconds")
 
 
 
