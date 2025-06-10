@@ -21,6 +21,7 @@ import optax
 from sklearn.decomposition import PCA
 from scipy.optimize import root, least_squares
 from scipy.linalg import eig
+from functools import partial
 
 
 
@@ -99,7 +100,7 @@ def get_drive_input(task):
     Get the driving phase input for a given task.
     
     Arguments:
-        static_input: scalar static input offset for the task
+        task: index of the task
     
     Returns:
         drive_input: driving phase input, shape (num_steps_drive, I)
@@ -588,14 +589,12 @@ def lbfgs_step(params, opt_state):
 # 2.4. Training Procedure
 # -------------------------------
 
-loss_history_total = []
-best_params_total = None
-
-
 # Training
-def scan_with_history(params, opt_state, step_fn, steps, tag):
+@partial(jax.jit, static_argnames=("step_fn","num_steps","tag"))
+def scan_with_history(params, opt_state, step_fn, num_steps, tag):
     """
     Function to run multiple steps of the chosen optimization method via lax.scan.
+    Run `num_steps` of `step_fn` starting from (params, opt_state), but only keep the best-loss params, rather than the whole history.
 
     Arguments:
         params   : current parameters of the model
@@ -605,41 +604,43 @@ def scan_with_history(params, opt_state, step_fn, steps, tag):
         tag      : string tag for debug printing (e.g., "ADAM" or "L-BFGS")
 
     Returns:
-        final_params : parameters after all steps
-        final_state  : optimizer state after all steps
-        losses       : array of loss values for each step (length = steps)
+        best_params     : parameters corresponding to best_loss
+        best_loss       : lowest loss out of all the iterations
+        final_params    : parameters after the last optimization step
+        final_opt_state : optimizer state after the last optimization step
     """
-    def body(carry, _):
-        """
-        Single step function to pass to lax.scan - runs one optimization step.
+    # Initialize best‐so‐far
+    init_best_loss   = jnp.inf
+    init_best_params = params
 
-        Arguments:
-            carry : tuple (params, opt_state, loss)
-            _     : unused placeholder for lax.scan
-        
-        Returns:
-            carry : updated tuple (params, opt_state, loss)
-            loss  : loss value for this step
-        """
-        p, s, _, i = carry
-        p, s, l = step_fn(p, s)
+    def body(carry, idx_unused):
+        params, opt_state, best_loss, best_params = carry
 
-        # This will emit at host-side for each iteration
-        jax.debug.print("[{tag}] step {i}: loss {loss:.6e}", 
-                        tag=tag, i=i+1, loss=l)
-        
-        return (p, s, l, i+1), (p, l)
+        # One optimization step
+        params, opt_state, loss = step_fn(params, opt_state)
 
+        # (Optional) debug print
+        jax.debug.print("[{}] step {}: loss {:.6e}", tag, idx_unused+1, loss)
 
-    # Run lax.scan to perform multiple optimization steps
-    (p_final, s_final, _, _), (param_hist, loss_hist) = lax.scan(
+        # If this step is better, update best_loss and best_params
+        better = loss < best_loss
+        best_loss   = jax.lax.select(better, loss, best_loss)
+        best_params = jax.tree_map(
+            lambda p_new, p_best: jax.lax.select(better, p_new, p_best),
+            params, best_params
+        )
+
+        return (params, opt_state, best_loss, best_params), None
+
+    # Run the scan; we feed a dummy sequence of length `num_steps` so body is called that many times
+    init_carry = (params, opt_state, init_best_loss, init_best_params)
+    (final_p, final_s, best_loss, best_params), _ = jax.lax.scan(
         body,
-        (params, opt_state, 0.0, 0),
-        None,                       # No input to the scan function, we just need to iterate `steps` times
-        length = steps
+        init_carry,
+        jnp.arange(num_steps),
+        length = num_steps
     )
-
-    return param_hist, loss_hist
+    return best_params, best_loss, final_p, final_s
 
 
 
@@ -648,24 +649,17 @@ def scan_with_history(params, opt_state, step_fn, steps, tag):
 # 2.4.1. Execute Adam Phase of Training Procedure
 # -------------------------------
 
-param_hist_adam, losses_adam = scan_with_history(
+best_params_adam, best_loss_adam, params_after_adam, adam_state_after = scan_with_history(
     params, adam_state, adam_step,
     NUM_EPOCHS_ADAM,
     tag = "ADAM"
 )
 
-losses_adam = np.array(losses_adam)                # shape (NUM_EPOCHS_ADAM,)
-# Extract the index of the best loss from history
-i_best_adam = int(losses_adam.argmin())
-# Extract best loss from history
-best_loss_adam = float(losses_adam[i_best_adam])
-# Extract best paramater values from history
-best_params_adam = jax.tree_util.tree_map(lambda x: x[i_best_adam], param_hist_adam)
-
-print(f"Lowest-Loss Adam Iteration: {i_best_adam+1}/{NUM_EPOCHS_ADAM} → Loss {best_loss_adam:.6e}")
+print(f"Lowest Adam Loss: {best_loss_adam:.6e}")
 
 # Restore the best parameters
 params = best_params_adam
+best_loss_total = best_loss_adam
 
 
 
@@ -676,34 +670,18 @@ params = best_params_adam
 
 if best_loss_adam > LOSS_THRESHOLD:
     # Run L-BFGS optimization phase
-    param_hist_lbfgs, losses_lbfgs = scan_with_history(
+    best_params_lbfgs, best_loss_lbfgs, params_after_lbfgs, lbfgs_state_after = scan_with_history(
         params, lbfgs_state, lbfgs_step,
         NUM_EPOCHS_LBFGS,
         tag = "L-BFGS"
     )
 
-    losses_lbfgs = np.array(losses_lbfgs)         # shape (NUM_EPOCHS_LBFGS,)
-    # Extract the index of the best loss from history
-    i_best_lbfgs = int(losses_lbfgs.argmin())
-    # Extract best loss from history
-    best_loss_lbfgs = float(losses_lbfgs[i_best_lbfgs])
-    # Extract best parameter values from history
-    best_params_lbfgs = jax.tree_util.tree_map(lambda x: x[i_best_lbfgs], param_hist_lbfgs)
-
-    print(f"Lowest-Loss L-BFGS Iteration: {i_best_lbfgs+1}/{NUM_EPOCHS_LBFGS} → loss {best_loss_lbfgs:.6e}")
+    print(f"Lowest L-BFGS Loss: {best_loss_lbfgs:.6e}")
 
     # Restore the best parameters
     if best_loss_lbfgs < best_loss_adam:
         params = best_params_lbfgs
         best_loss_total = best_loss_lbfgs
-        best_params_total = best_params_lbfgs
-    else:
-        params = best_params_adam
-        best_loss_total = best_loss_adam
-        best_params_total = best_params_adam
-else:
-    best_loss_total = best_loss_adam
-    best_params_total = best_params_adam
 
 print(f"Overall best loss = {best_loss_total:.6e}")
 
@@ -888,18 +866,18 @@ def compute_F(x_np, u_val, J_np, B_np, b_x_np):
         x_np   : current state, shape (N,)
         u_val  : scalar input value
     """
-    return -x_np + J_np @ jnp.tanh(x_np) + (B_np * jnp.array([u_val])).sum(axis=1) + b_x_np
+    return -x_np + J_np @ np.tanh(x_np) + (B_np * np.array([u_val])).sum(axis=1) + b_x_np
 
 
 def compute_jacobian(x_np, J_np):
     """
-    Computet the Jacobian of the evolution equation F(x), J_F(x) = -I + J * diag(1 - tanh(x)^2).
+    Compute the Jacobian of the evolution equation F(x), J_F(x) = -I + J * diag(1 - tanh(x)^2).
     """
     # diag(1 - tanh(x)^2) is a diagonal matrix with the derivative of tanh on the diagonal
-    diag_term = 1 - jnp.tanh(x_np) ** 2
+    diag_term = 1 - np.tanh(x_np) ** 2
 
     # Compute the Jacobian J_F(x) = -I + J * diag(1 - tanh(x)^2)
-    return -jnp.eye(len(x_np)) + J_np * diag_term[jnp.newaxis, :]
+    return -np.eye(len(x_np)) + J_np * diag_term[np.newaxis, :]
 
 
 def compute_grad_q(x_np, u_val, J_np, B_np, b_x_np):
@@ -915,7 +893,7 @@ def compute_grad_q(x_np, u_val, J_np, B_np, b_x_np):
     # Compute the gradient of q(x) = |F(x)|^2, which is grad_q = F(x) @ J_F
     grad_q = F_x @ J_F
 
-    return jnp.array(grad_q)
+    return np.array(grad_q)
 
 
 def find_points(
@@ -1011,7 +989,7 @@ def analyze_points(fixed_points, J_trained):
 
     for x_star in fixed_points:
         # Compute Jacobians at the fixed point
-        J_eff = np.array(compute_jacobian(jnp.array(x_star), J_trained))
+        J_eff = np.array(compute_jacobian(x_star, J_trained))
         jacobians.append(J_eff)
 
         # Compute eigenvalues of the Jacobian
@@ -1569,6 +1547,8 @@ def plot_pca_trajectories_and_points(point_type="fixed", all_points=None, proj_p
     # Set point name based on point type
     point_name = "Fixed Points" if point_type == "fixed" else "Slow Points"
     
+    J_trained = np.array(params["J"])
+
     # Create the figure and axes
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
@@ -1586,7 +1566,7 @@ def plot_pca_trajectories_and_points(point_type="fixed", all_points=None, proj_p
     for j, task_points in enumerate(all_points):
         for x_star in task_points:
             # Compute the Jacobian and find the eigenvalues at the point
-            J_eff = np.array(compute_jacobian(jnp.array(x_star), J_trained))
+            J_eff = np.array(compute_jacobian(x_star, J_trained))
             eigenvals, eigenvecs = eig(J_eff)
             # Find all the unstable eigenvalues for the given point
             unstable_idx = np.where(np.real(eigenvals) > 0)[0]
