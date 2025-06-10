@@ -73,7 +73,7 @@ num_steps_drive = int(T_drive / dt)
 num_steps_train = int(T_train / dt)
 time_drive = jnp.arange(0, T_drive, dt, dtype=jnp.float32)
 time_train = jnp.arange(0, T_train, dt, dtype=jnp.float32)
-time_full = np.concatenate([time_drive, T_drive + time_train])
+time_full = jnp.concatenate([time_drive, T_drive + time_train])
 
 
 # Build the driving phase and training phase inputs for all tasks, as well as the training phase targets
@@ -207,12 +207,15 @@ MARKERS = [
 # Fixed point search parameters
 NUM_ATTEMPTS = 50
 TOL = 1e-2
-MAXITER = 5000
+MAXITER = 1000
+GAUSSIAN_STD = 0.5         # standard deviation for Gaussian noise in perturbed initial conditions
 
 # Slow point search parameters
 NUM_ATTEMPTS_SLOW = 50
 TOL_SLOW = 1e-2
-MAXITER_SLOW = 5000
+MAXITER_SLOW = 1000
+GAUSSIAN_STD_SLOW = 0.5    # standard deviation for Gaussian noise in perturbed initial conditions for slow points
+SLOW_POINT_CUT_OFF = 1e-1  # threshold for slow points to be accepted
 
 
 # Jacobian and slow point analysis parameters
@@ -260,6 +263,28 @@ def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train):
         print(f"Error saving {variable_name} to {filepath}: {e}")
 
 
+def save_figure(fig, figure_name, N, num_tasks, dt, T_drive, T_train):
+    """
+    Save a matplotlib figure with timestamp and parameters.
+    """
+    # Define the output directory
+    output_dir = os.path.join(os.getcwd(), 'Outputs', f'JAX_Outputs_{RUN_TIMESTAMP}')
+
+    # Create the output directory if it doesn't exist (exist_ok avoids error if it does)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Generate filename with descriptive parameters
+    filename = generate_filename(figure_name, N, num_tasks, dt, T_drive, T_train) + '.png'
+    filepath = os.path.join(output_dir, filename)
+    
+    # Use a try-except block to handle potential I/O errors
+    try:
+        fig.savefig(filepath)
+        print(f"Saved figure {figure_name} to {filepath}")
+    except Exception as e:
+        print(f"Error saving figure {figure_name} to {filepath}: {e}")
+
+
 
 
 # -------------------------------
@@ -280,7 +305,7 @@ def rnn_step(x, inputs, params):
     
     Arguments:
     x     : current state (at time t), dimensions (N,)
-    u_t   : scalar input at this time-step (time t), dimensions (I,)
+    inputs: scalar input at this time-step (time t), dimensions (I,)
     params: dict containing J, B, b_x, w, b_z
 
     Returns:
@@ -392,7 +417,7 @@ def run_single_task_diagnostics(params, omega, u_off):
     Returns:
         task_loss    : scalar loss value for this task
         xs_train     : the training trajectory for the task, for the given parameters (jnp.ndarray, shape (num_steps_train+1, N))
-        x_drive_final: the final state of the system during training, for the given parameters (jnp.ndarray, shape (N,))
+        x_drive_final: the final state of the system after the drive phase, for the given parameters (jnp.ndarray, shape (N,))
     """
     # Set the initial hidden state
     x0 = jnp.zeros((N,), dtype=jnp.float32)
@@ -845,571 +870,795 @@ else:
 
 
 
-# # -------------------------------
-# # -------------------------------
-# # 4. FIXED POINTS, SLOW POINTS, AND UNSTABLE MODES RESULTS
-# # -------------------------------
-# # -------------------------------
-
-# # -------------------------------
-# # 4.1. Jacobians, Fixed Points, Slow Points, and Unstable Mode Frequencies Functions
-# # -------------------------------
-
-# def fixed_point_func(x_np, u_val, J_np, B_np, b_x_np):
-#     return -x_np + J_np @ jnp.tanh(x_np) + (B_np * jnp.array([u_val])).sum(axis=1) + b_x_np
-
-# def slow_point_func(x_np, u_val, J_np, B_np, b_x_np):
-#     F_x = -x_np + J_np @ jnp.tanh(x_np) + (B_np * jnp.array([u_val])).sum(axis=1) + b_x_np
-#     diag_term = 1 - jnp.tanh(x_np) ** 2
-#     J_F = -jnp.eye(len(x_np)) + J_np * diag_term[jnp.newaxis, :]
-#     grad_q = F_x @ J_F
-#     return jnp.array(grad_q)
-
-# def jacobian_fixed_point(x_star, J_np):
-#     diag_term = 1 - jnp.tanh(x_star) ** 2
-#     return -jnp.eye(len(x_star)) + J_np * diag_term[jnp.newaxis, :]
-
-# def find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=NUM_ATTEMPTS, tol=TOL):
-#     fixed_points = []
-#     try:
-#         sol = root(lambda x: np.array(fixed_point_func(x, u_const, J_trained, B_trained, b_x_trained)),
-#                    x0_guess, method='lm', options={'maxiter': MAXITER})
-#         if sol.success:
-#             fixed_points.append(sol.x)
-#     except Exception as e:
-#         print(f"Fixed point search failed for initial guess: {e}")
-
-#     for attempt in range(num_attempts - 1):
-#         x0_perturbed = x0_guess + np.random.normal(0, 0.5, size=x0_guess.shape)
-#         try:
-#             sol = root(lambda x: np.array(fixed_point_func(x, u_const, J_trained, B_trained, b_x_trained)),
-#                        x0_perturbed, method='lm', options={'maxiter': MAXITER})
-#             if sol.success:
-#                 is_distinct = True
-#                 for fp in fixed_points:
-#                     if np.linalg.norm(sol.x - fp) < tol:
-#                         is_distinct = False
-#                         break
-#                 if is_distinct:
-#                     fixed_points.append(sol.x)
-#         except Exception as e:
-#             print(f"Fixed point search failed for attempt {attempt+1}: {e}")
-#     return fixed_points
-
-# def find_slow_points_gn(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=NUM_ATTEMPTS_SLOW, tol=TOL_SLOW, alt_inits=None):
-#     def _try(initial_x):
-#         try:
-#             res = least_squares(lambda x: np.array(slow_point_func(x, u_const, J_trained, B_trained, b_x_trained)),
-#                                 initial_x, method='lm', max_nfev=MAXITER_SLOW)
-#             if res.success and np.linalg.norm(res.fun) < tol:
-#                 return res.x
-#         except Exception as e:
-#             print(f"Gauss-Newton slow-point search failed: {e}")
-#         return None
-
-#     slow_points = []
-#     fp = _try(x0_guess)
-#     if fp is not None:
-#         slow_points.append(fp)
-
-#     for _ in range(num_attempts - 1):
-#         cand = x0_guess + np.random.normal(0.0, 0.5, size=x0_guess.shape)
-#         fp = _try(cand)
-#         if fp is not None and all(np.linalg.norm(fp - sp) >= tol for sp in slow_points):
-#             slow_points.append(fp)
-
-#     if alt_inits is not None:
-#         for cand in alt_inits:
-#             fp = _try(cand)
-#             if fp is not None and all(np.linalg.norm(fp - sp) >= tol for sp in slow_points):
-#                 slow_points.append(fp)
-#     return slow_points
-
-# def analyze_fixed_points(fixed_points, J_trained):
-#     jacobians = []
-#     unstable_freqs = []
-#     for x_star in fixed_points:
-#         J_eff = np.array(jacobian_fixed_point(jnp.array(x_star), J_trained))
-#         jacobians.append(J_eff)
-#         eigenvals, _ = eig(J_eff)
-#         unstable_idx = np.where(np.real(eigenvals) > 0)[0]
-#         if len(unstable_idx) > 0:
-#             unstable_freqs.append(list(eigenvals[unstable_idx]))
-#         else:
-#             unstable_freqs.append([])
-#     return jacobians, unstable_freqs
-
-# def plot_unstable_eigenvalues(unstable_freqs, j, omega, save_dir=None):
-#     plt.figure(figsize=(10, 8))
-#     for i, freqs in enumerate(unstable_freqs):
-#         if freqs:
-#             freqs_array = np.array(freqs)
-#             plt.scatter(np.real(freqs_array), np.imag(freqs_array),
-#                         color=COLORS[i], marker=MARKERS[i], label=f'FP{i+1}')
-#     plt.axvline(x=0, color='k', linestyle='--', alpha=0.3)
-#     plt.axhline(y=0, color='k', linestyle='--', alpha=0.3)
-#     plt.xlabel('Real Part')
-#     plt.ylabel('Imaginary Part')
-#     plt.title(f'Unstable Eigenvalues for Task {j} (ω={omega:.3f})')
-#     plt.legend()
-#     plt.grid(True)
-#     if save_dir is not None:
-#         filename = generate_filename(f"unstable_eigenvalues_task_{j}", N, num_tasks, dt, T_drive, T_train)
-#         filepath = os.path.join(save_dir, filename.replace('.pkl', '.png'))
-#         plt.savefig(filepath)
-#         print(f"Saved unstable eigenvalues plot for task {j} to {filepath}")
-#     plt.show()
-#     plt.close()
-
-# def plot_jacobian_matrices(jacobians, j, omega, save_dir=None):
-#     fig, axes = plt.subplots(len(jacobians), 1, figsize=(10, 5 * len(jacobians)))
-#     if len(jacobians) == 1:
-#         axes = [axes]
-#     for i, J_eff in enumerate(jacobians):
-#         im = axes[i].imshow(J_eff, cmap='viridis')
-#         axes[i].set_title(f'Jacobian Matrix (Task {j}, ω={omega:.3f}, FP{i+1})')
-#         plt.colorbar(im, ax=axes[i])
-#     plt.tight_layout()
-#     if save_dir is not None:
-#         filename = generate_filename(f"jacobian_matrices_task_{j}", N, num_tasks, dt, T_drive, T_train)
-#         filepath = os.path.join(save_dir, filename.replace('.pkl', '.png'))
-#         plt.savefig(filepath)
-#         print(f"Saved Jacobian matrices plot for task {j} to {filepath}")
-#     plt.show()
-#     plt.close()
-
-# def plot_frequency_comparison(all_unstable_eig_freq, omegas, save_dir=None):
-#     plt.figure(figsize=(12, 6))
-#     task_numbers = []
-#     target_frequencies = []
-#     unstable_frequencies = []
-#     for j, task_freqs in enumerate(all_unstable_eig_freq):
-#         target_freq = omegas[j]
-#         max_imag = 0
-#         for fp_freqs in task_freqs:
-#             if fp_freqs:
-#                 current_max = max(abs(np.imag(ev)) for ev in fp_freqs)
-#                 max_imag = max(max_imag, current_max)
-#         if max_imag > 0:
-#             task_numbers.append(j)
-#             target_frequencies.append(target_freq)
-#             unstable_frequencies.append(max_imag)
-#     plt.scatter(task_numbers, target_frequencies, color='black', label='Target Frequency', s=100)
-#     plt.scatter(task_numbers, unstable_frequencies, color='red', label='Max Unstable Mode Frequency', s=100)
-#     plt.xlabel('Task #')
-#     plt.ylabel('Frequency (radians)')
-#     plt.title('Comparison of Target Frequencies and Maximum Unstable Mode Frequencies')
-#     plt.legend()
-#     plt.grid(True)
-#     if save_dir is not None:
-#         filename = generate_filename("frequency_comparison", N, num_tasks, dt, T_drive, T_train)
-#         filepath = os.path.join(save_dir, filename.replace('.pkl', '.png'))
-#         plt.savefig(filepath)
-#         print(f"Saved frequency comparison plot to {filepath}")
-#     plt.show()
-#     plt.close()
-
-# # -------------------------------
-# # 4.2.1. Fixed Points: Find Jacobians, Fixed Points, and Unstable Mode Frequencies
-# # -------------------------------
-
-# print("\nStarting fixed point search...")
-# J_trained = np.array(params["J"])
-# B_trained = np.array(params["B"])
-# b_x_trained = np.array(params["b_x"])
-
-# all_fixed_points = []
-# all_jacobians = []
-# all_unstable_eig_freq = []
-
-# start_time = time.time()
-# for batch_start in range(0, num_tasks, BATCH_SIZE):
-#     batch_end = min(batch_start + BATCH_SIZE, num_tasks)
-#     for j in range(batch_start, batch_end):
-#         u_const = static_inputs[j]
-#         x0_guess = state_fixed_point_inits[j]
-
-#         # Build fallback inits from trajectories
-#         idxs = np.random.choice(len(state_traj_states),
-#                                 size=min(num_tasks, NUM_ATTEMPTS), replace=False)
-#         fallback_inits = []
-#         for idx in idxs:
-#             traj = state_traj_states[idx]
-#             row = np.random.randint(0, traj.shape[0])
-#             fallback_inits.append(traj[row])
-
-#         task_fixed_points = find_fixed_points(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=NUM_ATTEMPTS, tol=TOL)
-#         all_fixed_points.append(task_fixed_points)
-
-#         task_jacobians, task_unstable_freqs = analyze_fixed_points(task_fixed_points, J_trained)
-#         all_jacobians.append(task_jacobians)
-#         all_unstable_eig_freq.append(task_unstable_freqs)
-
-# fixed_point_time = time.time() - start_time
-# print(f"Fixed point search completed in {fixed_point_time:.2f} seconds")
-
-# print("\nSaving fixed point analysis results...")
-# save_variable(all_fixed_points, "all_fixed_points", N, num_tasks, dt, T_drive, T_train)
-# save_variable(all_jacobians, "all_jacobians", N, num_tasks, dt, T_drive, T_train)
-# save_variable(all_unstable_eig_freq, "all_unstable_eig_freq", N, num_tasks, dt, T_drive, T_train)
-
-# # -------------------------------
-# # 4.2.2. Slow Points: Find Jacobians, Slow Points, and Unstable Mode Frequencies
-# # -------------------------------
-
-# print("\nStarting slow point search...")
-# all_slow_points = []
-# all_slow_jacobians = []
-# all_slow_unstable_eig_freq = []
-
-# start_time = time.time()
-# for batch_start in range(0, num_tasks, BATCH_SIZE):
-#     batch_end = min(batch_start + BATCH_SIZE, num_tasks)
-#     for j in range(batch_start, batch_end):
-#         u_const = static_inputs[j]
-#         x0_guess = state_fixed_point_inits[j]
-
-#         idxs = np.random.choice(len(state_traj_states),
-#                                 size=min(num_tasks, NUM_ATTEMPTS_SLOW), replace=False)
-#         fallback_inits = []
-#         for idx in idxs:
-#             traj = state_traj_states[idx]
-#             row = np.random.randint(0, traj.shape[0])
-#             fallback_inits.append(traj[row])
-
-#         task_slow_points = find_slow_points_gn(x0_guess, u_const, J_trained, B_trained, b_x_trained, num_attempts=NUM_ATTEMPTS_SLOW, tol=TOL_SLOW, alt_inits=fallback_inits)
-#         all_slow_points.append(task_slow_points)
-
-#         task_jacobians, task_unstable_freqs = analyze_fixed_points(task_slow_points, J_trained)
-#         all_slow_jacobians.append(task_jacobians)
-#         all_slow_unstable_eig_freq.append(task_unstable_freqs)
-
-# slow_point_time = time.time() - start_time
-# print(f"Slow point search completed in {slow_point_time:.2f} seconds")
-
-# print("\nSaving slow point analysis results...")
-# save_variable(all_slow_points, "all_slow_points", N, num_tasks, dt, T_drive, T_train)
-# save_variable(all_slow_jacobians, "all_slow_jacobians", N, num_tasks, dt, T_drive, T_train)
-# save_variable(all_slow_unstable_eig_freq, "all_slow_unstable_eig_freq", N, num_tasks, dt, T_drive, T_train)
-
-# # -------------------------------
-# # 4.3.1. Fixed Points: Fixed Point Summaries
-# # -------------------------------
-
-# print("\nSummary of Fixed Points Found:\n")
-# fixed_points_count = {}
-# unstable_eigs_count = {}
-
-# print("1. Fixed Points per Task:")
-# for j in range(num_tasks):
-#     num_fps = len(all_fixed_points[j])
-#     print(f"Task {j}: {num_fps} fixed points found")
-#     fixed_points_count[num_fps] = fixed_points_count.get(num_fps, 0) + 1
-#     for fp_freqs in all_unstable_eig_freq[j]:
-#         num_unstable = len(fp_freqs)
-#         unstable_eigs_count[num_unstable] = unstable_eigs_count.get(num_unstable, 0) + 1
-
-# print("\n2. Tasks Grouped by Number of Fixed Points:")
-# for num_fps in sorted(fixed_points_count.keys()):
-#     count = fixed_points_count[num_fps]
-#     print(f"  {count} tasks have {num_fps} fixed point{'s' if num_fps != 1 else ''}")
-
-# print("\n3. Fixed Points Grouped by Number of Unstable Eigenvalues:")
-# for num_unstable in sorted(unstable_eigs_count.keys()):
-#     count = unstable_eigs_count[num_unstable]
-#     print(f"  {count} fixed point{'s' if count != 1 else ''} have {num_unstable} unstable eigenvalue{'s' if num_unstable != 1 else ''}")
-
-# print("\nDetailed Information for Selected Tasks:")
-# for j in TEST_INDICES:
-#     print(f"\nTask {j}:")
-#     print(f"Number of distinct fixed points found: {len(all_fixed_points[j])}")
-#     for i, (fp, freqs) in enumerate(zip(all_fixed_points[j], all_unstable_eig_freq[j])):
-#         print(f"  Fixed point {i+1}:")
-#         print(f"    Number of unstable eigenvalues: {len(freqs)}")
-#         if len(freqs) > 0:
-#             print("    Unstable eigenvalues:")
-#             for ev in freqs:
-#                 print(f"      Real: {np.real(ev):.4f}, Imag: {np.imag(ev):.4f}")
-#         print(f"    Norm: {np.linalg.norm(fp):.4f}")
-
-# # -------------------------------
-# # 4.3.2. Slow Points: Slow Point Summaries
-# # -------------------------------
-
-# print("\nSummary of Slow Points Found:\n")
-# slow_points_count = {}
-# slow_unstable_eigs_count = {}
-
-# print("1. Slow Points per Task:")
-# for j in range(num_tasks):
-#     num_sps = len(all_slow_points[j])
-#     print(f"Task {j}: {num_sps} slow points found")
-#     slow_points_count[num_sps] = slow_points_count.get(num_sps, 0) + 1
-#     for sp_freqs in all_slow_unstable_eig_freq[j]:
-#         num_unstable = len(sp_freqs)
-#         slow_unstable_eigs_count[num_unstable] = slow_unstable_eigs_count.get(num_unstable, 0) + 1
-
-# print("\n2. Tasks Grouped by Number of Slow Points:")
-# for num_sps in sorted(slow_points_count.keys()):
-#     count = slow_points_count[num_sps]
-#     print(f"  {count} tasks have {num_sps} slow point{'s' if num_sps != 1 else ''}")
-
-# print("\n3. Slow Points Grouped by Number of Unstable Eigenvalues:")
-# for num_unstable in sorted(slow_unstable_eigs_count.keys()):
-#     count = slow_unstable_eigs_count[num_unstable]
-#     print(f"  {count} slow point{'s' if count != 1 else ''} have {num_unstable} unstable eigenvalue{'s' if num_unstable != 1 else ''}")
-
-# print("\nDetailed Information for Selected Tasks:")
-# for j in TEST_INDICES:
-#     print(f"\nTask {j}:")
-#     print(f"Number of distinct slow points found: {len(all_slow_points[j])}")
-#     for i, (sp, freqs) in enumerate(zip(all_slow_points[j], all_slow_unstable_eig_freq[j])):
-#         print(f"  Slow point {i+1}:")
-#         print(f"    Number of unstable eigenvalues: {len(freqs)}")
-#         if len(freqs) > 0:
-#             print("    Unstable eigenvalues:")
-#             for ev in freqs:
-#                 print(f"      Real: {np.real(ev):.4f}, Imag: {np.imag(ev):.4f}")
-#         print(f"    Norm: {np.linalg.norm(sp):.4f}")
-
-# # -------------------------------
-# # 4.4.1. Fixed Points: Jacobian Plots and Equal Jacobians Check
-# # -------------------------------
-
-# print("\nFixed Points: Plotting Jacobian matrices for selected tasks...")
-# for j in TEST_INDICES:
-#     omega_j = omegas[j]
-#     if all_jacobians[j]:
-#         plot_jacobian_matrices(all_jacobians[j], j, omega_j, save_dir=output_dir)
-
-# print("\nFixed Points: Checking for Equal Jacobians within Tasks:")
-# for j in range(num_tasks):
-#     task_jacobians = all_jacobians[j]
-#     num_jacobians = len(task_jacobians)
-#     if num_jacobians > 1:
-#         matched = [False] * num_jacobians
-#         equal_groups = []
-#         for i in range(num_jacobians):
-#             if not matched[i]:
-#                 current_group = [i]
-#                 matched[i] = True
-#                 for k in range(i + 1, num_jacobians):
-#                     if not matched[k]:
-#                         if np.all(np.abs(task_jacobians[i] - task_jacobians[k]) < JACOBIAN_TOL):
-#                             current_group.append(k)
-#                             matched[k] = True
-#                 if len(current_group) > 1:
-#                     equal_groups.append(current_group)
-#         if equal_groups:
-#             print(f"\nTask {j}:")
-#             print(f"  Total number of Jacobians: {num_jacobians}")
-#             for group_idx, group in enumerate(equal_groups):
-#                 print(f"  Group {group_idx+1}: {len(group)} equal Jacobians (indices: {[idx+1 for idx in group]})")
-
-# # -------------------------------
-# # 4.4.2. Slow Points: Jacobian Plots and Equal Jacobians Check
-# # -------------------------------
-
-# print("\nSlow Points: Plotting Jacobian matrices for selected tasks...")
-# for j in TEST_INDICES:
-#     omega_j = omegas[j]
-#     if all_slow_jacobians[j]:
-#         plot_jacobian_matrices(all_slow_jacobians[j], j, omega_j, save_dir=output_dir)
-
-# print("\nSlow Points: Checking for Equal Jacobians within Tasks:")
-# for j in range(num_tasks):
-#     task_jacobians = all_slow_jacobians[j]
-#     num_jacobians = len(task_jacobians)
-#     if num_jacobians > 1:
-#         matched = [False] * num_jacobians
-#         equal_groups = []
-#         for i in range(num_jacobians):
-#             if not matched[i]:
-#                 current_group = [i]
-#                 matched[i] = True
-#                 for k in range(i + 1, num_jacobians):
-#                     if not matched[k]:
-#                         if np.all(np.abs(task_jacobians[i] - task_jacobians[k]) < JACOBIAN_TOL):
-#                             current_group.append(k)
-#                             matched[k] = True
-#                 if len(current_group) > 1:
-#                     equal_groups.append(current_group)
-#         if equal_groups:
-#             print(f"\nTask {j}:")
-#             print(f"  Total number of Jacobians: {num_jacobians}")
-#             for group_idx, group in enumerate(equal_groups):
-#                 print(f"  Group {group_idx+1}: {len(group)} equal Jacobians (indices: {[idx+1 for idx in group]})")
-
-# # -------------------------------
-# # 4.5.1. Fixed Points: Unstable Mode Frequency Summaries and Plots
-# # -------------------------------
-
-# print("\nFixed Points: Plotting unstable eigenvalues for selected tasks...")
-# for j in TEST_INDICES:
-#     omega_j = omegas[j]
-#     if all_unstable_eig_freq[j]:
-#         plot_unstable_eigenvalues(all_unstable_eig_freq[j], j, omega_j, save_dir=output_dir)
-
-# print("\nFixed Points: Plotting comparisons between target frequencies and unstable mode frequencies...")
-# plot_frequency_comparison(all_unstable_eig_freq, omegas, save_dir=output_dir)
-
-# # -------------------------------
-# # 4.5.2. Slow Points: Unstable Mode Frequency Summaries and Plots
-# # -------------------------------
-
-# print("\nSlow Points: Plotting unstable eigenvalues for selected tasks...")
-# for j in TEST_INDICES:
-#     omega_j = omegas[j]
-#     if all_slow_unstable_eig_freq[j]:
-#         plot_unstable_eigenvalues(all_slow_unstable_eig_freq[j], j, omega_j, save_dir=output_dir)
-
-# print("\nSlow Points: Plotting comparisons between target frequencies and unstable mode frequencies...")
-# plot_frequency_comparison(all_slow_unstable_eig_freq, omegas, save_dir=output_dir)
-
-# # -------------------------------
-# # -------------------------------
-# # 5. PCA RESULTS
-# # -------------------------------
-# # -------------------------------
-
-# # -------------------------------
-# # 5.1.1. Fixed Points: Perform PCA on Trajectories and Fixed Points
-# # -------------------------------
-
-# print("\nFixed Points: Starting PCA computation...")
-# all_states = np.concatenate(state_traj_states, axis=0)  # (num_tasks*num_steps_train, N)
-# pca = PCA(n_components=3)
-# proj_all = pca.fit_transform(all_states)
-
-# proj_trajs = []
-# start = 0
-# for traj in tqdm(state_traj_states, desc="Projecting trajectories"):
-#     T = traj.shape[0]
-#     proj_traj = proj_all[start:start + T]
-#     proj_trajs.append(proj_traj)
-#     start += T
-
-# all_fixed_points_flat = []
-# for task_fps in all_fixed_points:
-#     all_fixed_points_flat.extend(task_fps)
-# if all_fixed_points_flat:
-#     all_fixed_points_flat = np.array(all_fixed_points_flat)
-#     if all_fixed_points_flat.ndim == 1:
-#         all_fixed_points_flat = all_fixed_points_flat.reshape(1, -1)
-#     proj_fixed = pca.transform(all_fixed_points_flat)
-# else:
-#     proj_fixed = np.empty((0, 3))
-
-# print("\nFixed Points: PCA complete.")
-
-# # -------------------------------
-# # 5.1.2. Slow Points: Perform PCA on Trajectories and Slow Points
-# # -------------------------------
-
-# print("\nSlow Points: Starting PCA computation...")
-# all_slow_points_flat = []
-# for task_sps in all_slow_points:
-#     all_slow_points_flat.extend(task_sps)
-# if all_slow_points_flat:
-#     all_slow_points_flat = np.array(all_slow_points_flat)
-#     if all_slow_points_flat.ndim == 1:
-#         all_slow_points_flat = all_slow_points_flat.reshape(1, -1)
-#     proj_slow = pca.transform(all_slow_points_flat)
-# else:
-#     proj_slow = np.empty((0, 3))
-
-# print("\nSlow Points: PCA complete.")
-
-# # -------------------------------
-# # 5.2.1. Fixed Points: PCA Trajectory and Fixed Points Plot
-# # -------------------------------
-
-# from mpl_toolkits.mplot3d import Axes3D
-
-# fig = plt.figure(figsize=(10, 8))
-# ax = fig.add_subplot(111, projection='3d')
-# for traj in proj_trajs:
-#     ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], color='blue', alpha=0.5)
-# if proj_fixed.size > 0:
-#     ax.scatter(proj_fixed[:, 0], proj_fixed[:, 1], proj_fixed[:, 2], color='green', s=50, label="Fixed Points")
-# fixed_point_idx = 0
-# for j, task_fps in enumerate(all_fixed_points):
-#     for x_star in task_fps:
-#         J_eff = np.array(jacobian_fixed_point(jnp.array(x_star), J_trained))
-#         eigenvals, eigenvecs = eig(J_eff)
-#         unstable_idx = np.where(np.real(eigenvals) > 0)[0]
-#         if len(unstable_idx) > 0:
-#             for idx in unstable_idx:
-#                 v = np.real(eigenvecs[:, idx])
-#                 scale = 0.5
-#                 v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_fixed[fixed_point_idx]
-#                 line = np.vstack([
-#                     proj_fixed[fixed_point_idx] - v_proj,
-#                     proj_fixed[fixed_point_idx] + v_proj
-#                 ])
-#                 ax.plot(line[:, 0], line[:, 1], line[:, 2], color='red', linewidth=2, alpha=0.5)
-#         fixed_point_idx += 1
-
-# ax.set_title('PCA of Network Trajectories and Fixed Points')
-# ax.set_xlabel('PC1')
-# ax.set_ylabel('PC2')
-# ax.set_zlabel('PC3')
-# plt.legend()
-# filename = generate_filename("pca_plot", N, num_tasks, dt, T_drive, T_train)
-# filepath = os.path.join(output_dir, filename.replace('.pkl', '.png'))
-# plt.savefig(filepath)
-# print(f"Saved PCA plot to {filepath}")
-# plt.show()
-# plt.close()
-
-# # -------------------------------
-# # 5.2.2. Slow Points: PCA Trajectory and Slow Points Plot
-# # -------------------------------
-
-# fig = plt.figure(figsize=(10, 8))
-# ax = fig.add_subplot(111, projection='3d')
-# for traj in proj_trajs:
-#     ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], color='blue', alpha=0.5)
-# if proj_slow.size > 0:
-#     ax.scatter(proj_slow[:, 0], proj_slow[:, 1], proj_slow[:, 2], color='green', s=50, label="Slow Points")
-# slow_point_idx = 0
-# for j, task_sps in enumerate(all_slow_points):
-#     for x_star in task_sps:
-#         J_eff = np.array(jacobian_fixed_point(jnp.array(x_star), J_trained))
-#         eigenvals, eigenvecs = eig(J_eff)
-#         unstable_idx = np.where(np.real(eigenvals) > 0)[0]
-#         if len(unstable_idx) > 0:
-#             for idx in unstable_idx:
-#                 v = np.real(eigenvecs[:, idx])
-#                 scale = 0.5
-#                 v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_slow[slow_point_idx]
-#                 line = np.vstack([
-#                     proj_slow[slow_point_idx] - v_proj,
-#                     proj_slow[slow_point_idx] + v_proj
-#                 ])
-#                 ax.plot(line[:, 0], line[:, 1], line[:, 2], color='red', linewidth=2, alpha=0.5)
-#         slow_point_idx += 1
-
-# ax.set_title('PCA of Network Trajectories and Slow Points')
-# ax.set_xlabel('PC1')
-# ax.set_ylabel('PC2')
-# ax.set_zlabel('PC3')
-# plt.legend()
-# filename = generate_filename("pca_plot_slow", N, num_tasks, dt, T_drive, T_train)
-# filepath = os.path.join(output_dir, filename.replace('.pkl', '.png'))
-# plt.savefig(filepath)
-# print(f"Saved PCA plot to {filepath}")
-# plt.show()
-# plt.close()
-
-# # -------------------------------
-# # 5.3. Save Results from PCA
-# # -------------------------------
-
-# print("\nSaving PCA results...")
-# pca_results = {
-#     "proj_trajs": proj_trajs,
-#     "proj_fixed": proj_fixed,
-#     "proj_slow": proj_slow
-# }
-# save_variable(pca_results, "pca_results", N, num_tasks, dt, T_drive, T_train)
+# -------------------------------
+# -------------------------------
+# 4. FIXED POINTS, SLOW POINTS, AND UNSTABLE MODES RESULTS
+# -------------------------------
+# -------------------------------
+
+# -------------------------------
+# 4.1.1. Jacobians, Fixed Points, Slow Points, and Unstable Mode Frequencies Functions
+# -------------------------------
+
+def compute_F(x_np, u_val, J_np, B_np, b_x_np):
+    """
+    Compute the evolutiion equation for the RNN, F(x) = -x + J * tanh(x) + B * u + b_x.
+
+    Notable arguments:
+        x_np   : current state, shape (N,)
+        u_val  : scalar input value
+    """
+    return -x_np + J_np @ jnp.tanh(x_np) + (B_np * jnp.array([u_val])).sum(axis=1) + b_x_np
+
+
+def compute_jacobian(x_np, J_np):
+    """
+    Computet the Jacobian of the evolution equation F(x), J_F(x) = -I + J * diag(1 - tanh(x)^2).
+    """
+    # diag(1 - tanh(x)^2) is a diagonal matrix with the derivative of tanh on the diagonal
+    diag_term = 1 - jnp.tanh(x_np) ** 2
+
+    # Compute the Jacobian J_F(x) = -I + J * diag(1 - tanh(x)^2)
+    return -jnp.eye(len(x_np)) + J_np * diag_term[jnp.newaxis, :]
+
+
+def compute_grad_q(x_np, u_val, J_np, B_np, b_x_np):
+    """
+    Compute the gradient of q(x) = |F(x)|^2, grad_q = F(x) @ J_F(x).
+    """
+    # Compute F(x) = -x + J * tanh(x) + B * u + b_x
+    F_x = compute_F(x_np, u_val, J_np, B_np, b_x_np)
+
+    # Compute the Jacobian J_F(x) = -I + J * diag(1 - tanh(x)^2)
+    J_F = compute_jacobian(x_np, J_np)
+
+    # Compute the gradient of q(x) = |F(x)|^2, which is grad_q = F(x) @ J_F
+    grad_q = F_x @ J_F
+
+    return jnp.array(grad_q)
+
+
+def find_points(
+    x0_guess, u_const, J_trained, B_trained, b_x_trained,
+    mode: str,
+    num_attempts=None, tol=None, maxiter=None, alt_inits=None, gaussian_std=None):
+    """
+    Unified finder for fixed points and slow points.
+
+    Notable arguments:
+        mode        : 'fixed' for fixed point search or 'slow' for slow point search
+        num_attempts: number of attempts to find a point (default: NUM_ATTEMPTS or NUM_ATTEMPTS_SLOW)
+        tol         : tolerance for two fixed/slow points to be considered distinct (default: TOL or TOL_SLOW)
+        maxiter     : maximum iterations for the solver (default: MAXITER or MAXITER_SLOW)
+        alt_inits   : alternative initial conditions from training trajectories
+        gaussian_std: standard deviation for Gaussian noise in perturbed initial conditions (default: GAUSSIAN_STD or GAUSSIAN_STD_SLOW)
+
+    Returns:
+        points      : list of found fixed or slow points, each point is a NumPy array of shape (N,)
+    """
+    mode = mode.lower()
+    
+    if mode == 'fixed':
+        # Use the provided parameters or fixed point search defaults
+        num_attempts = num_attempts if num_attempts is not None else NUM_ATTEMPTS
+        tol = tol if tol is not None else TOL
+        maxiter = maxiter if maxiter is not None else MAXITER
+        gaussian_std = gaussian_std if gaussian_std is not None else GAUSSIAN_STD
+        # Define the root solver for fixed points
+        solver = lambda x: root(lambda x: np.array(compute_F(x, u_const, J_trained, B_trained, b_x_trained)),
+                                x, method='lm', options={'maxiter': maxiter})
+        success_cond = lambda sol: sol.success
+        extract = lambda sol: sol.x
+
+    elif mode == 'slow':
+        # Use the provided parameters or slow point search defaults
+        num_attempts = num_attempts if num_attempts is not None else NUM_ATTEMPTS_SLOW
+        tol = tol if tol is not None else TOL_SLOW
+        maxiter = maxiter if maxiter is not None else MAXITER_SLOW
+        gaussian_std = gaussian_std if gaussian_std is not None else GAUSSIAN_STD_SLOW
+        # Define the least squares solver for slow points
+        solver = lambda x: least_squares(lambda x: np.array(compute_F(x, u_const, J_trained, B_trained, b_x_trained)),
+                                         x, method='lm', options={'maxiter': maxiter})
+        success_cond = lambda sol: sol.success and np.linalg.norm(sol.fun) < SLOW_POINT_CUT_OFF
+        extract = lambda sol: sol.x
+    
+    else:
+        raise ValueError("Argument 'fixed_or_slow' must be either 'fixed' or 'slow'.")
+
+    points = []
+
+    def _attempt(x_init):
+        try:
+            sol = solver(x_init)
+            if success_cond(sol):
+                return extract(sol)
+        except Exception as e:
+            print(f"{mode.capitalize()}-point search failed: {e}")
+        return None
+
+    # (I) Original guess
+    pt = _attempt(x0_guess)
+    if pt is not None:
+        points.append(pt)
+
+    # (II) Gaussian perturbations of the original guess
+    for _ in tqdm(range(num_attempts - 1), desc=f"Finding {mode} points (perturbations)"):
+        pert = x0_guess + np.random.normal(0, gaussian_std, size=x0_guess.shape)
+        pt = _attempt(pert)
+        if pt is not None and all(np.linalg.norm(pt - p) >= tol for p in points):
+            points.append(pt)
+
+    # (III) Alternative initial conditions from training trajectories
+    if alt_inits is not None:
+        for cand in tqdm(alt_inits, desc=f"Finding {mode} points (initial conditions from training)"):
+            pt = _attempt(cand)
+            if pt is not None and all(np.linalg.norm(pt - p) >= tol for p in points):
+                points.append(pt)
+
+    return points
+
+
+def analyze_points(fixed_points, J_trained):
+    """
+    For each fixed point, compute the Jacobian and its unstable eigenvalues.
+
+    Returns:
+        jacobians      : list of Jacobian matrices at each fixed point, each matrix is a NumPy array of shape (N, N)
+        unstable_freqs : list of lists, where each inner list contains the unstable eigenvalues (with positive real part) for the corresponding fixed point
+    """
+    jacobians = []
+    unstable_freqs = []
+
+    for x_star in fixed_points:
+        # Compute Jacobians at the fixed point
+        J_eff = np.array(compute_jacobian(jnp.array(x_star), J_trained))
+        jacobians.append(J_eff)
+
+        # Compute eigenvalues of the Jacobian
+        eigenvals, _ = eig(J_eff)
+
+        # Find all the unstable eigenvalues for the given fixed point (i.e., those with positive real part)
+        unstable_idx = np.where(np.real(eigenvals) > 0)[0]
+        if len(unstable_idx) > 0:
+            # Store all unstable eigenvalues for this fixed point
+            unstable_freqs.append(list(eigenvals[unstable_idx]))
+        else:
+            # If there are no unstable eigenvalues, append an empty list
+            unstable_freqs.append([])
+    
+    return jacobians, unstable_freqs
+
+
+
+
+# -------------------------------
+# 4.1.2. Plotting Functions
+# -------------------------------
+
+def plot_jacobian_matrices(jacobians, j):
+    """
+    Plot the Jacobian matrices for a given task.
+    """
+    # Create the figure and subplots
+    fig, axes = plt.subplots(len(jacobians), 1, figsize=(10, 5 * len(jacobians)))
+    
+    # Ensure axes is iterable when there's only one Jacobian (and hence a single subplot)
+    if len(jacobians) == 1:
+        axes = [axes]
+    # Iterate over the subplots
+    for i, J_eff in enumerate(jacobians):
+        im = axes[i].imshow(J_eff, cmap='viridis')
+        axes[i].set_title(f'Jacobian Matrix (Task {j}, ω={omegas[j]:.3f}, FP{i+1})')
+        plt.colorbar(im, ax=axes[i])
+    
+    plt.tight_layout()
+    
+    # Save the figure
+    save_figure(fig, f"Jacobian_Matrices_for_Task_{j}", N, num_tasks, dt, T_drive, T_train)
+    
+    plt.show()
+    plt.close()
+
+
+def plot_unstable_eigenvalues(unstable_freqs, j):
+    """
+    Plot the unstable eigenvalues for a given task on the complex plane.
+    """
+    # Create the figure
+    fig = plt.figure(figsize=(10, 8))
+
+    # Plot each fixed point's unstable eigenvalues
+    for i, freqs in enumerate(unstable_freqs):
+        if freqs:   # check that there are unstable frequencies
+            freqs_array = np.array(freqs)
+            plt.scatter(np.real(freqs_array), np.imag(freqs_array),
+                        color=COLORS[i], marker=MARKERS[i], label=f'FP{i+1}')
+    
+    # Add decorations
+    plt.axvline(x=0, color='k', linestyle='--', alpha=0.3)
+    plt.axhline(y=0, color='k', linestyle='--', alpha=0.3)
+    plt.xlabel('Real Part')
+    plt.ylabel('Imaginary Part')
+    plt.title(f'Unstable Eigenvalues for Task {j} (ω={omegas[j]:.3f})')
+    plt.legend()
+    plt.grid(True)
+    
+    # Save the figure
+    save_figure(fig, f"Unstable_Eigenvalues_for_Task_{j}", N, num_tasks, dt, T_drive, T_train)
+    
+    plt.show()
+    plt.close()
+
+
+def plot_frequency_comparison(all_unstable_eig_freq, omegas):
+    """
+    Plot a comparison of target frequencies and maximum unstable mode frequencies (imaginary components) for all tasks.
+
+    Notable arguments:
+        all_unstable_eig_freq: list of lists of lists, where the outer list is over tasks,
+            the middle list is over fixed points,
+            and the inner list contains unstable eigenvalues for each fixed point
+    """
+    # Create the figure and axes
+    fig = plt.figure(figsize=(12, 6))
+
+    # Initialize lists to store data for plotting
+    task_numbers = []
+    target_frequencies = []
+    unstable_frequencies = []
+
+    # Collect data for all tasks
+    for j, task_freqs in enumerate(all_unstable_eig_freq):
+        target_freq = omegas[j]
+        # Find the maximum imaginary component across all fixed points in this task
+        max_imag = 0
+        for fp_freqs in task_freqs:
+            if fp_freqs:
+                current_max = max(abs(np.imag(ev)) for ev in fp_freqs)
+                max_imag = max(max_imag, current_max)
+        if max_imag > 0:    # only consider tasks with unstable frequencies
+            task_numbers.append(j)
+            target_frequencies.append(target_freq)
+            unstable_frequencies.append(max_imag)
+    
+    # Plot the data
+    plt.scatter(task_numbers, target_frequencies, color='black', label='Target Frequency', s=100)
+    plt.scatter(task_numbers, unstable_frequencies, color='red', label='Max Unstable Mode Frequency', s=100)
+
+    # Add decorations
+    plt.xlabel('Task #')
+    plt.ylabel('Frequency')
+    plt.title('Comparison of Target Frequencies and Maximum Unstable Mode Frequencies')
+    plt.legend()
+    plt.grid(True)
+    
+    # Save the figure
+    save_figure(fig, "Frequency_Comparison", N, num_tasks, dt, T_drive, T_train)
+    
+    plt.show()
+    plt.close()
+
+
+
+
+# -------------------------------
+# 4.2.0 Unified Point Search Function: Find Points, Jacobians, and Unstable Mode Frequencies
+# -------------------------------
+
+def find_and_analyze_points(point_type="fixed"):
+    """
+    Unified function to find and analyze either fixed points or slow points for all tasks.
+    
+    Arguments:
+        point_type: str, either "fixed" or "slow" to specify which type of points to find
+    
+    Returns:
+        all_points              : list of lists of points, one list per task
+        all_jacobians           : list of lists of Jacobians, one list per task  
+        all_unstable_eig_freq   : list of lists of lists of unstable frequencies: outer list is over tasks,
+                                middle list is over fixed points, and inner list contains unstable eigenvalues for each fixed point
+    """
+    
+    # Validate point_type parameter
+    if point_type not in ["fixed", "slow"]:
+        raise ValueError("point_type must be either 'fixed' or 'slow'")
+    
+    # Set parameters based on point type
+    if point_type == "fixed":
+        num_attempts = NUM_ATTEMPTS
+        tol = TOL
+        maxiter = MAXITER
+        gaussian_std = GAUSSIAN_STD
+        search_name = "fixed point"
+    else:  # point_type == "slow"
+        num_attempts = NUM_ATTEMPTS_SLOW
+        tol = TOL_SLOW
+        maxiter = MAXITER_SLOW
+        gaussian_std = GAUSSIAN_STD_SLOW
+        search_name = "slow point"
+    
+    # Extract trained parameters
+    J_trained = np.array(params["J"])
+    B_trained = np.array(params["B"])
+    b_x_trained = np.array(params["b_x"])
+    
+    # Initialize lists to store results
+    all_points = []              # List of lists of points, one list per task
+    all_jacobians = []           # List of lists of Jacobians, one list per task
+    all_unstable_eig_freq = []   # List of lists of lists of unstable frequencies
+    
+    # Track search time
+    start_time = time.time()
+    print(f"\nStarting {search_name} search...")
+    
+    # Iterate over each task to find points
+    for j in range(num_tasks):
+        u_const = static_inputs[j]
+        x0_guess = state_fixed_point_inits[j]
+        
+        # Build fallback initializations from training trajectories
+        idxs = np.random.choice(len(state_traj_states),
+                                size=min(num_tasks, num_attempts), replace=False)
+        fallback_inits = []
+        for idx in idxs:
+            traj = state_traj_states[idx]                   # shape (num_steps_train+1, N)
+            row = np.random.randint(0, traj.shape[0])
+            fallback_inits.append(traj[row])                # shape (N,)
+        
+        # Find the points
+        task_points = find_points(
+            x0_guess, u_const, J_trained, B_trained, b_x_trained,
+            mode=point_type,
+            num_attempts=num_attempts, 
+            tol=tol, 
+            maxiter=maxiter, 
+            alt_inits=fallback_inits, 
+            gaussian_std=gaussian_std
+        )
+        all_points.append(task_points)
+        
+        # Analyze the points to compute Jacobians and unstable eigenvalues
+        task_jacobians, task_unstable_freqs = analyze_points(task_points, J_trained)
+        all_jacobians.append(task_jacobians)
+        all_unstable_eig_freq.append(task_unstable_freqs)
+    
+    # Calculate search time
+    search_time = time.time() - start_time
+    print(f"{search_name.capitalize()} search completed in {search_time:.2f} seconds")
+    
+    # Save results
+    print(f"\nSaving {search_name} analysis results...")
+    save_variable(all_points, f"all_{point_type}_points", N, num_tasks, dt, T_drive, T_train)
+    save_variable(all_jacobians, f"all_{point_type}_jacobians", N, num_tasks, dt, T_drive, T_train)
+    save_variable(all_unstable_eig_freq, f"all_{point_type}_unstable_eig_freq", N, num_tasks, dt, T_drive, T_train)
+    
+    return all_points, all_jacobians, all_unstable_eig_freq
+    
+
+
+
+# -------------------------------
+# 4.2.1. Fixed Points: Find Fixed Points, Jacobians, and Unstable Mode Frequencies
+# -------------------------------
+
+# Execute fixed point search using unified function
+all_fixed_points, all_jacobians, all_unstable_eig_freq = find_and_analyze_points(point_type="fixed")
+
+
+
+
+# -------------------------------
+# 4.2.2. Slow Points: Find Slow Points, Jacobians, and Unstable Mode Frequencies
+# -------------------------------
+
+# Execute slow point search using unified function
+all_slow_points, all_slow_jacobians, all_slow_unstable_eig_freq = find_and_analyze_points(point_type="slow")
+
+
+
+
+# -------------------------------
+# 4.3.0. Unified Point Summary Function
+# -------------------------------
+
+def generate_point_summaries(point_type="fixed", all_points=None, all_unstable_eig_freq=None):
+    """
+    Unified function to generate summaries for either fixed points or slow points.
+    
+    Arguments:
+        point_type              : str, either "fixed" or "slow" to specify which type of points
+        all_points              : list of lists of points, one list per task
+        all_unstable_eig_freq   : list of lists of lists of unstable frequencies: outer list is over tasks,
+                                middle list is over fixed points, and inner list contains unstable eigenvalues for each fixed point
+    """
+    
+    # Validate point_type parameter
+    if point_type not in ["fixed", "slow"]:
+        raise ValueError("point_type must be either 'fixed' or 'slow'")
+    
+    # Set point names based on point type
+    point_name = "Fixed Points" if point_type == "fixed" else "Slow Points"
+    point_name_lower = "fixed points" if point_type == "fixed" else "slow points"
+    point_name_singular = "fixed point" if point_type == "fixed" else "slow point"
+    
+    print(f"\nSummary of {point_name} Found:\n")
+    points_count = {}
+    unstable_eigs_count = {}
+
+    print(f"1. {point_name} per Task:")
+    for j in range(num_tasks):
+        # Count the number of points found for this task
+        num_points = len(all_points[j])
+        print(f"Task {j}: {num_points} {point_name_lower} found")
+        # Update the count of tasks with this number of points
+        points_count[num_points] = points_count.get(num_points, 0) + 1
+        
+        for point_freqs in all_unstable_eig_freq[j]:
+            # Count the number of unstable eigenvalues for this point
+            num_unstable = len(point_freqs)
+            # Update the count of points with this number of unstable eigenvalues
+            unstable_eigs_count[num_unstable] = unstable_eigs_count.get(num_unstable, 0) + 1
+
+    print(f"\n2. Tasks Grouped by Number of {point_name}:")
+    for num_points in sorted(points_count.keys()):
+        count = points_count[num_points]
+        print(f"  {count} tasks have {num_points} {point_name_singular}{'s' if num_points != 1 else ''}")
+
+    print(f"\n3. {point_name} Grouped by Number of Unstable Eigenvalues:")
+    for num_unstable in sorted(unstable_eigs_count.keys()):
+        count = unstable_eigs_count[num_unstable]
+        print(f"  {count} {point_name_singular}{'s' if count != 1 else ''} have {num_unstable} unstable eigenvalue{'s' if num_unstable != 1 else ''}")
+
+    print("\nDetailed Information for Selected Tasks:")
+    for j in TEST_INDICES:
+        print(f"\nTask {j}:")
+        print(f"Number of distinct {point_name_lower} found: {len(all_points[j])}")
+        for i, (point, freqs) in enumerate(zip(all_points[j], all_unstable_eig_freq[j])):
+            print(f"  {point_name_singular.capitalize()} {i+1}:")
+            print(f"    Number of unstable eigenvalues: {len(freqs)}")
+            if len(freqs) > 0:
+                print("    Unstable eigenvalues:")
+                for ev in freqs:
+                    print(f"      Real: {np.real(ev):.4f}, Imag: {np.imag(ev):.4f}")
+            print(f"    Norm: {np.linalg.norm(point):.4f}")
+
+
+
+
+# -------------------------------
+# 4.3.1. Fixed Points: Fixed Point Summaries
+# -------------------------------
+
+# Execute fixed point summary using unified function
+generate_point_summaries(point_type="fixed", all_points=all_fixed_points, all_unstable_eig_freq=all_unstable_eig_freq)
+
+
+
+
+# -------------------------------
+# 4.3.2. Slow Points: Slow Point Summaries
+# -------------------------------
+
+# Execute slow point summary using unified function
+generate_point_summaries(point_type="slow", all_points=all_slow_points, all_unstable_eig_freq=all_slow_unstable_eig_freq)
+
+
+
+
+# -------------------------------
+# 4.4.0. Unified Jacobian Analysis Function: Jacobian Plots and Equal Jacobians Check
+# -------------------------------
+
+def analyze_jacobians(point_type="fixed", all_jacobians=None):
+    """
+    Unified function to plot Jacobian matrices and check for equal Jacobians for either fixed points or slow points.
+    
+    Arguments:
+        point_type      : str, either "fixed" or "slow" to specify which type of points
+        all_jacobians   : list of lists of Jacobians, one list per task
+    """
+    
+    # Validate point_type parameter
+    if point_type not in ["fixed", "slow"]:
+        raise ValueError("point_type must be either 'fixed' or 'slow'")
+    
+    point_name = "Fixed Points" if point_type == "fixed" else "Slow Points"
+    
+    print(f"\n{point_name}: Plotting Jacobian matrices for selected tasks...")
+    for j in TEST_INDICES:
+        omega_j = omegas[j]
+        if all_jacobians[j]:    # Check if there are any Jacobians for this task
+            plot_jacobian_matrices(all_jacobians[j], j)
+
+    print(f"\n{point_name}: Checking for Equal Jacobians within Tasks:")
+    for j in range(num_tasks):
+        task_jacobians = all_jacobians[j]
+        num_jacobians = len(task_jacobians)
+        if num_jacobians > 1:   # Only check this if there are multiple Jacobians for this task
+            # Track which Jacobians have been matched
+            matched = [False] * num_jacobians
+            equal_groups = []
+            for i in range(num_jacobians):
+                if not matched[i]:  # Skip if this Jacobian has already been matched
+                    current_group = [i]
+                    matched[i] = True
+                    for k in range(i + 1, num_jacobians):
+                        if not matched[k]:
+                            # Check if the Jacobians are equal within the tolerance
+                            if np.all(np.abs(task_jacobians[i] - task_jacobians[k]) < JACOBIAN_TOL):
+                                current_group.append(k)
+                                matched[k] = True
+                    if len(current_group) > 1:  # Only add groups with more than one equal Jacobian
+                        equal_groups.append(current_group)
+            if equal_groups:
+                print(f"\nTask {j}:")
+                print(f"  Total number of Jacobians: {num_jacobians}")
+                for group_idx, group in enumerate(equal_groups):
+                    print(f"  Group {group_idx+1}: {len(group)} equal Jacobians (indices: {[idx+1 for idx in group]})")
+
+
+
+
+# -------------------------------
+# 4.4.1. Fixed Points: Jacobian Plots and Equal Jacobians Check
+# -------------------------------
+
+# Execute fixed point Jacobian analysis using unified function
+analyze_jacobians(point_type="fixed", all_jacobians=all_jacobians)
+
+
+
+
+# -------------------------------
+# 4.4.2. Slow Points: Jacobian Plots and Equal Jacobians Check
+# -------------------------------
+
+# Execute slow point Jacobian analysis using unified function
+analyze_jacobians(point_type="slow", all_jacobians=all_slow_jacobians)
+
+
+
+
+# -------------------------------
+# 4.5.0. Unified Unstable Mode Frequency Analysis Function
+# -------------------------------
+
+def analyze_unstable_frequencies(point_type="fixed", all_unstable_eig_freq=None):
+    """
+    Unified function to plot unstable eigenvalues and frequency comparisons for either fixed points or slow points.
+    
+    Arguments:
+        point_type              : str, either "fixed" or "slow" to specify which type of points
+        all_unstable_eig_freq   : list of lists of lists of unstable frequencies: outer list is over tasks,
+                                middle list is over fixed points, and inner list contains unstable eigenvalues for each fixed point
+    """
+    
+    # Validate point_type parameter
+    if point_type not in ["fixed", "slow"]:
+        raise ValueError("point_type must be either 'fixed' or 'slow'")
+    
+    # Set point name based on point type
+    point_name = "Fixed Points" if point_type == "fixed" else "Slow Points"
+    
+    print(f"\n{point_name}: Plotting unstable eigenvalues for selected tasks...")
+    for j in TEST_INDICES:
+        omega_j = omegas[j]
+        if all_unstable_eig_freq[j]:
+            plot_unstable_eigenvalues(all_unstable_eig_freq[j], j)
+
+    print(f"\n{point_name}: Plotting comparisons between target frequencies and unstable mode frequencies...")
+    plot_frequency_comparison(all_unstable_eig_freq, omegas)
+
+
+
+
+# -------------------------------
+# 4.5.1. Fixed Points: Unstable Mode Frequency Summaries and Plots
+# -------------------------------
+
+analyze_unstable_frequencies(point_type="fixed", all_unstable_eig_freq=all_unstable_eig_freq)
+
+
+
+
+# -------------------------------
+# 4.5.2. Slow Points: Unstable Mode Frequency Summaries and Plots
+# -------------------------------
+
+analyze_unstable_frequencies(point_type="slow", all_unstable_eig_freq=all_slow_unstable_eig_freq)
+
+
+
+
+# -------------------------------
+# -------------------------------
+# 5. PCA RESULTS
+# -------------------------------
+# -------------------------------
+
+# -------------------------------
+# 5.1.1. Fixed Points: Perform PCA on Trajectories and Fixed Points
+# -------------------------------
+
+# Track PCA computation time
+start_time = time.time()
+print("\nFixed Points: Starting PCA computation...")
+
+# Concatenate all state trajectories from all tasks
+all_states = np.concatenate(state_traj_states, axis=0)  # shape is (num_tasks * (num_steps_train+1), N)
+
+# Perform PCA with 3 components
+pca = PCA(n_components=3)
+proj_all = pca.fit_transform(all_states)
+
+# Project each trajectory into the PCA space
+proj_trajs = []
+start = 0
+for traj in tqdm(state_traj_states, desc="Projecting trajectories"):
+    T = traj.shape[0]   # Number of time steps in the trajectory
+    proj_traj = proj_all[start:start + T]   # Extracts the projected trajectory from the PCA space, resulting shape is (T, 3)
+    proj_trajs.append(proj_traj)
+    start += T
+
+# Project all fixed points from all tasks into the PCA space
+all_fixed_points_flat = []
+for task_fps in all_fixed_points:
+    all_fixed_points_flat.extend(task_fps)
+if all_fixed_points_flat:   # Check if there are any fixed points
+    all_fixed_points_flat = np.array(all_fixed_points_flat)
+    if all_fixed_points_flat.ndim == 1: # If it's a 1D array, reshape it to 2D
+        all_fixed_points_flat = all_fixed_points_flat.reshape(1, -1)
+    proj_fixed = pca.transform(all_fixed_points_flat)   # Projects all fixed points from all tasks into the PCA space, resulting shape is (num_total_fixed_points, 3)
+else:
+    proj_fixed = np.empty((0, 3))   # Empty array with correct shape for plotting
+# Note that np.array(all_fixed_points_flat) has shape (num_total_fixed_points, N)
+
+# Calculate PCA computation time
+pca_time = time.time() - start_time
+print(f"\nPCA computation completed in {pca_time:.2f} seconds")
+
+
+
+
+# -------------------------------
+# 5.1.2. Slow Points: Perform PCA on Trajectories and Slow Points
+# -------------------------------
+
+# Track PCA computation time
+start_time_slow = time.time()
+print("\nSlow Points: Starting PCA computation...")
+
+# Project all slow points from all tasks into the PCA space
+all_slow_points_flat = []
+for task_sps in all_slow_points:
+    all_slow_points_flat.extend(task_sps)
+if all_slow_points_flat:    # Check if there are any slow points
+    all_slow_points_flat = np.array(all_slow_points_flat)
+    if all_slow_points_flat.ndim == 1:  # If it's a 1D array, reshape it to 2D
+        all_slow_points_flat = all_slow_points_flat.reshape(1, -1)
+    proj_slow = pca.transform(all_slow_points_flat) # Projects all slow points from all tasks into the PCA space, resulting shape is (num_total_slow_points, 3)
+else:
+    proj_slow = np.empty((0, 3))    # Empty array with correct shape for plotting
+# Note that np.array(all_slow_points_flat) has shape (num_total_slow_points, N)
+
+# Calculate PCA computation time
+pca_time_slow = time.time() - start_time_slow
+print(f"\nPCA computation completed in {pca_time_slow:.2f} seconds")
+
+
+
+
+# -------------------------------
+# 5.2.0. Unified PCA Plotting Function
+# -------------------------------
+
+def plot_pca_trajectories_and_points(point_type="fixed", all_points=None, proj_points=None):
+    """
+    Unified function to plot PCA trajectories with either fixed points or slow points.
+    
+    Arguments:
+        point_type   : str, either "fixed" or "slow" to specify which type of points to plot
+        all_points   : list of lists of points, one list per task
+        proj_points  : projected points in PCA space, shape (num_total_points, 3)
+    """
+    
+    # Validate point_type parameter
+    if point_type not in ["fixed", "slow"]:
+        raise ValueError("point_type must be either 'fixed' or 'slow'")
+    
+    # Set point name based on point type
+    point_name = "Fixed Points" if point_type == "fixed" else "Slow Points"
+    
+    # Create the figure and axes
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Plot the projected trajectories in blue
+    for traj in proj_trajs:
+        ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], color='blue', alpha=0.5)
+
+    # Plot the projected points as green scatter points
+    if proj_points.size > 0:
+        ax.scatter(proj_points[:, 0], proj_points[:, 1], proj_points[:, 2], color='green', s=50, label=point_name)
+
+    # For each point, plot all unstable modes as red lines
+    point_idx = 0
+    for j, task_points in enumerate(all_points):
+        for x_star in task_points:
+            # Compute the Jacobian and find the eigenvalues at the point
+            J_eff = np.array(compute_jacobian(jnp.array(x_star), J_trained))
+            eigenvals, eigenvecs = eig(J_eff)
+            # Find all the unstable eigenvalues for the given point
+            unstable_idx = np.where(np.real(eigenvals) > 0)[0]
+            if len(unstable_idx) > 0:
+                # For each unstable eigenvalue, plot the corresponding eigenvector direction
+                for idx in unstable_idx:
+                    # Take the real part for the plotting direction
+                    v = np.real(eigenvecs[:, idx])
+                    scale = 0.5
+                    # Project the unstable eigenvector direction into PCA space
+                    v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_points[point_idx]
+                    # Plot a line centred on the point in PCA space
+                    line = np.vstack([
+                        proj_points[point_idx] - v_proj,
+                        proj_points[point_idx] + v_proj
+                    ])
+                    ax.plot(line[:, 0], line[:, 1], line[:, 2], color='red', linewidth=2, alpha=0.5)
+            point_idx += 1
+
+    # Add decorations
+    ax.set_title(f'PCA of Network Trajectories and {point_name}')
+    ax.set_xlabel('PC1')
+    ax.set_ylabel('PC2')
+    ax.set_zlabel('PC3')
+    plt.legend()
+
+    # Save the figure
+    figure_name = f"pca_plot_{point_type}"
+    save_figure(fig, figure_name, N, num_tasks, dt, T_drive, T_train)
+
+    plt.show()
+    plt.close()
+
+
+
+
+# -------------------------------
+# 5.2.1. Fixed Points: PCA Trajectory and Fixed Points Plot
+# -------------------------------
+
+# Use the unified function for fixed points
+plot_pca_trajectories_and_points(
+    point_type="fixed",
+    all_points=all_fixed_points,
+    proj_points=proj_fixed,
+)
+
+
+
+
+# -------------------------------
+# 5.2.2. Slow Points: PCA Trajectory and Slow Points Plot
+# -------------------------------
+
+# Use the unified function for slow points
+plot_pca_trajectories_and_points(
+    point_type="slow",
+    all_points=all_slow_points,
+    proj_points=proj_slow,
+)
+
+
+
+
+# -------------------------------
+# 5.3. Save Results from PCA
+# -------------------------------
+
+print("\nSaving PCA results...")
+pca_results = {
+    "proj_trajs": proj_trajs,
+    "proj_fixed": proj_fixed,
+    "proj_slow": proj_slow
+}
+save_variable(pca_results, "pca_results", N, num_tasks, dt, T_drive, T_train)
