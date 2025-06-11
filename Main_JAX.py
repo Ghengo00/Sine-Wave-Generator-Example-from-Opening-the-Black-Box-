@@ -66,10 +66,14 @@ omegas = jnp.linspace(0.1, 0.6, num_tasks, dtype=jnp.float32)
 static_inputs = jnp.linspace(0, num_tasks - 1, num_tasks, dtype=jnp.float32) / num_tasks + 0.25
 
 
+# Sparsity parameter
+s = 0.0         # sparsity of the recurrent connections
+
+
 # Time parameters (in seconds)
 dt = 0.02        # integration time step
-T_drive = 4.0    # driving phase duration
-T_train = 32.0   # training phase duration
+T_drive = 8.0    # driving phase duration
+T_train = 64.0   # training phase duration
 num_steps_drive = int(T_drive / dt)
 num_steps_train = int(T_train / dt)
 time_drive = jnp.arange(0, T_drive, dt, dtype=jnp.float32)
@@ -144,15 +148,24 @@ def get_train_target(task):
 
 # Initialize parameters with scaling ~1/sqrt(N)
 def init_params(key):
-    k1, k2, k3, k4, k5 = random.split(key, 5)
-    J = random.normal(k1, (N, N)) / jnp.sqrt(N)
-    B = random.normal(k2, (N, I)) / jnp.sqrt(N)
-    b_x = jnp.zeros((N,))
-    w = random.normal(k4, (N,)) / jnp.sqrt(N)
-    b_z = jnp.array(0.0, dtype=jnp.float32)
-    return {"J": J, "B": B, "b_x": b_x, "w": w, "b_z": b_z}
+    k_mask, k1, k2, k3, k4, k5 = random.split(key, 6)
 
-params = init_params(subkey)
+    mask        = random.bernoulli(k_mask, p = 1.0 - s, shape=(N,N)).astype(jnp.float32)
+    J_unscaled  = random.normal(k1, (N, N)) / jnp.sqrt(N) * mask
+    # By Girko's law, we know that, in the limit N -> infinity, the eigenvalues of J will converge to a uniform distribution
+    # within a disk centred at the origin of radius sqrt(Var * N) = sqrt((1 / N) * N) = 1.
+    # After masking, the elements remain independently distributed with mean zero,
+    # but their variance becomes Var_m = (1 - s) / N, meaning the spectral radius becomes sqrt(1 - s).
+    # Thus, to maintain the same spectral radius as the full matrix, we scale J by 1 / sqrt(1 - s).
+    J           = J_unscaled / jnp.sqrt(1 - s)
+
+    B           = random.normal(k2, (N, I)) / jnp.sqrt(N)
+    b_x         = jnp.zeros((N,))
+    w           = random.normal(k4, (N,)) / jnp.sqrt(N)
+    b_z         = jnp.array(0.0, dtype=jnp.float32)
+    return mask, {"J": J, "B": B, "b_x": b_x, "w": w, "b_z": b_z}
+
+mask, params = init_params(subkey)
 
 
 
@@ -165,10 +178,8 @@ BATCH_SIZE = 10
 
 
 # Optimization parameters
-NUM_EPOCHS_ADAM = 500
-NUM_EPOCHS_LBFGS = 200
-CHUNK_SIZE_ADAM = 50
-CHUNK_SIZE_LBFGS = 25
+NUM_EPOCHS_ADAM = 1500
+NUM_EPOCHS_LBFGS = 600
 LOSS_THRESHOLD = 1e-4
 
 # Adam optimizer parameters
@@ -215,13 +226,12 @@ GAUSSIAN_STD = 0.5         # standard deviation for Gaussian noise in perturbed 
 NUM_ATTEMPTS_SLOW = 50
 TOL_SLOW = 1e-2
 MAXITER_SLOW = 1000
-GAUSSIAN_STD_SLOW = 0.5    # standard deviation for Gaussian noise in perturbed initial conditions for slow points
+GAUSSIAN_STD_SLOW = 1.0    # standard deviation for Gaussian noise in perturbed initial conditions for slow points
 SLOW_POINT_CUT_OFF = 1e-1  # threshold for slow points to be accepted
 
 
 # Jacobian and slow point analysis parameters
 JACOBIAN_TOL = 1e-2
-SEARCH_BATCH_SIZE = 5
 
 
 
@@ -514,6 +524,14 @@ def batched_loss(params):
 # Find the value and gradient of the loss function
 value_and_grad_fn = jax.value_and_grad(batched_loss)
 
+mask_tree = {
+  "J": mask,
+  "B": jnp.ones_like(params["B"]),
+  "b_x": jnp.ones_like(params["b_x"]),
+  "w": jnp.ones_like(params["w"]),
+  "b_z": 1.0,
+}
+
 
 
 
@@ -521,7 +539,7 @@ value_and_grad_fn = jax.value_and_grad(batched_loss)
 # 2.3.1. Adam Optimizer Setup
 # -------------------------------
 
-adam_opt = optax.adam(ADAM_LR)
+adam_opt = optax.masked(optax.adam(ADAM_LR), mask_tree)
 
 # Initialize the optimizer state with our initial params
 adam_state = adam_opt.init(params)
@@ -542,6 +560,15 @@ def adam_step(params, opt_state):
     # (3) Apply updates to your parameters
     new_params         = optax.apply_updates(params, updates)
 
+    # (4) Enforce exact sparsity on the J matrix
+    J1 = new_params["J"] * mask
+
+    # # (5) Scale the J matrix to maintain the same spectral radius
+    # J2 = J1 / jnp.sqrt(1 - s)
+
+    # (6) Reconstruct the new parameters with the updated J matrix
+    new_params = {**new_params, "J": J1}
+
     return new_params, new_state, loss
 
 
@@ -551,11 +578,11 @@ def adam_step(params, opt_state):
 # 2.3.2. L-BFGS Optimizer Setup
 # -------------------------------
 
-lbfgs_opt = optax.lbfgs(
+lbfgs_opt = optax.masked(optax.lbfgs(
     learning_rate       = LEARNING_RATE,
     memory_size         = MEMORY_SIZE,
     scale_init_precond  = SCALE_INIT_PRECOND
-    )
+    ), mask_tree)
 
 # Initialize the optimizer state with our initial params
 lbfgs_state = lbfgs_opt.init(params)
@@ -579,6 +606,15 @@ def lbfgs_step(params, opt_state):
 
     # (3) Apply updates to your parameters
     new_params         = optax.apply_updates(params, updates)
+
+    # (4) Enforce exact sparsity on the J matrix
+    J1 = new_params["J"] * mask
+
+    # # (5) Scale the J matrix to maintain the same spectral radius
+    # J2 = J1 / jnp.sqrt(1 - s)
+
+    # (6) Reconstruct the new parameters with the updated J matrix
+    new_params = {**new_params, "J": J1}
 
     return new_params, new_state, loss
 
@@ -625,7 +661,7 @@ def scan_with_history(params, opt_state, step_fn, num_steps, tag):
         # If this step is better, update best_loss and best_params
         better = loss < best_loss
         best_loss   = jax.lax.select(better, loss, best_loss)
-        best_params = jax.tree_map(
+        best_params = jax.tree_util.tree_map(
             lambda p_new, p_best: jax.lax.select(better, p_new, p_best),
             params, best_params
         )
@@ -936,7 +972,7 @@ def find_points(
         gaussian_std = gaussian_std if gaussian_std is not None else GAUSSIAN_STD_SLOW
         # Define the least squares solver for slow points
         solver = lambda x: least_squares(lambda x: np.array(compute_F(x, u_const, J_trained, B_trained, b_x_trained)),
-                                         x, method='lm', options={'maxiter': maxiter})
+                                         x, method='lm', max_nfev=maxiter)
         success_cond = lambda sol: sol.success and np.linalg.norm(sol.fun) < SLOW_POINT_CUT_OFF
         extract = lambda sol: sol.x
     
@@ -1171,6 +1207,9 @@ def find_and_analyze_points(point_type="fixed"):
     
     # Iterate over each task to find points
     for j in range(num_tasks):
+        if j % 5 == 0:
+            print(f"\n Processing Task {j} of {num_tasks}...")
+
         u_const = static_inputs[j]
         x0_guess = state_fixed_point_inits[j]
         
