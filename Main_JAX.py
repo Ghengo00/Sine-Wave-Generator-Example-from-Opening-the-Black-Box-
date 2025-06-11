@@ -178,8 +178,8 @@ BATCH_SIZE = 10
 
 
 # Optimization parameters
-NUM_EPOCHS_ADAM = 2000
-NUM_EPOCHS_LBFGS = 1000
+NUM_EPOCHS_ADAM = 1000
+NUM_EPOCHS_LBFGS = 2000
 LOSS_THRESHOLD = 1e-4
 
 # Adam optimizer parameters
@@ -219,10 +219,11 @@ MARKERS = [
 # Fixed point search parameters
 NUM_ATTEMPTS = 50
 TOL = 1e-2
-MAXITER = 1000
+MAXITER = 5000
 GAUSSIAN_STD = 0.5         # standard deviation for Gaussian noise in perturbed initial conditions
 
 # Slow point search parameters
+SLOW_POINT_SEARCH = False  # whether to search for slow points
 NUM_ATTEMPTS_SLOW = 50
 TOL_SLOW = 1e-2
 MAXITER_SLOW = 1000
@@ -244,14 +245,26 @@ JACOBIAN_TOL = 1e-2
 RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-def generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train):
+def generate_filename(
+    variable_name, N=N, num_tasks=num_tasks,
+    dt=dt, T_drive=T_drive, T_train=T_train,
+    s=0.0,
+    NUM_EPOCHS_ADAM=NUM_EPOCHS_ADAM, NUM_EPOCHS_LBFGS=NUM_EPOCHS_LBFGS
+    ):
     """
     Generate a filename with timestamp and parameters.
     """
-    return f"{variable_name}_{RUN_TIMESTAMP}_Neuron_Number_{N}_Task_Number_{num_tasks}_Time_Steps_{dt}_Driving_Time_{T_drive}_Training_Time_{T_train}.pkl"
+    return (f"{variable_name}_{RUN_TIMESTAMP}_Neuron_Number_{N}_Task_Number_{num_tasks}_"
+            f"Time_Steps_{dt}_Driving_Time_{T_drive}_Training_Time_{T_train}_"
+            f"Sparsity_{s}_Adam_Epochs_{NUM_EPOCHS_ADAM}_LBFGS_Epochs_{NUM_EPOCHS_LBFGS}.pkl")
 
 
-def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train):
+def save_variable(
+    variable, variable_name, N=N, num_tasks=num_tasks,
+    dt=dt, T_drive=T_drive, T_train=T_train,
+    s=0.0,
+    NUM_EPOCHS_ADAM=NUM_EPOCHS_ADAM, NUM_EPOCHS_LBFGS=NUM_EPOCHS_LBFGS
+    ):
     """
     Save a variable to a pickle file with a descriptive filename in the Outputs folder.
     """
@@ -274,7 +287,12 @@ def save_variable(variable, variable_name, N, num_tasks, dt, T_drive, T_train):
         print(f"Error saving {variable_name} to {filepath}: {e}")
 
 
-def save_figure(fig, figure_name, N, num_tasks, dt, T_drive, T_train):
+def save_figure(
+    fig, figure_name, N=N, num_tasks=num_tasks,
+    dt=dt, T_drive=T_drive, T_train=T_train,
+    s=0.0,
+    NUM_EPOCHS_ADAM=NUM_EPOCHS_ADAM, NUM_EPOCHS_LBFGS=NUM_EPOCHS_LBFGS
+    ):
     """
     Save a matplotlib figure with timestamp and parameters.
     """
@@ -1260,8 +1278,9 @@ all_fixed_points, all_jacobians, all_unstable_eig_freq = find_and_analyze_points
 # 4.2.2. Slow Points: Find Slow Points, Jacobians, and Unstable Mode Frequencies
 # -------------------------------
 
-# Execute slow point search using unified function
-all_slow_points, all_slow_jacobians, all_slow_unstable_eig_freq = find_and_analyze_points(point_type="slow")
+if SLOW_POINT_SEARCH:
+    # Execute slow point search using unified function
+    all_slow_points, all_slow_jacobians, all_slow_unstable_eig_freq = find_and_analyze_points(point_type="slow")
 
 
 
@@ -1348,8 +1367,9 @@ generate_point_summaries(point_type="fixed", all_points=all_fixed_points, all_un
 # 4.3.2. Slow Points: Slow Point Summaries
 # -------------------------------
 
-# Execute slow point summary using unified function
-generate_point_summaries(point_type="slow", all_points=all_slow_points, all_unstable_eig_freq=all_slow_unstable_eig_freq)
+if SLOW_POINT_SEARCH:
+    # Execute slow point summary using unified function
+    generate_point_summaries(point_type="slow", all_points=all_slow_points, all_unstable_eig_freq=all_slow_unstable_eig_freq)
 
 
 
@@ -1422,8 +1442,9 @@ analyze_jacobians(point_type="fixed", all_jacobians=all_jacobians)
 # 4.4.2. Slow Points: Jacobian Plots and Equal Jacobians Check
 # -------------------------------
 
-# Execute slow point Jacobian analysis using unified function
-analyze_jacobians(point_type="slow", all_jacobians=all_slow_jacobians)
+if SLOW_POINT_SEARCH:
+    # Execute slow point Jacobian analysis using unified function
+    analyze_jacobians(point_type="slow", all_jacobians=all_slow_jacobians)
 
 
 
@@ -1474,7 +1495,8 @@ analyze_unstable_frequencies(point_type="fixed", all_unstable_eig_freq=all_unsta
 # 4.5.2. Slow Points: Unstable Mode Frequency Summaries and Plots
 # -------------------------------
 
-analyze_unstable_frequencies(point_type="slow", all_unstable_eig_freq=all_slow_unstable_eig_freq)
+if SLOW_POINT_SEARCH:
+    analyze_unstable_frequencies(point_type="slow", all_unstable_eig_freq=all_slow_unstable_eig_freq)
 
 
 
@@ -1533,26 +1555,27 @@ print(f"\nPCA computation completed in {pca_time:.2f} seconds")
 # 5.1.2. Slow Points: Perform PCA on Trajectories and Slow Points
 # -------------------------------
 
-# Track PCA computation time
-start_time_slow = time.time()
-print("\nSlow Points: Starting PCA computation...")
+if SLOW_POINT_SEARCH:
+    # Track PCA computation time
+    start_time_slow = time.time()
+    print("\nSlow Points: Starting PCA computation...")
 
-# Project all slow points from all tasks into the PCA space
-all_slow_points_flat = []
-for task_sps in all_slow_points:
-    all_slow_points_flat.extend(task_sps)
-if all_slow_points_flat:    # Check if there are any slow points
-    all_slow_points_flat = np.array(all_slow_points_flat)
-    if all_slow_points_flat.ndim == 1:  # If it's a 1D array, reshape it to 2D
-        all_slow_points_flat = all_slow_points_flat.reshape(1, -1)
-    proj_slow = pca.transform(all_slow_points_flat) # Projects all slow points from all tasks into the PCA space, resulting shape is (num_total_slow_points, 3)
-else:
-    proj_slow = np.empty((0, 3))    # Empty array with correct shape for plotting
-# Note that np.array(all_slow_points_flat) has shape (num_total_slow_points, N)
+    # Project all slow points from all tasks into the PCA space
+    all_slow_points_flat = []
+    for task_sps in all_slow_points:
+        all_slow_points_flat.extend(task_sps)
+    if all_slow_points_flat:    # Check if there are any slow points
+        all_slow_points_flat = np.array(all_slow_points_flat)
+        if all_slow_points_flat.ndim == 1:  # If it's a 1D array, reshape it to 2D
+            all_slow_points_flat = all_slow_points_flat.reshape(1, -1)
+        proj_slow = pca.transform(all_slow_points_flat) # Projects all slow points from all tasks into the PCA space, resulting shape is (num_total_slow_points, 3)
+    else:
+        proj_slow = np.empty((0, 3))    # Empty array with correct shape for plotting
+    # Note that np.array(all_slow_points_flat) has shape (num_total_slow_points, N)
 
-# Calculate PCA computation time
-pca_time_slow = time.time() - start_time_slow
-print(f"\nPCA computation completed in {pca_time_slow:.2f} seconds")
+    # Calculate PCA computation time
+    pca_time_slow = time.time() - start_time_slow
+    print(f"\nPCA computation completed in {pca_time_slow:.2f} seconds")
 
 
 
@@ -1652,12 +1675,13 @@ plot_pca_trajectories_and_points(
 # 5.2.2. Slow Points: PCA Trajectory and Slow Points Plot
 # -------------------------------
 
-# Use the unified function for slow points
-plot_pca_trajectories_and_points(
-    point_type="slow",
-    all_points=all_slow_points,
-    proj_points=proj_slow,
-)
+if SLOW_POINT_SEARCH:
+    # Use the unified function for slow points
+    plot_pca_trajectories_and_points(
+        point_type="slow",
+        all_points=all_slow_points,
+        proj_points=proj_slow,
+    )
 
 
 
@@ -1666,10 +1690,18 @@ plot_pca_trajectories_and_points(
 # 5.3. Save Results from PCA
 # -------------------------------
 
-print("\nSaving PCA results...")
-pca_results = {
-    "proj_trajs": proj_trajs,
-    "proj_fixed": proj_fixed,
-    "proj_slow": proj_slow
-}
-save_variable(pca_results, "pca_results", N, num_tasks, dt, T_drive, T_train)
+if SLOW_POINT_SEARCH:
+    print("\nSaving PCA results...")
+    pca_results = {
+        "proj_trajs": proj_trajs,
+        "proj_fixed": proj_fixed,
+        "proj_slow": proj_slow
+    }
+    save_variable(pca_results, "pca_results", N, num_tasks, dt, T_drive, T_train)
+else:
+    print("\nSaving PCA results (without slow points)...")
+    pca_results = {
+        "proj_trajs": proj_trajs,
+        "proj_fixed": proj_fixed
+    }
+    save_variable(pca_results, "pca_results", N, num_tasks, dt, T_drive, T_train)
