@@ -219,7 +219,7 @@ MARKERS = [
 # Fixed point search parameters
 NUM_ATTEMPTS = 50
 TOL = 1e-2
-MAXITER = 5000
+MAXITER = 1000
 GAUSSIAN_STD = 0.5         # standard deviation for Gaussian noise in perturbed initial conditions
 
 # Slow point search parameters
@@ -256,7 +256,7 @@ def generate_filename(
     """
     return (f"{variable_name}_{RUN_TIMESTAMP}_Neuron_Number_{N}_Task_Number_{num_tasks}_"
             f"Time_Steps_{dt}_Driving_Time_{T_drive}_Training_Time_{T_train}_"
-            f"Sparsity_{s}_Adam_Epochs_{NUM_EPOCHS_ADAM}_LBFGS_Epochs_{NUM_EPOCHS_LBFGS}.pkl")
+            f"Sparsity_{s}_Adam_Epochs_{NUM_EPOCHS_ADAM}_LBFGS_Epochs_{NUM_EPOCHS_LBFGS}")
 
 
 def save_variable(
@@ -275,7 +275,7 @@ def save_variable(
     os.makedirs(output_dir, exist_ok=True)
     
     # Generate filename with descriptive parameters
-    filename = generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train)
+    filename = generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train) + '.pkl'
     filepath = os.path.join(output_dir, filename)
     
     # Use a try-except block to handle potential I/O errors
