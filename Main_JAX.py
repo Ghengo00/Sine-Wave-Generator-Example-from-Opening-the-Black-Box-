@@ -178,8 +178,8 @@ BATCH_SIZE = 10
 
 
 # Optimization parameters
-NUM_EPOCHS_ADAM = 1500
-NUM_EPOCHS_LBFGS = 600
+NUM_EPOCHS_ADAM = 2000
+NUM_EPOCHS_LBFGS = 1000
 LOSS_THRESHOLD = 1e-4
 
 # Adam optimizer parameters
@@ -524,14 +524,6 @@ def batched_loss(params):
 # Find the value and gradient of the loss function
 value_and_grad_fn = jax.value_and_grad(batched_loss)
 
-mask_tree = {
-  "J": mask,
-  "B": jnp.ones_like(params["B"]),
-  "b_x": jnp.ones_like(params["b_x"]),
-  "w": jnp.ones_like(params["w"]),
-  "b_z": 1.0,
-}
-
 
 
 
@@ -539,7 +531,7 @@ mask_tree = {
 # 2.3.1. Adam Optimizer Setup
 # -------------------------------
 
-adam_opt = optax.masked(optax.adam(ADAM_LR), mask_tree)
+adam_opt = optax.adam(ADAM_LR)
 
 # Initialize the optimizer state with our initial params
 adam_state = adam_opt.init(params)
@@ -561,10 +553,10 @@ def adam_step(params, opt_state):
     new_params         = optax.apply_updates(params, updates)
 
     # (4) Enforce exact sparsity on the J matrix
-    J1 = new_params["J"] * mask
+    J1                 = new_params["J"] * mask
 
     # # (5) Scale the J matrix to maintain the same spectral radius
-    # J2 = J1 / jnp.sqrt(1 - s)
+    # J2               = J1 / jnp.sqrt(1 - s)
 
     # (6) Reconstruct the new parameters with the updated J matrix
     new_params = {**new_params, "J": J1}
@@ -578,11 +570,11 @@ def adam_step(params, opt_state):
 # 2.3.2. L-BFGS Optimizer Setup
 # -------------------------------
 
-lbfgs_opt = optax.masked(optax.lbfgs(
+lbfgs_opt = optax.lbfgs(
     learning_rate       = LEARNING_RATE,
     memory_size         = MEMORY_SIZE,
     scale_init_precond  = SCALE_INIT_PRECOND
-    ), mask_tree)
+    )
 
 # Initialize the optimizer state with our initial params
 lbfgs_state = lbfgs_opt.init(params)
@@ -608,10 +600,10 @@ def lbfgs_step(params, opt_state):
     new_params         = optax.apply_updates(params, updates)
 
     # (4) Enforce exact sparsity on the J matrix
-    J1 = new_params["J"] * mask
+    J1                 = new_params["J"] * mask
 
     # # (5) Scale the J matrix to maintain the same spectral radius
-    # J2 = J1 / jnp.sqrt(1 - s)
+    # J2               = J1 / jnp.sqrt(1 - s)
 
     # (6) Reconstruct the new parameters with the updated J matrix
     new_params = {**new_params, "J": J1}
