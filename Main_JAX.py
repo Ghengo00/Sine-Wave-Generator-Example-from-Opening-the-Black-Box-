@@ -403,6 +403,9 @@ def simulate_trajectory(x0, u_seq, params):
 # Solving
 @jit
 def solve_task(params, task):
+    """
+    Run the drive and train phases all the way through for a single task.
+    """
     x0        = jnp.zeros((N,), dtype=jnp.float32)      # Initial state for the task
     
     # Drive phase
@@ -481,7 +484,7 @@ def run_batch_diagnostics(params, key):
         key   : JAX random key for reproducibility
 
     Returns:
-      avg_loss         : total loss, scalar
+      avg_loss         : average loss over all tasks and all time steps, scalar
       traj_states      : list of states at each time step during training for each task, so a list of num_tasks elements, each of shape (num_steps_train+1, N)
       fixed_point_inits: list of drive phase final states for each task, so a list of num_tasks elements, each of shape (N,)
     """
@@ -513,7 +516,7 @@ def run_batch_diagnostics(params, key):
 @jit
 def batched_loss(params):
     """
-    Compute the loss for all tasks.
+    Compute the loss for for num_steps_train time steps, averaged over all tasks and all time steps.
 
     Arguments:
         params: dictionary of RNN weights
