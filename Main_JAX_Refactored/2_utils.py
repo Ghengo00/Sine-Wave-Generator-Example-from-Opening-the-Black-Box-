@@ -15,7 +15,7 @@ from datetime import datetime
 # =============================================================================
 # Import configuration parameters
 try:
-    from config import (
+    from _1_config import (
         N, num_tasks, dt, T_drive, T_train, s, 
         NUM_EPOCHS_ADAM, NUM_EPOCHS_LBFGS
     )

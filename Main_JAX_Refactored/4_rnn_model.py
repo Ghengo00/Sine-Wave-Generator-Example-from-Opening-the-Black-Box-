@@ -8,8 +8,8 @@ import jax.numpy as jnp
 from jax import random, jit, lax, vmap
 import numpy as np
 from functools import partial
-from config import N, I, dt, s, num_tasks
-from data_generation import get_drive_input, get_train_input, get_train_target
+from _1_config import N, I, dt, s, num_tasks
+from _3_data_generation import get_drive_input, get_train_input, get_train_target
 
 
 # =============================================================================
@@ -161,7 +161,7 @@ def run_single_task_diagnostics(params, omega, u_off):
         xs_train     : the training trajectory for the task, for the given parameters (jnp.ndarray, shape (num_steps_train+1, N))
         x_drive_final: the final state of the system after the drive phase, for the given parameters (jnp.ndarray, shape (N,))
     """
-    from config import time_drive, time_train, num_steps_train
+    from _1_config import time_drive, time_train, num_steps_train
     
     # Set the initial hidden state
     x0 = jnp.zeros((N,), dtype=jnp.float32)
@@ -200,7 +200,7 @@ def run_batch_diagnostics(params, key):
       traj_states      : list of states at each time step during training for each task, so a list of num_tasks elements, each of shape (num_steps_train+1, N)
       fixed_point_inits: list of drive phase final states for each task, so a list of num_tasks elements, each of shape (N,)
     """
-    from config import omegas, static_inputs
+    from _1_config import omegas, static_inputs
     
     # vmap over the two task‐specific arrays: omegas and static_inputs
     all_task_loss, all_xs_train, all_x_drive_final = jax.vmap(

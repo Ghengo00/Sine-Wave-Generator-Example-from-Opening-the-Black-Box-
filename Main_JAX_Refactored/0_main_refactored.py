@@ -9,15 +9,15 @@ import jax
 from jax import random
 
 # Import all modules
-from config import *
-from utils import Timer, save_variable
-from data_generation import generate_all_inputs_and_targets
-from rnn_model import init_params, run_batch_diagnostics
-from training import train_model
-from analysis import find_and_analyze_points, generate_point_summaries
-from visualization import (plot_trajectories_vs_targets, plot_parameter_matrices_for_tasks, 
+from _1_config import *
+from _2_utils import Timer, save_variable
+from _3_data_generation import generate_all_inputs_and_targets
+from _4_rnn_model import init_params, run_batch_diagnostics
+from _5_training import train_model
+from _6_analysis import find_and_analyze_points, generate_point_summaries
+from _7_visualization import (plot_trajectories_vs_targets, plot_parameter_matrices_for_tasks, 
                           analyze_jacobians_visualization, analyze_unstable_frequencies_visualization)
-from pca_analysis import run_pca_analysis
+from _8_pca_analysis import run_pca_analysis
 
 def main():
     """

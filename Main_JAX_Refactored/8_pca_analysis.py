@@ -9,8 +9,8 @@ from sklearn.decomposition import PCA
 from tqdm import tqdm
 import time
 from scipy.linalg import eig
-from utils import save_figure, save_variable
-from analysis import compute_jacobian
+from _2_utils import save_figure, save_variable
+from _6_analysis import compute_jacobian
 
 
 def perform_pca_analysis(state_traj_states, skip_initial_steps=0, apply_tanh=False):

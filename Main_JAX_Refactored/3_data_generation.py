@@ -4,7 +4,7 @@ Data generation functions.
 
 
 import jax.numpy as jnp
-from config import omegas, static_inputs, time_drive, time_train, num_steps_drive, num_steps_train, I
+from _1_config import omegas, static_inputs, time_drive, time_train, num_steps_drive, num_steps_train, I
 
 
 def get_drive_input(task):

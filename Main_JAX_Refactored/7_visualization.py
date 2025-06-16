@@ -6,7 +6,7 @@ Visualization functions for plotting trajectories, parameters, Jacobians, and fr
 import jax.numpy as jnp
 import numpy as np
 import matplotlib.pyplot as plt
-from utils import save_figure
+from _2_utils import save_figure
 
 
 # =============================================================================
@@ -16,11 +16,11 @@ def plot_trajectories_vs_targets(params, test_indices=None):
     """
     Plot produced trajectories vs. target signals for selected tasks.
     """
-    from config import omegas, static_inputs, time_train, N
-    from rnn_model import simulate_trajectory
+    from _1_config import omegas, static_inputs, time_train, N
+    from _4_rnn_model import simulate_trajectory
     
     if test_indices is None:
-        from config import TEST_INDICES
+        from _1_config import TEST_INDICES
         test_indices = TEST_INDICES
     
     x0_test = jnp.zeros((N,))
@@ -29,7 +29,7 @@ def plot_trajectories_vs_targets(params, test_indices=None):
         omega = omegas[j]
         u_off = static_inputs[j]
 
-        from config import time_drive, num_steps_train
+        from _1_config import time_drive, num_steps_train
         # Build input sequences
         u_drive_np = (np.sin(omega * time_drive) + u_off).astype(np.float32).reshape(-1, 1)
         u_train_np = np.full((num_steps_train, 1), u_off, dtype=np.float32)
@@ -99,10 +99,10 @@ def plot_parameter_matrices_for_tasks(params, test_indices=None):
     """
     Plot parameter matrices for selected tasks.
     """
-    from config import omegas, static_inputs
+    from _1_config import omegas, static_inputs
     
     if test_indices is None:
-        from config import TEST_INDICES_EXTREMES
+        from _1_config import TEST_INDICES_EXTREMES
         test_indices = TEST_INDICES_EXTREMES
     
     print("\nPlotting parameter matrices for selected tasks...")
@@ -119,7 +119,7 @@ def plot_jacobian_matrices(jacobians, j):
     """
     Plot the Jacobian matrices for a given task.
     """
-    from config import omegas
+    from _1_config import omegas
     
     # Create the figure and subplots
     fig, axes = plt.subplots(len(jacobians), 1, figsize=(10, 5 * len(jacobians)))
@@ -146,7 +146,7 @@ def plot_unstable_eigenvalues(unstable_freqs, j):
     """
     Plot the unstable eigenvalues for a given task on the complex plane.
     """
-    from config import omegas, COLORS, MARKERS
+    from _1_config import omegas, COLORS, MARKERS
     
     # Create the figure
     fig = plt.figure(figsize=(10, 8))
@@ -234,7 +234,7 @@ def analyze_jacobians_visualization(point_type="fixed", all_jacobians=None):
         point_type      : str, either "fixed" or "slow" to specify which type of points
         all_jacobians   : list of lists of Jacobians, one list per task
     """
-    from config import TEST_INDICES, num_tasks, JACOBIAN_TOL, omegas
+    from _1_config import TEST_INDICES, num_tasks, JACOBIAN_TOL, omegas
     
     # Validate point_type parameter
     if point_type not in ["fixed", "slow"]:
@@ -283,7 +283,7 @@ def analyze_unstable_frequencies_visualization(point_type="fixed", all_unstable_
         point_type              : str, either "fixed" or "slow" to specify which type of points
         all_unstable_eig_freq   : list of lists of lists of unstable frequencies
     """
-    from config import TEST_INDICES, omegas
+    from _1_config import TEST_INDICES, omegas
     
     # Validate point_type parameter
     if point_type not in ["fixed", "slow"]:
