@@ -120,6 +120,9 @@ def simulate_trajectory(x0, u_seq, params):
     return xs, zs_all
 
 
+# =============================================================================
+# SOLVE TASK - DRIVING PHASE AT EACH STEP
+# =============================================================================
 # Solving
 @jit
 def solve_task(params, task):
@@ -142,6 +145,60 @@ def solve_task(params, task):
 
 # Vectorize solve_task over all task values
 vmap_solve_task = vmap(solve_task, in_axes=(None, 0))   # vmap_solve_task gives an array of shape (num_tasks, num_steps_train)
+
+
+# =============================================================================
+# SOLVE TASK - DRIVING PHASE ONLY AT FIRST STEP
+# =============================================================================
+# Solving
+@jit
+def compute_driving_final_states(params):
+    """
+    Compute the final states after the driving phase for all tasks.
+    This should be called once at the beginning of training.
+    
+    Arguments:
+        params: dict containing J, B, b_x, w, b_z
+    
+    Returns:
+        driving_final_states: array of shape (num_tasks, N) containing final states after driving phase
+    """
+    def single_task_driving(task):
+        x0 = jnp.zeros((N,), dtype=jnp.float32)
+        d_u = get_drive_input(task)
+        xs_d, _ = simulate_trajectory(x0, d_u, params)
+        
+        return xs_d[-1]  # Final state after driving phase
+    
+    tasks = jnp.arange(num_tasks)
+    driving_final_states = vmap(single_task_driving)(tasks)
+    
+    return driving_final_states
+
+
+# Solving
+@jit
+def solve_task_from_state(params, task, initial_state):
+    """
+    Run only the training phase for a single task, starting from a given initial state.
+    
+    Arguments:
+        params: dict containing J, B, b_x, w, b_z
+        task: task index
+        initial_state: initial state for the training phase, shape (N,)
+    
+    Returns:
+        zs_tr: training phase outputs, shape (num_steps_train,)
+    """
+    # Train phase only
+    t_u = get_train_input(task)
+    _, zs_tr = simulate_trajectory(initial_state, t_u, params)
+
+    return zs_tr
+
+
+# Vectorize solve_task_from_state over all tasks
+vmap_solve_task_from_state = vmap(solve_task_from_state, in_axes=(None, 0, 0))
 
 
 # =============================================================================
@@ -228,6 +285,7 @@ def run_batch_diagnostics(params, key):
 def batched_loss(params):
     """
     Compute the loss for for num_steps_train time steps, averaged over all tasks and all time steps.
+    This is the original version that includes the driving phase.
 
     Arguments:
         params: dictionary of RNN weights
@@ -239,6 +297,32 @@ def batched_loss(params):
 
     # Vectorized simulation over all tasks
     zs_all = vmap_solve_task(params, tasks)      # shape: (num_tasks, num_steps_train)
+
+    # Get the training targets for all tasks
+    targets_all = vmap(get_train_target)(tasks)  # shape: (num_tasks, num_steps_train)
+
+    # Compute the MSE over tasks and time
+    return jnp.mean((zs_all - targets_all) ** 2)
+
+
+# Loss
+@jit
+def batched_loss_from_states(params, driving_final_states):
+    """
+    Compute the loss using pre-computed driving phase final states.
+    This version skips the driving phase and starts directly from the given states.
+
+    Arguments:
+        params: dictionary of RNN weights
+        driving_final_states: array of shape (num_tasks, N) containing final states after driving phase
+    
+    Returns:
+        loss  : scalar loss value averaged over all tasks
+    """
+    tasks = jnp.arange(num_tasks)
+
+    # Vectorized simulation over all tasks, starting from pre-computed states
+    zs_all = vmap_solve_task_from_state(params, tasks, driving_final_states)  # shape: (num_tasks, num_steps_train)
 
     # Get the training targets for all tasks
     targets_all = vmap(get_train_target)(tasks)  # shape: (num_tasks, num_steps_train)

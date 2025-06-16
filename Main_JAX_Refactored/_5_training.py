@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import optax
 from functools import partial
-from _4_rnn_model import batched_loss
+from _4_rnn_model import batched_loss_from_states, compute_driving_final_states
 
 
 # =============================================================================
@@ -34,7 +34,7 @@ def setup_optimizers():
     return adam_opt, lbfgs_opt
 
 
-def create_training_functions(adam_opt, lbfgs_opt, mask):
+def create_training_functions(adam_opt, lbfgs_opt, mask, driving_final_states):
     """
     Create JIT-compiled training step functions.
     
@@ -42,6 +42,7 @@ def create_training_functions(adam_opt, lbfgs_opt, mask):
         adam_opt: Adam optimizer
         lbfgs_opt: L-BFGS optimizer  
         mask: sparsity mask for J matrix
+        driving_final_states: pre-computed final states after driving phase, shape (num_tasks, N)
         
     Returns:
         adam_step: JIT-compiled Adam training step function
@@ -50,8 +51,8 @@ def create_training_functions(adam_opt, lbfgs_opt, mask):
     """
     from _1_config import s
     
-    # Find the value and gradient of the loss function
-    value_and_grad_fn = jax.value_and_grad(batched_loss)
+    # Find the value and gradient of the loss function using pre-computed driving states
+    value_and_grad_fn = jax.value_and_grad(lambda params: batched_loss_from_states(params, driving_final_states))
     
 
     @jax.jit
@@ -89,7 +90,7 @@ def create_training_functions(adam_opt, lbfgs_opt, mask):
         updates, new_state = lbfgs_opt.update(
             grads, opt_state, params,
             value=loss, grad=grads,
-            value_fn=lambda p: batched_loss(p)
+            value_fn=lambda p: batched_loss_from_states(p, driving_final_states)
         )
 
         # (3) Apply updates to your parameters
@@ -189,8 +190,13 @@ def train_model(params, mask):
     adam_state = adam_opt.init(params)
     lbfgs_state = lbfgs_opt.init(params)
     
-    # Create training functions
-    adam_step, lbfgs_step, _ = create_training_functions(adam_opt, lbfgs_opt, mask)
+    # Compute driving phase final states once at the beginning
+    print("Computing driving phase final states...")
+    driving_final_states = compute_driving_final_states(params)
+    print(f"Driving phase completed. States shape: {driving_final_states.shape}")
+    
+    # Create training functions with pre-computed driving states
+    adam_step, lbfgs_step, _ = create_training_functions(adam_opt, lbfgs_opt, mask, driving_final_states)
     
     # Adam training phase
     print("Starting Adam optimization...")
