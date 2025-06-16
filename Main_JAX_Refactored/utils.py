@@ -49,7 +49,9 @@ def set_custom_output_dir(output_dir):
     if output_dir:
         # If it's a relative path or just a folder name, put it in the main Outputs directory
         if not os.path.isabs(output_dir):
-            base_outputs_dir = os.path.join(os.path.dirname(os.getcwd()), 'Outputs')
+            # Get the script directory and go up one level to find Outputs
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            base_outputs_dir = os.path.join(os.path.dirname(script_dir), 'Outputs')
             # Add timestamp to the folder name
             timestamped_name = f"{output_dir}_{RUN_TIMESTAMP}"
             output_dir = os.path.join(base_outputs_dir, timestamped_name)
@@ -68,7 +70,9 @@ def get_output_dir():
         return _CUSTOM_OUTPUT_DIR
     else:
         # Default to main Outputs directory, not subdirectory
-        base_outputs_dir = os.path.join(os.path.dirname(os.getcwd()), 'Outputs')
+        # Get the script directory and go up one level to find Outputs
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        base_outputs_dir = os.path.join(os.path.dirname(script_dir), 'Outputs')
         return os.path.join(base_outputs_dir, f'JAX_Refactored_Outputs_{RUN_TIMESTAMP}')
 
 
@@ -201,7 +205,9 @@ def find_output_directories(base_path=None):
         output_dirs: list of output directory paths, sorted by creation time (newest first)
     """
     if base_path is None:
-        base_path = os.path.join(os.path.dirname(os.getcwd()), 'Outputs')
+        # Get the script directory and go up one level to find Outputs
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        base_path = os.path.join(os.path.dirname(script_dir), 'Outputs')
     
     if not os.path.exists(base_path):
         raise FileNotFoundError(f"Outputs directory not found at {base_path}")

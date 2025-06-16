@@ -45,8 +45,15 @@ import sys
 import argparse
 import numpy as np
 
-# Add the current directory to path for importing modules
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Get the directory where this script is located
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Add the script directory to path for importing modules
+sys.path.append(script_dir)
+
+# Change working directory to the script directory to ensure relative paths work
+original_cwd = os.getcwd()
+os.chdir(script_dir)
 
 from utils import (
     load_variable, find_files_by_pattern, find_output_directories, 

@@ -1,0 +1,119 @@
+Frequency Generalization Test Results
+=====================================
+
+Configuration:
+  Source run: JAX_Refactored_Outputs_20250616_103938
+  RNN size (N): 200 neurons
+  Time step (dt): 0.02 seconds
+  Driving time (T_drive): 8.0 seconds
+  Training time (T_train): 64.0 seconds
+  Total time steps: 3600
+  Training frequency range: 0.1 - 0.6 rad/s
+  Test frequencies: [0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.095, 0.09, 0.085, 0.08, 0.075, 0.07, 0.065, 0.06, 0.055, 0.05, 0.045, 0.04, 0.035, 0.03]
+
+Results:
+  Frequency 0.60 rad/s:
+    Static input: 1.230392110114006
+    MSE: 0.000053
+    Within training range: Yes
+
+  Frequency 0.50 rad/s:
+    Static input: 1.0343136875068457
+    MSE: 0.000006
+    Within training range: Yes
+
+  Frequency 0.40 rad/s:
+    Static input: 0.8382352648996854
+    MSE: 0.000009
+    Within training range: Yes
+
+  Frequency 0.30 rad/s:
+    Static input: 0.6421568422925248
+    MSE: 0.000007
+    Within training range: Yes
+
+  Frequency 0.20 rad/s:
+    Static input: 0.4460784196853643
+    MSE: 0.000007
+    Within training range: Yes
+
+  Frequency 0.10 rad/s:
+    Static input: 0.24999999707820383
+    MSE: 0.000044
+    Within training range: No
+
+  Frequency 0.10 rad/s:
+    Static input: 0.2401960759478458
+    MSE: 0.000099
+    Within training range: No
+
+  Frequency 0.09 rad/s:
+    Static input: 0.23039215481748776
+    MSE: 0.000227
+    Within training range: No
+
+  Frequency 0.09 rad/s:
+    Static input: 0.22058823368712976
+    MSE: 0.000514
+    Within training range: No
+
+  Frequency 0.08 rad/s:
+    Static input: 0.2107843125567717
+    MSE: 0.001098
+    Within training range: No
+
+  Frequency 0.07 rad/s:
+    Static input: 0.2009803914264137
+    MSE: 0.002244
+    Within training range: No
+
+  Frequency 0.07 rad/s:
+    Static input: 0.1911764702960557
+    MSE: 0.004618
+    Within training range: No
+
+  Frequency 0.07 rad/s:
+    Static input: 0.18137254916569764
+    MSE: 0.009479
+    Within training range: No
+
+  Frequency 0.06 rad/s:
+    Static input: 0.17156862803533962
+    MSE: 0.018446
+    Within training range: No
+
+  Frequency 0.06 rad/s:
+    Static input: 0.1617647069049816
+    MSE: 0.032909
+    Within training range: No
+
+  Frequency 0.05 rad/s:
+    Static input: 0.15196078577462357
+    MSE: 0.053266
+    Within training range: No
+
+  Frequency 0.04 rad/s:
+    Static input: 0.14215686464426555
+    MSE: 0.078535
+    Within training range: No
+
+  Frequency 0.04 rad/s:
+    Static input: 0.13235294351390753
+    MSE: 0.107130
+    Within training range: No
+
+  Frequency 0.04 rad/s:
+    Static input: 0.1225490223835495
+    MSE: 0.139029
+    Within training range: No
+
+  Frequency 0.03 rad/s:
+    Static input: 0.11274510125319148
+    MSE: 0.178279
+    Within training range: No
+
+Summary Statistics:
+  Mean MSE: 0.031300
+  Std MSE: 0.051740
+  Min MSE: 0.000006
+  Max MSE: 0.178279
