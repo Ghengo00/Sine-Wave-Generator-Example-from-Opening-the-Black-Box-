@@ -9,16 +9,18 @@ from sklearn.decomposition import PCA
 from tqdm import tqdm
 import time
 from scipy.linalg import eig
-from utils import save_figure
+from utils import save_figure, save_variable
 from analysis import compute_jacobian
 
 
-def perform_pca_analysis(state_traj_states):
+def perform_pca_analysis(state_traj_states, skip_initial_steps=0, apply_tanh=False):
     """
     Perform PCA on trajectory states and return PCA object and projections.
     
     Arguments:
         state_traj_states: trajectory states from training, shape (num_tasks, num_steps_train+1, N)
+        skip_initial_steps: number of initial time steps to skip (default: 0)
+        apply_tanh: whether to apply tanh transformation to states before PCA (default: False)
         
     Returns:
         pca: fitted PCA object
@@ -26,10 +28,23 @@ def perform_pca_analysis(state_traj_states):
     """
     # Track PCA computation time
     start_time = time.time()
-    print("\nStarting PCA computation...")
+    transform_info = " with tanh transformation" if apply_tanh else ""
+    print(f"\nStarting PCA computation (skipping first {skip_initial_steps} time steps{transform_info})...")
+
+    # Truncate trajectories if requested
+    if skip_initial_steps > 0:
+        state_traj_states_truncated = state_traj_states[:, skip_initial_steps:, :]
+        print(f"Trajectory shape after truncation: {state_traj_states_truncated.shape}")
+    else:
+        state_traj_states_truncated = state_traj_states
+
+    # Apply tanh transformation if requested
+    if apply_tanh:
+        state_traj_states_truncated = np.tanh(state_traj_states_truncated)
+        print("Applied tanh transformation to trajectory states")
 
     # Concatenate all state trajectories from all tasks
-    all_states = np.concatenate(state_traj_states, axis=0)  # shape is (num_tasks * (num_steps_train+1), N)
+    all_states = np.concatenate(state_traj_states_truncated, axis=0)  # shape is (num_tasks * (num_steps_train+1-skip), N)
 
     # Perform PCA with 3 components
     pca = PCA(n_components=3)
@@ -38,7 +53,7 @@ def perform_pca_analysis(state_traj_states):
     # Project each trajectory into the PCA space
     proj_trajs = []
     start = 0
-    for traj in tqdm(state_traj_states, desc="Projecting trajectories"):
+    for traj in tqdm(state_traj_states_truncated, desc="Projecting trajectories"):
         T = traj.shape[0]   # Number of time steps in the trajectory
         proj_traj = proj_all[start:start + T]   # Extracts the projected trajectory from the PCA space, resulting shape is (T, 3)
         proj_trajs.append(proj_traj)
@@ -78,7 +93,7 @@ def project_points_to_pca(pca, all_points):
     return proj_points
 
 
-def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None):
+def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False):
     """
     Unified function to plot PCA trajectories with either fixed points or slow points.
     
@@ -89,6 +104,8 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
         all_points   : list of lists of points, one list per task
         proj_points  : projected points in PCA space, shape (num_total_points, 3)
         params       : model parameters for computing Jacobians
+        skip_initial_steps : number of initial steps that were skipped (for title/filename)
+        apply_tanh   : whether tanh transformation was applied (for title/filename)
     """
     
     # Validate point_type parameter
@@ -138,21 +155,23 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
             point_idx += 1
 
     # Add decorations
-    ax.set_title(f'PCA of Network Trajectories and {point_name}')
+    title_skip_info = f" (skipping first {skip_initial_steps} steps)" if skip_initial_steps > 0 else ""
+    title_tanh_info = " (tanh transformed)" if apply_tanh else ""
+    ax.set_title(f'PCA of Network Trajectories and {point_name}{title_skip_info}{title_tanh_info}')
     ax.set_xlabel('PC1')
     ax.set_ylabel('PC2')
     ax.set_zlabel('PC3')
     plt.legend()
 
     # Save the figure
-    figure_name = f"pca_plot_{point_type}"
+    tanh_suffix = "_tanh" if apply_tanh else ""
+    figure_name = f"pca_plot_{point_type}_skip_{skip_initial_steps}{tanh_suffix}"
     save_figure(fig, figure_name)
 
-    plt.show()
     plt.close()
 
 
-def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=None, params=None, slow_point_search=False):
+def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=None, params=None, slow_point_search=False, skip_initial_steps=0, apply_tanh=False):
     """
     Run complete PCA analysis including trajectory projection and point visualization.
     
@@ -162,15 +181,21 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
         all_slow_points: list of lists of slow points (optional)
         params: model parameters
         slow_point_search: whether slow point search was performed
+        skip_initial_steps: number of initial time steps to skip from trajectories (default: 0)
+        apply_tanh: whether to apply tanh transformation to states before PCA (default: False)
         
     Returns:
         pca_results: dictionary containing PCA results
     """
     # Perform PCA on trajectories
-    pca, proj_trajs = perform_pca_analysis(state_traj_states)
+    pca, proj_trajs = perform_pca_analysis(state_traj_states, skip_initial_steps=skip_initial_steps, apply_tanh=apply_tanh)
     
     pca_results = {
         "proj_trajs": proj_trajs,
+        "skip_initial_steps": skip_initial_steps,
+        "apply_tanh": apply_tanh,
+        "pca_components": pca.components_,
+        "pca_explained_variance_ratio": pca.explained_variance_ratio_,
     }
     
     # Project and plot fixed points if available
@@ -184,7 +209,9 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
             point_type="fixed",
             all_points=all_fixed_points,
             proj_points=proj_fixed,
-            params=params
+            params=params,
+            skip_initial_steps=skip_initial_steps,
+            apply_tanh=apply_tanh
         )
     
     # Project and plot slow points if available
@@ -198,7 +225,14 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
             point_type="slow",
             all_points=all_slow_points,
             proj_points=proj_slow,
-            params=params
+            params=params,
+            skip_initial_steps=skip_initial_steps,
+            apply_tanh=apply_tanh
         )
+    
+    # Save PCA results
+    tanh_suffix = "_tanh" if apply_tanh else ""
+    results_filename = f"pca_results_skip_{skip_initial_steps}{tanh_suffix}"
+    save_variable(pca_results, results_filename)
     
     return pca_results

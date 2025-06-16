@@ -6,6 +6,7 @@ Utility functions for file I/O, saving, and timing operations.
 import os
 import time
 import pickle
+import glob
 from datetime import datetime
 
 
@@ -28,6 +29,47 @@ except ImportError:
     s = 0.0
     NUM_EPOCHS_ADAM = 1000
     NUM_EPOCHS_LBFGS = 2000
+
+
+# =============================================================================
+# CUSTOM OUTPUT DIRECTORY
+# =============================================================================
+# Global variable to override output directory
+_CUSTOM_OUTPUT_DIR = None
+
+
+def set_custom_output_dir(output_dir):
+    """
+    Set a custom output directory for saving files and figures.
+    
+    Arguments:
+        output_dir: custom output directory path (None to use default)
+    """
+    global _CUSTOM_OUTPUT_DIR
+    if output_dir:
+        # If it's a relative path or just a folder name, put it in the main Outputs directory
+        if not os.path.isabs(output_dir):
+            base_outputs_dir = os.path.join(os.path.dirname(os.getcwd()), 'Outputs')
+            # Add timestamp to the folder name
+            timestamped_name = f"{output_dir}_{RUN_TIMESTAMP}"
+            output_dir = os.path.join(base_outputs_dir, timestamped_name)
+        
+        _CUSTOM_OUTPUT_DIR = output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"Custom output directory set to: {output_dir}")
+    else:
+        _CUSTOM_OUTPUT_DIR = None
+        print("Using default output directory")
+
+
+def get_output_dir():
+    """Get the current output directory (custom or default)."""
+    if _CUSTOM_OUTPUT_DIR:
+        return _CUSTOM_OUTPUT_DIR
+    else:
+        # Default to main Outputs directory, not subdirectory
+        base_outputs_dir = os.path.join(os.path.dirname(os.getcwd()), 'Outputs')
+        return os.path.join(base_outputs_dir, f'JAX_Refactored_Outputs_{RUN_TIMESTAMP}')
 
 
 # =============================================================================
@@ -61,7 +103,7 @@ def save_variable(
     Save a variable to a pickle file with a descriptive filename in the Outputs folder.
     """
     # Define the output directory
-    output_dir = os.path.join(os.path.dirname(os.getcwd()), 'Outputs', f'JAX_Refactored_Outputs_{RUN_TIMESTAMP}')
+    output_dir = get_output_dir()
 
     # Create the output directory if it doesn't exist (exist_ok avoids error if it does)
     os.makedirs(output_dir, exist_ok=True)
@@ -89,7 +131,7 @@ def save_figure(
     Save a matplotlib figure with timestamp and parameters.
     """
     # Define the output directory
-    output_dir = os.path.join(os.path.dirname(os.getcwd()), 'Outputs', f'JAX_Refactored_Outputs_{RUN_TIMESTAMP}')
+    output_dir = get_output_dir()
 
     # Create the output directory if it doesn't exist (exist_ok avoids error if it does)
     os.makedirs(output_dir, exist_ok=True)
@@ -104,6 +146,147 @@ def save_figure(
         print(f"Saved figure {figure_name} to {filepath}")
     except Exception as e:
         print(f"Error saving figure {figure_name} to {filepath}: {e}")
+
+
+# =============================================================================
+# LOADING UTILITIES  
+# =============================================================================
+def load_variable(filepath):
+    """
+    Load a variable from a pickle file.
+    
+    Arguments:
+        filepath: absolute path to the pickle file
+        
+    Returns:
+        variable: the loaded variable
+    """
+    try:
+        with open(filepath, 'rb') as f:
+            variable = pickle.load(f)
+        print(f"Successfully loaded data from {os.path.basename(filepath)}")
+        return variable
+    except FileNotFoundError:
+        print(f"Error: File not found at {filepath}")
+        raise
+    except Exception as e:
+        print(f"Error loading data from {filepath}: {e}")
+        raise
+
+
+def find_files_by_pattern(directory, pattern):
+    """
+    Find files matching a pattern in a directory.
+    
+    Arguments:
+        directory: directory to search in
+        pattern: pattern to match (e.g., 'state_*.pkl')
+        
+    Returns:
+        matching_files: list of full paths to matching files
+    """
+    search_pattern = os.path.join(directory, pattern)
+    matching_files = glob.glob(search_pattern)
+    return sorted(matching_files)  # Sort for consistent ordering
+
+
+def find_output_directories(base_path=None):
+    """
+    Find all output directories that contain JAX results.
+    
+    Arguments:
+        base_path: base directory to search in (default: ../Outputs)
+        
+    Returns:
+        output_dirs: list of output directory paths, sorted by creation time (newest first)
+    """
+    if base_path is None:
+        base_path = os.path.join(os.path.dirname(os.getcwd()), 'Outputs')
+    
+    if not os.path.exists(base_path):
+        raise FileNotFoundError(f"Outputs directory not found at {base_path}")
+    
+    # Find all JAX output directories
+    output_dirs = []
+    for item in os.listdir(base_path):
+        if item.startswith('JAX_') and 'Outputs_' in item:
+            full_path = os.path.join(base_path, item)
+            if os.path.isdir(full_path):
+                output_dirs.append(full_path)
+    
+    if not output_dirs:
+        raise FileNotFoundError("No JAX output directories found")
+    
+    # Sort by creation time (newest first)
+    output_dirs.sort(key=lambda x: os.path.getctime(x), reverse=True)
+    return output_dirs
+
+
+def list_available_runs(base_path=None, show_details=True):
+    """
+    List all available training runs with their timestamps and basic info.
+    
+    Arguments:
+        base_path: base directory to search in (default: ../Outputs)
+        show_details: whether to show detailed information about each run
+        
+    Returns:
+        runs_info: list of dictionaries containing run information
+    """
+    try:
+        output_dirs = find_output_directories(base_path)
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        return []
+    
+    runs_info = []
+    
+    print(f"Found {len(output_dirs)} training run(s):")
+    print("-" * 60)
+    
+    for i, output_dir in enumerate(output_dirs):
+        dir_name = os.path.basename(output_dir)
+        creation_time = os.path.getctime(output_dir)
+        creation_time_str = datetime.fromtimestamp(creation_time).strftime('%Y-%m-%d %H:%M:%S')
+        
+        run_info = {
+            'index': i,
+            'path': output_dir,
+            'name': dir_name,
+            'creation_time': creation_time_str
+        }
+        
+        print(f"[{i}] {dir_name}")
+        print(f"    Created: {creation_time_str}")
+        print(f"    Path: {output_dir}")
+        
+        if show_details:
+            # Check what files are available
+            available_files = []
+            file_patterns = {
+                'Parameters': ['J_param_*.pkl', 'B_param_*.pkl', 'w_param_*.pkl'],
+                'States': ['state_*.pkl'],
+                'Fixed Points': ['all_fixed_points_*.pkl'],
+                'Slow Points': ['all_slow_points_*.pkl'],
+                'PCA Results': ['pca_results_*.pkl']
+            }
+            
+            for category, patterns in file_patterns.items():
+                found_any = False
+                for pattern in patterns:
+                    if find_files_by_pattern(output_dir, pattern):
+                        found_any = True
+                        break
+                if found_any:
+                    available_files.append(category)
+            
+            run_info['available_data'] = available_files
+            print(f"    Available: {', '.join(available_files) if available_files else 'No data files found'}")
+        
+        print()
+        runs_info.append(run_info)
+    
+    return runs_info
 
 
 # =============================================================================
