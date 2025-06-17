@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import optax
 from functools import partial
-from _4_rnn_model import batched_loss_from_states, compute_driving_final_states
+from _4_rnn_model import compute_driving_final_states, batched_loss_from_states_with_final_states
 
 
 # =============================================================================
@@ -34,34 +34,43 @@ def setup_optimizers():
     return adam_opt, lbfgs_opt
 
 
-def create_training_functions(adam_opt, lbfgs_opt, mask, driving_final_states):
+def create_training_functions_with_state_chaining(adam_opt, lbfgs_opt, mask):
     """
-    Create JIT-compiled training step functions.
+    Create JIT-compiled training step functions that chain hidden states between steps.
     
     Arguments:
         adam_opt: Adam optimizer
         lbfgs_opt: L-BFGS optimizer  
         mask: sparsity mask for J matrix
-        driving_final_states: pre-computed final states after driving phase, shape (num_tasks, N)
         
     Returns:
         adam_step: JIT-compiled Adam training step function
         lbfgs_step: JIT-compiled L-BFGS training step function
-        value_and_grad_fn: JIT-compiled loss and gradient function
     """
     from _1_config import s
-    
-    # Find the value and gradient of the loss function using pre-computed driving states
-    value_and_grad_fn = jax.value_and_grad(lambda params: batched_loss_from_states(params, driving_final_states))
-    
 
     @jax.jit
-    def adam_step(params, opt_state):
+    def adam_step(params, opt_state, current_states):
         """
-        Perform one step of the Adam optimizer.
+        Perform one step of the Adam optimizer with state chaining.
+        
+        Arguments:
+            params: model parameters
+            opt_state: optimizer state
+            current_states: current hidden states for all tasks, shape (num_tasks, N)
+            
+        Returns:
+            new_params: updated parameters
+            new_opt_state: updated optimizer state
+            loss: current loss value
+            final_states: final states after this step, shape (num_tasks, N)
         """
-        # (1) Evaluate current loss and gradient
-        loss, grads = value_and_grad_fn(params)
+        # Define loss function that returns both loss and final states
+        def loss_fn(p):
+            return batched_loss_from_states_with_final_states(p, current_states)
+
+        # 1) Get loss, final states, and gradients
+        (loss, final_states), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
 
         # (2) One optimizer update
         updates, new_state = adam_opt.update(grads, opt_state, params)
@@ -75,22 +84,37 @@ def create_training_functions(adam_opt, lbfgs_opt, mask, driving_final_states):
         # (5) Reconstruct the new parameters with the updated J matrix
         new_params = {**new_params, "J": J1}
 
-        return new_params, new_state, loss
+        return new_params, new_state, loss, final_states
 
 
     @jax.jit
-    def lbfgs_step(params, opt_state):
+    def lbfgs_step(params, opt_state, current_states):
         """
-        Perform one step of the L-BFGS optimizer.
+        Perform one step of the L-BFGS optimizer with state chaining.
+        
+        Arguments:
+            params: model parameters
+            opt_state: optimizer state
+            current_states: current hidden states for all tasks, shape (num_tasks, N)
+            
+        Returns:
+            new_params: updated parameters
+            new_opt_state: updated optimizer state
+            loss: current loss value
+            final_states: final states after this step, shape (num_tasks, N)
         """
-        # (1) Evaluate current loss and gradient
-        loss, grads = value_and_grad_fn(params)
+        # Define loss function that returns both loss and final states
+        def loss_fn(p):
+            return batched_loss_from_states_with_final_states(p, current_states)
+
+        # 1) Get loss, final states, and gradients
+        (loss, final_states), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
 
         # (2) One optimizer update
         updates, new_state = lbfgs_opt.update(
             grads, opt_state, params,
             value=loss, grad=grads,
-            value_fn=lambda p: batched_loss_from_states(p, driving_final_states)
+            value_fn=lambda p: batched_loss_from_states_with_final_states(p, current_states)[0]  # Only return loss for value_fn
         )
 
         # (3) Apply updates to your parameters
@@ -102,10 +126,10 @@ def create_training_functions(adam_opt, lbfgs_opt, mask, driving_final_states):
         # (5) Reconstruct the new parameters with the updated J matrix
         new_params = {**new_params, "J": J1}
 
-        return new_params, new_state, loss
+        return new_params, new_state, loss, final_states
     
 
-    return adam_step, lbfgs_step, value_and_grad_fn
+    return adam_step, lbfgs_step
 
 
 # =============================================================================
@@ -113,33 +137,35 @@ def create_training_functions(adam_opt, lbfgs_opt, mask, driving_final_states):
 # =============================================================================
 # Training
 @partial(jax.jit, static_argnames=("step_fn", "num_steps", "tag"))
-def scan_with_history(params, opt_state, step_fn, num_steps, tag):
+def scan_with_history_and_states(params, opt_state, current_states, step_fn, num_steps, tag):
     """
-    Function to run multiple steps of the chosen optimization method via lax.scan.
-    Run `num_steps` of `step_fn` starting from (params, opt_state), but only keep the best-loss params, rather than the whole history.
+    Function to run multiple steps of the chosen optimization method via lax.scan with state chaining.
+    Run `num_steps` of `step_fn` starting from (params, opt_state, current_states), but only keep the best-loss params, rather than the whole history.
 
     Arguments:
-        params   : current parameters of the model
+        params: current parameters of the model
         opt_state: current state of the optimizer
-        step_fn  : function to perform a single optimization step (adam_step or lbfgs_step)
+        current_states: current hidden states for all tasks, shape (num_tasks, N)
+        step_fn: function to perform a single optimization step (adam_step or lbfgs_step)
         num_steps: number of steps to run
-        tag      : string tag for debug printing (e.g., "ADAM" or "L-BFGS")
+        tag: string tag for debug printing (e.g., "ADAM" or "L-BFGS")
 
     Returns:
-        best_params     : parameters corresponding to best_loss
-        best_loss       : lowest loss out of all the iterations
-        final_params    : parameters after the last optimization step
-        final_opt_state : optimizer state after the last optimization step
+        best_params: parameters corresponding to best_loss
+        best_loss: lowest loss out of all the iterations
+        final_params: parameters after the last optimization step
+        final_opt_state: optimizer state after the last optimization step
+        final_states: hidden states after the last optimization step
     """
     # Initialize best‐so‐far
     init_best_loss = jnp.inf
     init_best_params = params
 
     def body(carry, idx_unused):
-        params, opt_state, best_loss, best_params = carry
+        params, opt_state, current_states, best_loss, best_params = carry
 
         # One optimization step
-        params, opt_state, loss = step_fn(params, opt_state)
+        params, opt_state, loss, new_states = step_fn(params, opt_state, current_states)
 
         # (Optional) debug print
         jax.debug.print("[{}] step {}: loss {:.6e}", tag, idx_unused+1, loss)
@@ -152,18 +178,18 @@ def scan_with_history(params, opt_state, step_fn, num_steps, tag):
             params, best_params
         )
 
-        return (params, opt_state, best_loss, best_params), None
+        return (params, opt_state, new_states, best_loss, best_params), None
 
     # Run the scan; we feed a dummy sequence of length `num_steps` so body is called that many times
-    init_carry = (params, opt_state, init_best_loss, init_best_params)
-    (final_p, final_s, best_loss, best_params), _ = jax.lax.scan(
+    init_carry = (params, opt_state, current_states, init_best_loss, init_best_params)
+    (final_p, final_s, final_states, best_loss, best_params), _ = jax.lax.scan(
         body,
         init_carry,
         jnp.arange(num_steps),
         length=num_steps
     )
 
-    return best_params, best_loss, final_p, final_s
+    return best_params, best_loss, final_p, final_s, final_states
 
 
 # =============================================================================
@@ -171,7 +197,7 @@ def scan_with_history(params, opt_state, step_fn, num_steps, tag):
 # =============================================================================
 def train_model(params, mask):
     """
-    Execute the full training procedure with Adam followed by L-BFGS.
+    Execute the full training procedure with Adam followed by L-BFGS using chained hidden states.
     
     Arguments:
         params: initial parameters
@@ -190,18 +216,18 @@ def train_model(params, mask):
     adam_state = adam_opt.init(params)
     lbfgs_state = lbfgs_opt.init(params)
     
-    # Compute driving phase final states once at the beginning
+    # Compute driving phase final states once at the beginning to initialize the chain
     print("Computing driving phase final states...")
-    driving_final_states = compute_driving_final_states(params)
-    print(f"Driving phase completed. States shape: {driving_final_states.shape}")
+    initial_states = compute_driving_final_states(params)
+    print(f"Driving phase completed. Initial states shape: {initial_states.shape}")
     
-    # Create training functions with pre-computed driving states
-    adam_step, lbfgs_step, _ = create_training_functions(adam_opt, lbfgs_opt, mask, driving_final_states)
+    # Create training functions with state chaining
+    adam_step, lbfgs_step = create_training_functions_with_state_chaining(adam_opt, lbfgs_opt, mask)
     
     # Adam training phase
-    print("Starting Adam optimization...")
-    best_params_adam, best_loss_adam, params_after_adam, adam_state_after = scan_with_history(
-        params, adam_state, adam_step,
+    print("Starting Adam optimization with chained hidden states...")
+    best_params_adam, best_loss_adam, params_after_adam, adam_state_after, states_after_adam = scan_with_history_and_states(
+        params, adam_state, initial_states, adam_step,
         NUM_EPOCHS_ADAM,
         tag="ADAM"
     )
@@ -214,10 +240,10 @@ def train_model(params, mask):
 
     # L-BFGS training phase (if needed)
     if best_loss_adam > LOSS_THRESHOLD:
-        print("Starting L-BFGS optimization...")
-        # Run L-BFGS optimization phase
-        best_params_lbfgs, best_loss_lbfgs, params_after_lbfgs, lbfgs_state_after = scan_with_history(
-            params, lbfgs_state, lbfgs_step,
+        print("Starting L-BFGS optimization with chained hidden states...")
+        # Use the final states from Adam as initial states for L-BFGS
+        best_params_lbfgs, best_loss_lbfgs, params_after_lbfgs, lbfgs_state_after, states_after_lbfgs = scan_with_history_and_states(
+            params, lbfgs_state, states_after_adam, lbfgs_step,
             NUM_EPOCHS_LBFGS,
             tag="L-BFGS"
         )

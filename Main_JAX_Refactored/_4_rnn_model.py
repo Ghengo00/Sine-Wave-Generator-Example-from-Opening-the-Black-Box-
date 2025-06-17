@@ -121,7 +121,7 @@ def simulate_trajectory(x0, u_seq, params):
 
 
 # =============================================================================
-# SOLVE TASK - DRIVING PHASE AT EACH STEP
+# SOLVE TASK OPTION 1 - DRIVING PHASE AT EACH STEP
 # =============================================================================
 # Solving
 @jit
@@ -148,7 +148,7 @@ vmap_solve_task = vmap(solve_task, in_axes=(None, 0))   # vmap_solve_task gives 
 
 
 # =============================================================================
-# SOLVE TASK - DRIVING PHASE ONLY AT FIRST STEP
+# SOLVE TASK OPTION 2 - USE FIRST DRIVE PHASE AS INITIALISATION FOR ALL OPTIMISATION STEPS
 # =============================================================================
 # Solving
 @jit
@@ -199,6 +199,35 @@ def solve_task_from_state(params, task, initial_state):
 
 # Vectorize solve_task_from_state over all tasks
 vmap_solve_task_from_state = vmap(solve_task_from_state, in_axes=(None, 0, 0))
+
+
+# =============================================================================
+# SOLVE TASK OPTION 3 - USE LAST HIDDEN STATE IN PREVIOUS OPTIMISATION STEP AS INITIALISATION IN NEXT OPTIMISATION STEP
+# =============================================================================
+@jit
+def solve_task_from_state_with_final_state(params, task, initial_state):
+    """
+    Run only the training phase for a single task, starting from a given initial state.
+    Returns both outputs and final hidden state.
+    
+    Arguments:
+        params: dict containing J, B, b_x, w, b_z
+        task: task index
+        initial_state: initial state for the training phase, shape (N,)
+    
+    Returns:
+        zs_tr: training phase outputs, shape (num_steps_train,)
+        final_state: final hidden state after training, shape (N,)
+    """
+    # Train phase only
+    t_u = get_train_input(task)
+    xs_tr, zs_tr = simulate_trajectory(initial_state, t_u, params)
+    
+    return zs_tr, xs_tr[-1]  # Return outputs and final state
+
+
+# Vectorize solve_task_from_state_with_final_state over all tasks
+vmap_solve_task_from_state_with_final_state = vmap(solve_task_from_state_with_final_state, in_axes=(None, 0, 0))
 
 
 # =============================================================================
@@ -280,7 +309,7 @@ def run_batch_diagnostics(params, key):
 # =============================================================================
 # TRAINING LOSS
 # =============================================================================
-# Loss
+# Loss (OPTION 1)
 @jit
 def batched_loss(params):
     """
@@ -305,7 +334,7 @@ def batched_loss(params):
     return jnp.mean((zs_all - targets_all) ** 2)
 
 
-# Loss
+# Loss (OPTION 2)
 @jit
 def batched_loss_from_states(params, driving_final_states):
     """
@@ -329,3 +358,32 @@ def batched_loss_from_states(params, driving_final_states):
 
     # Compute the MSE over tasks and time
     return jnp.mean((zs_all - targets_all) ** 2)
+
+
+# Loss (OPTION 3)
+@jit
+def batched_loss_from_states_with_final_states(params, current_states):
+    """
+    Compute the loss using current hidden states and return both loss and final states.
+    Used for chaining optimization steps.
+
+    Arguments:
+        params: dictionary of RNN weights
+        current_states: array of shape (num_tasks, N) containing current initial states
+    
+    Returns:
+        loss: scalar loss value averaged over all tasks
+        final_states: array of shape (num_tasks, N) containing final states after training
+    """
+    tasks = jnp.arange(num_tasks)
+
+    # Vectorized simulation over all tasks, starting from current states
+    zs_all, final_states = vmap_solve_task_from_state_with_final_state(params, tasks, current_states)
+
+    # Get the training targets for all tasks
+    targets_all = vmap(get_train_target)(tasks)  # shape: (num_tasks, num_steps_train)
+
+    # Compute the MSE over tasks and time
+    loss = jnp.mean((zs_all - targets_all) ** 2)
+    
+    return loss, final_states

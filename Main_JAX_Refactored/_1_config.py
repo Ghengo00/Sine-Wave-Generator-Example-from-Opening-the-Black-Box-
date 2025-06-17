@@ -40,7 +40,7 @@ static_inputs = jnp.linspace(0, num_tasks - 1, num_tasks, dtype=jnp.float32) / n
 # TIME PARAMETERS
 # =============================================================================
 dt = 0.02        # integration time step (seconds)
-T_drive = 16.0    # driving phase duration (seconds)
+T_drive = 8.0    # driving phase duration (seconds)
 T_train = 64.0   # training phase duration (seconds)
 
 # Computed time parameters
