@@ -36,10 +36,10 @@ from datetime import datetime
 # Add the current directory to the path to import local modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from config import N, dt, time_drive, time_train, num_steps_drive, num_steps_train, T_drive, T_train, omegas, num_tasks
-from rnn_model import simulate_trajectory
-from data_generation import get_drive_input, get_train_input
-from visualization import plot_trajectories_vs_targets
+from _1_config import N, dt, time_drive, time_train, num_steps_drive, num_steps_train, T_drive, T_train, omegas, num_tasks
+from _4_rnn_model import simulate_trajectory
+from _3_data_generation import get_drive_input, get_train_input
+from _7_visualization import plot_trajectories_vs_targets
 
 
 def ensure_directory(path):

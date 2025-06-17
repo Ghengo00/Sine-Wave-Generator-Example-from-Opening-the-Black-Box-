@@ -28,8 +28,8 @@ from _1_config import (
 )
 from _2_utils import Timer, save_variable, set_custom_output_dir, get_output_dir
 from _3_data_generation import generate_all_inputs_and_targets
-from _4_rnn_model import init_params, compute_driving_final_states, run_batch_diagnostics
-from _5_training import setup_optimizers, create_training_functions_with_state_chaining
+from _4_rnn_model import init_params, run_batch_diagnostics
+from _5_training import setup_optimizers, create_training_functions
 from _6_analysis import find_points, compute_jacobian, find_and_analyze_points, generate_point_summaries
 from _7_visualization import (save_figure, plot_trajectories_vs_targets, plot_parameter_matrices_for_tasks, 
                           analyze_jacobians_visualization, analyze_unstable_frequencies_visualization)
@@ -393,13 +393,8 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     adam_state = adam_opt.init(params)
     lbfgs_state = lbfgs_opt.init(params)
     
-    # Compute driving phase final states
-    print("Computing driving phase final states...")
-    driving_final_states = compute_driving_final_states(params)
-    print(f"Driving phase completed. States shape: {driving_final_states.shape}")
-    
-    # Create training functions with state chaining
-    adam_step, lbfgs_step = create_training_functions_with_state_chaining(adam_opt, lbfgs_opt, mask)
+    # Create training functions 
+    adam_step, lbfgs_step, _ = create_training_functions(adam_opt, lbfgs_opt, mask)
     
     # Track eigenvalues during training
     eigenvalue_data = {}
