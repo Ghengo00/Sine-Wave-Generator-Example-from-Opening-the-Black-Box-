@@ -8,6 +8,7 @@ import time
 import pickle
 import glob
 from datetime import datetime
+import matplotlib.pyplot as plt
 
 
 # =============================================================================
@@ -77,6 +78,30 @@ def get_output_dir():
 
 
 # =============================================================================
+# For TEST_Sparsity_Experiments.py
+def get_sparsity_output_dir(sparsity_value=None):
+    """
+    Get the output directory for a specific sparsity level, creating a subdirectory if needed.
+    
+    Arguments:
+        sparsity_value: sparsity level (if None, returns main output directory)
+        
+    Returns:
+        output_dir: path to the sparsity-specific output directory
+    """
+    base_output_dir = get_output_dir()
+    
+    if sparsity_value is not None:
+        # Create sparsity-specific subdirectory
+        sparsity_str = f"{sparsity_value:.2f}".replace('.', 'p')
+        sparsity_dir = os.path.join(base_output_dir, f"Sparsity_{sparsity_str}")
+        os.makedirs(sparsity_dir, exist_ok=True)
+        return sparsity_dir
+    else:
+        return base_output_dir
+
+
+# =============================================================================
 # SAVING UTLITIES
 # =============================================================================
 # Create timestamp for output filenames - this ensures all files from a run will have the same timestamp
@@ -125,31 +150,102 @@ def save_variable(
         print(f"Error saving {variable_name} to {filepath}: {e}")
 
 
-def save_figure(
-    fig, figure_name, N=N, num_tasks=num_tasks,
-    dt=dt, T_drive=T_drive, T_train=T_train,
-    s=s,
-    num_epochs_adam=NUM_EPOCHS_ADAM, num_epochs_lbfgs=NUM_EPOCHS_LBFGS
-    ):
+def save_figure(fig, figure_name, N=N, num_tasks=num_tasks,
+                dt=dt, T_drive=T_drive, T_train=T_train, s=s,
+                num_epochs_adam=NUM_EPOCHS_ADAM, num_epochs_lbfgs=NUM_EPOCHS_LBFGS):
     """
     Save a matplotlib figure with timestamp and parameters.
+    
+    Arguments:
+        fig: matplotlib figure object or None (will use current figure)
+        figure_name: base name for the figure file
+        Other parameters: configuration parameters for filename generation
     """
     # Define the output directory
     output_dir = get_output_dir()
 
-    # Create the output directory if it doesn't exist (exist_ok avoids error if it does)
+    # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
     # Generate filename with descriptive parameters
-    filename = generate_filename(figure_name, N, num_tasks, dt, T_drive, T_train) + '.png'
+    filename = generate_filename(figure_name, N, num_tasks, dt, T_drive, T_train, s, num_epochs_adam, num_epochs_lbfgs) + '.png'
     filepath = os.path.join(output_dir, filename)
     
     # Use a try-except block to handle potential I/O errors
     try:
-        fig.savefig(filepath)
-        print(f"Saved figure {figure_name} to {filepath}")
+        if fig is None:
+            # Save current figure if no figure object provided
+            plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        else:
+            # Save the specified figure
+            fig.savefig(filepath, dpi=300, bbox_inches='tight')
+        print(f"Saved figure to {filepath}")
     except Exception as e:
-        print(f"Error saving figure {figure_name} to {filepath}: {e}")
+        print(f"Error saving figure to {filepath}: {e}")
+
+
+# =============================================================================
+# For TEST_Sparsity_Experiments.py
+def save_variable_with_sparsity(
+    variable, variable_name, sparsity_value=None, N=N, num_tasks=num_tasks,
+    dt=dt, T_drive=T_drive, T_train=T_train, s=s,
+    num_epochs_adam=NUM_EPOCHS_ADAM, num_epochs_lbfgs=NUM_EPOCHS_LBFGS
+    ):
+    """
+    Save a variable to a pickle file in a sparsity-specific subdirectory.
+    
+    Arguments:
+        variable: variable to save
+        variable_name: base name for the variable
+        sparsity_value: sparsity level (if None, saves to main directory)
+        Other parameters: configuration parameters for filename generation
+    """
+    # Define the output directory (sparsity-specific if provided)
+    output_dir = get_sparsity_output_dir(sparsity_value)
+    
+    # Generate filename with descriptive parameters
+    filename = generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train, s, num_epochs_adam, num_epochs_lbfgs) + '.pkl'
+    filepath = os.path.join(output_dir, filename)
+    
+    # Use a try-except block to handle potential I/O errors
+    try:
+        with open(filepath, 'wb') as f:
+            pickle.dump(variable, f)
+        print(f"Saved {variable_name} to {filepath}")
+    except Exception as e:
+        print(f"Error saving {variable_name} to {filepath}: {e}")
+
+
+def save_figure_with_sparsity(fig, figure_name, sparsity_value=None, N=N, num_tasks=num_tasks,
+                               dt=dt, T_drive=T_drive, T_train=T_train, s=s,
+                               num_epochs_adam=NUM_EPOCHS_ADAM, num_epochs_lbfgs=NUM_EPOCHS_LBFGS):
+    """
+    Save a matplotlib figure in a sparsity-specific subdirectory.
+    
+    Arguments:
+        fig: matplotlib figure object or None (will use current figure)
+        figure_name: base name for the figure file
+        sparsity_value: sparsity level (if None, saves to main directory)
+        Other parameters: configuration parameters for filename generation
+    """
+    # Define the output directory (sparsity-specific if provided)
+    output_dir = get_sparsity_output_dir(sparsity_value)
+    
+    # Generate filename with descriptive parameters
+    filename = generate_filename(figure_name, N, num_tasks, dt, T_drive, T_train, s, num_epochs_adam, num_epochs_lbfgs) + '.png'
+    filepath = os.path.join(output_dir, filename)
+    
+    # Use a try-except block to handle potential I/O errors
+    try:
+        if fig is None:
+            # Save current figure if no figure object provided
+            plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        else:
+            # Save the specified figure
+            fig.savefig(filepath, dpi=300, bbox_inches='tight')
+        print(f"Saved figure to {filepath}")
+    except Exception as e:
+        print(f"Error saving figure to {filepath}: {e}")
 
 
 # =============================================================================

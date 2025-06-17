@@ -89,7 +89,7 @@ SLOW_POINT_CUT_OFF = 1e-1  # threshold for slow points to be accepted
 JACOBIAN_TOL = 1e-2
 
 # Eigenvalue analysis parameters
-EIGENVALUE_SAMPLE_FREQUENCY = 50  # Sample eigenvalues every N iterations during training
+EIGENVALUE_SAMPLE_FREQUENCY = 20  # Sample eigenvalues every N iterations during training
 
 
 # =============================================================================

@@ -11,6 +11,9 @@ import jax
 import jax.numpy as jnp
 from jax import random
 
+import matplotlib
+# Set matplotlib to non-interactive backend to prevent plots from displaying
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
@@ -18,15 +21,17 @@ from functools import partial
 from tqdm import tqdm
 import time
 import os
+from contextlib import contextmanager
 
 # Import all modules
 from _1_config import (
     N, I, num_tasks, s, dt, omegas, static_inputs,
     NUM_EPOCHS_ADAM, NUM_EPOCHS_LBFGS, LOSS_THRESHOLD,
     NUMPY_SEED, JAX_SEED, EIGENVALUE_SAMPLE_FREQUENCY,
-    TOL, MAXITER, GAUSSIAN_STD, NUM_ATTEMPTS, SLOW_POINT_SEARCH
+    TOL, MAXITER, GAUSSIAN_STD, NUM_ATTEMPTS, SLOW_POINT_SEARCH, TEST_INDICES
 )
-from _2_utils import Timer, save_variable, set_custom_output_dir, get_output_dir
+from _2_utils import (Timer, save_variable, set_custom_output_dir, get_output_dir, 
+                     save_variable_with_sparsity, save_figure_with_sparsity, get_sparsity_output_dir)
 from _3_data_generation import generate_all_inputs_and_targets
 from _4_rnn_model import init_params, run_batch_diagnostics
 from _5_training import setup_optimizers, create_training_functions
@@ -36,6 +41,11 @@ from _7_visualization import (save_figure, plot_trajectories_vs_targets, plot_pa
 from _8_pca_analysis import run_pca_analysis
 
 
+# =============================================================================
+# =============================================================================
+# USER INPUT FUNCTIONS
+# =============================================================================
+# =============================================================================
 def get_sparsity_values():
     """
     Get sparsity values from user input.
@@ -189,6 +199,73 @@ def get_frequency_selection():
             exit(1)
 
 
+
+
+# =============================================================================
+# =============================================================================
+# CONTEXT MANAGER
+# =============================================================================
+# =============================================================================
+@contextmanager
+def sparsity_output_context(sparsity_value):
+    """
+    Context manager to temporarily set output directory to sparsity-specific folder.
+    """
+    from _2_utils import _CUSTOM_OUTPUT_DIR, set_custom_output_dir
+    
+    # Save current custom output directory
+    original_custom_dir = _CUSTOM_OUTPUT_DIR
+    
+    # Set to sparsity-specific directory  
+    sparsity_dir = get_sparsity_output_dir(sparsity_value)
+    set_custom_output_dir(sparsity_dir)
+    
+    try:
+        yield sparsity_dir
+    finally:
+        # Restore original directory
+        if original_custom_dir:
+            set_custom_output_dir(original_custom_dir)
+        else:
+            set_custom_output_dir(None)
+
+
+
+
+# =============================================================================
+# =============================================================================
+# PARAMETER INITIALIZATION FUNCTION
+# =============================================================================
+# =============================================================================
+def init_params_with_sparsity(key, sparsity_val):
+    """
+    Initialize RNN parameters with specific sparsity value.
+    
+    Note: All sparsity levels use the same base random key to ensure
+    that the underlying parameter distributions are identical, with only
+    the sparsity mask differing between experiments.
+    """
+    k_mask, k1, k2, k3, k4, k5 = random.split(key, 6)
+
+    mask = random.bernoulli(k_mask, p=1.0 - sparsity_val, shape=(N, N)).astype(jnp.float32)
+    J_unscaled = random.normal(k1, (N, N)) / jnp.sqrt(N) * mask
+    J = J_unscaled / jnp.sqrt(1 - sparsity_val) if sparsity_val < 1.0 else J_unscaled
+
+    B = random.normal(k2, (N, I)) / jnp.sqrt(N)
+    b_x = jnp.zeros((N,))
+    w = random.normal(k4, (N,)) / jnp.sqrt(N)
+    b_z = jnp.array(0.0, dtype=jnp.float32)
+
+    return mask, {"J": J, "B": B, "b_x": b_x, "w": w, "b_z": b_z}
+
+
+
+
+# =============================================================================
+# =============================================================================
+# EIGENVALUE COMPUTATION FUNCTIONS
+# =============================================================================
+# =============================================================================
 def compute_connectivity_eigenvalues(params):
     """
     Compute eigenvalues of the connectivity matrix J.
@@ -202,7 +279,9 @@ def compute_connectivity_eigenvalues(params):
     try:
         J = np.array(params["J"])
         eigenvals = np.linalg.eigvals(J)
+        
         return eigenvals
+    
     except Exception as e:
         print(f"Warning: Could not compute connectivity eigenvalues - {e}")
         return np.array([])
@@ -291,6 +370,13 @@ def compute_eigenvalues_during_training(params, compute_jacobian_eigenvals, comp
     return eigenvalue_data
 
 
+
+
+# =============================================================================
+# =============================================================================
+# TRAINING WITH EIGENVALUE TRACKING FUNCTION
+# =============================================================================
+# =============================================================================
 def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, sample_frequency, 
                                    compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies=None):
     """
@@ -363,6 +449,13 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
     return best_params, best_loss, current_params, current_opt_state, eigenvalue_history
 
 
+
+
+# =============================================================================
+# =============================================================================
+# FULL RUN FUNCTION
+# =============================================================================
+# =============================================================================
 def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies=None):
     """
     Train model with full analysis pipeline (replicating _0_main_refactored.py functionality).
@@ -383,6 +476,10 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     print(f"TRAINING WITH SPARSITY s = {sparsity_value}")
     print(f"{'='*60}")
     
+    
+    # ========================================
+    # 1. SETUP AND INITIALIZATION
+    # ========================================
     results = {}
     results['sparsity'] = sparsity_value
     
@@ -399,9 +496,10 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     # Track eigenvalues during training
     eigenvalue_data = {}
     
-    # =============================================================================
-    # TRAINING WITH EIGENVALUE TRACKING
-    # =============================================================================
+
+    # ========================================
+    # 2. TRAINING WITH EIGENVALUE TRACKING
+    # ========================================
     print("\n2. TRAINING WITH EIGENVALUE TRACKING")
     print("-" * 40)
     
@@ -446,9 +544,10 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     results['final_loss'] = final_loss
     results['eigenvalue_data'] = eigenvalue_data
     
-    # =============================================================================
-    # POST-TRAINING DIAGNOSTICS
-    # =============================================================================
+
+    # ========================================
+    # 3. POST-TRAINING DIAGNOSTICS
+    # ========================================
     print("\n3. POST-TRAINING DIAGNOSTICS")
     print("-" * 40)
     
@@ -459,41 +558,44 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     results['state_traj_states'] = state_traj_states
     results['state_fixed_point_inits'] = state_fixed_point_inits
     
-    # =============================================================================
-    # SAVE TRAINING RESULTS
-    # =============================================================================
+
+    # ========================================
+    # 4. SAVE TRAINING RESULTS
+    # ========================================
     print("\n4. SAVING TRAINING RESULTS")
     print("-" * 40)
     
     print("Saving training results...")
-    save_variable(np.array(trained_params["J"]), f"J_param_sparsity_{sparsity_value}", s=sparsity_value)
-    save_variable(np.array(trained_params["B"]), f"B_param_sparsity_{sparsity_value}", s=sparsity_value)
-    save_variable(np.array(trained_params["b_x"]), f"b_x_param_sparsity_{sparsity_value}", s=sparsity_value)
-    save_variable(np.array(trained_params["w"]), f"w_param_sparsity_{sparsity_value}", s=sparsity_value)
-    save_variable(np.array(trained_params["b_z"]), f"b_z_param_sparsity_{sparsity_value}", s=sparsity_value)
+    save_variable_with_sparsity(np.array(trained_params["J"]), f"J_param_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
+    save_variable_with_sparsity(np.array(trained_params["B"]), f"B_param_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
+    save_variable_with_sparsity(np.array(trained_params["b_x"]), f"b_x_param_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
+    save_variable_with_sparsity(np.array(trained_params["w"]), f"w_param_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
+    save_variable_with_sparsity(np.array(trained_params["b_z"]), f"b_z_param_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
 
     state_dict = {
         "traj_states": state_traj_states,
         "fixed_point_inits": state_fixed_point_inits
     }
-    save_variable(state_dict, f"state_sparsity_{sparsity_value}", s=sparsity_value)
+    save_variable_with_sparsity(state_dict, f"state_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
     
-    # =============================================================================
-    # VISUALIZATION OF BASIC RESULTS
-    # =============================================================================
+
+    # ========================================
+    # 5. VISUALIZATION OF BASIC RESULTS
+    # ========================================
     print("\n5. VISUALIZATION OF BASIC RESULTS")
     print("-" * 40)
     
-    # Plot trajectories vs targets
+    # Plot trajectories vs targets (save in sparsity-specific folder)
     print("Plotting produced trajectories vs. target signals...")
-    plot_trajectories_vs_targets(trained_params)
+    plot_trajectories_vs_targets(trained_params, test_indices=TEST_INDICES, sparsity_value=sparsity_value)
     
     # Plot parameter matrices
     plot_parameter_matrices_for_tasks(trained_params)
     
-    # =============================================================================
-    # FIXED POINT ANALYSIS
-    # =============================================================================
+
+    # ========================================
+    # 6. FIXED POINT ANALYSIS
+    # ========================================
     print("\n6. FIXED POINT ANALYSIS")
     print("-" * 40)
     
@@ -504,9 +606,9 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
         )
         
         # Save fixed point results
-        save_variable(all_fixed_points, f"all_fixed_points_sparsity_{sparsity_value}", s=sparsity_value)
-        save_variable(all_jacobians, f"all_fixed_jacobians_sparsity_{sparsity_value}", s=sparsity_value)
-        save_variable(all_unstable_eig_freq, f"all_fixed_unstable_eig_freq_sparsity_{sparsity_value}", s=sparsity_value)
+        save_variable_with_sparsity(all_fixed_points, f"all_fixed_points_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
+        save_variable_with_sparsity(all_jacobians, f"all_fixed_jacobians_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
+        save_variable_with_sparsity(all_unstable_eig_freq, f"all_fixed_unstable_eig_freq_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
     
     results['all_fixed_points'] = all_fixed_points
     results['all_jacobians'] = all_jacobians
@@ -516,14 +618,25 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     generate_point_summaries(point_type="fixed", all_points=all_fixed_points, 
                             all_unstable_eig_freq=all_unstable_eig_freq)
     
-    # Visualize fixed point analysis
-    analyze_jacobians_visualization(point_type="fixed", all_jacobians=all_jacobians)
-    analyze_unstable_frequencies_visualization(point_type="fixed", 
-                                              all_unstable_eig_freq=all_unstable_eig_freq)
+    # Visualize fixed point analysis (save in sparsity-specific directory)
+    with sparsity_output_context(sparsity_value):
+        # Temporarily update the config sparsity for plot titles
+        import _1_config
+        original_s = _1_config.s
+        _1_config.s = sparsity_value
+        
+        try:
+            analyze_jacobians_visualization(point_type="fixed", all_jacobians=all_jacobians)
+            analyze_unstable_frequencies_visualization(point_type="fixed", 
+                                                      all_unstable_eig_freq=all_unstable_eig_freq)
+        finally:
+            # Restore original sparsity value
+            _1_config.s = original_s
     
-    # =============================================================================
-    # SLOW POINT ANALYSIS (OPTIONAL)
-    # =============================================================================
+
+    # ========================================
+    # 7. SLOW POINT ANALYSIS (OPTIONAL)
+    # ========================================
     all_slow_points = None
     all_slow_jacobians = None
     all_slow_unstable_eig_freq = None
@@ -539,49 +652,89 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
             )
             
             # Save slow point results
-            save_variable(all_slow_points, f"all_slow_points_sparsity_{sparsity_value}", s=sparsity_value)
-            save_variable(all_slow_jacobians, f"all_slow_jacobians_sparsity_{sparsity_value}", s=sparsity_value)
-            save_variable(all_slow_unstable_eig_freq, f"all_slow_unstable_eig_freq_sparsity_{sparsity_value}", s=sparsity_value)
+            save_variable_with_sparsity(all_slow_points, f"all_slow_points_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
+            save_variable_with_sparsity(all_slow_jacobians, f"all_slow_jacobians_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
+            save_variable_with_sparsity(all_slow_unstable_eig_freq, f"all_slow_unstable_eig_freq_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
         
         # Generate slow point summaries
         generate_point_summaries(point_type="slow", all_points=all_slow_points, 
                                 all_unstable_eig_freq=all_slow_unstable_eig_freq)
         
-        # Visualize slow point analysis
-        analyze_jacobians_visualization(point_type="slow", all_jacobians=all_slow_jacobians)
-        analyze_unstable_frequencies_visualization(point_type="slow", 
-                                                  all_unstable_eig_freq=all_slow_unstable_eig_freq)
+        # Visualize slow point analysis (save in sparsity-specific directory)
+        with sparsity_output_context(sparsity_value):
+            # Temporarily update the config sparsity for plot titles
+            import _1_config
+            original_s = _1_config.s
+            _1_config.s = sparsity_value
+            
+            try:
+                analyze_jacobians_visualization(point_type="slow", all_jacobians=all_slow_jacobians)
+                analyze_unstable_frequencies_visualization(point_type="slow", 
+                                                          all_unstable_eig_freq=all_slow_unstable_eig_freq)
+            finally:
+                # Restore original sparsity value
+                _1_config.s = original_s
     
     results['all_slow_points'] = all_slow_points
     results['all_slow_jacobians'] = all_slow_jacobians
     results['all_slow_unstable_eig_freq'] = all_slow_unstable_eig_freq
     
-    # =============================================================================
-    # PCA ANALYSIS
-    # =============================================================================
-    print("\n8. PCA ANALYSIS")
+
+    # ========================================
+    # 8. PCA ANALYSIS WITH MULTIPLE TRUNCATIONS
+    # ========================================
+    print("\n8. PCA ANALYSIS WITH MULTIPLE TRUNCATIONS")
     print("-" * 40)
     
-    with Timer("PCA Analysis"):
-        # Run PCA analysis
-        pca_results = run_pca_analysis(
-            state_traj_states, 
-            all_fixed_points=all_fixed_points,
-            all_slow_points=all_slow_points,
-            params=trained_params,
-            slow_point_search=SLOW_POINT_SEARCH
-        )
-        
-        # Save PCA results
-        save_variable(pca_results, f"pca_results_sparsity_{sparsity_value}", s=sparsity_value)
+    # Define truncation levels
+    truncation_levels = [0, 200, 400, 600]
+    pca_results_all_truncations = {}
     
-    results['pca_results'] = pca_results
+    with Timer("PCA Analysis (Multiple Truncations)"):
+        for truncation in truncation_levels:
+            print(f"\nRunning PCA with {truncation} truncations...")
+            
+            # Run PCA analysis (save plots in sparsity-specific directory)
+            with sparsity_output_context(sparsity_value):
+                # Temporarily update the config sparsity for plot titles
+                import _1_config
+                original_s = _1_config.s
+                _1_config.s = sparsity_value
+                
+                try:
+                    pca_results = run_pca_analysis(
+                        state_traj_states, 
+                        all_fixed_points=all_fixed_points,
+                        all_slow_points=all_slow_points,
+                        params=trained_params,
+                        slow_point_search=SLOW_POINT_SEARCH,
+                        skip_initial_steps=truncation
+                    )
+                finally:
+                    # Restore original sparsity value
+                    _1_config.s = original_s
+            
+            # Save PCA results for this truncation level
+            pca_results_all_truncations[f"truncation_{truncation}"] = pca_results
+            save_variable_with_sparsity(pca_results, f"pca_results_truncation_{truncation}_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
+            
+            print(f"Completed PCA analysis with {truncation} truncations")
     
-    print(f"\nCompleted full analysis for sparsity {sparsity_value}: final loss = {final_loss:.6e}")
+    results['pca_results'] = pca_results_all_truncations
+    
+    print(f"\nCompleted PCA analysis with truncations: {truncation_levels}")
+    print(f"Completed full analysis for sparsity {sparsity_value}: final loss = {final_loss:.6e}")
     
     return results
 
 
+
+
+# =============================================================================
+# =============================================================================
+# EIGENVALUE EVOLUTION PLOTTING FUNCTIONS
+# =============================================================================
+# =============================================================================
 def plot_eigenvalue_evolution_comparison(all_results, sparsity_values):
     """
     Create visualization showing eigenvalue evolution during training for all sparsity levels.
@@ -622,7 +775,9 @@ def plot_eigenvalue_evolution_comparison(all_results, sparsity_values):
     # Plot Jacobian eigenvalues for each frequency if present
     if has_jacobian and jacobian_frequencies:
         for freq_idx in jacobian_frequencies:
-            plot_jacobian_eigenvalue_evolution_for_frequency(all_results, sparsity_values, freq_idx, cmap)
+            # Create separate plot for each sparsity level
+            for sparsity_idx, result in enumerate(all_results):
+                plot_jacobian_eigenvalue_evolution_for_single_sparsity(result, freq_idx, cmap)
 
 
 def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
@@ -633,6 +788,9 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
     fig, axes = plt.subplots(1, n_sparsity, figsize=(5*n_sparsity, 5))
     if n_sparsity == 1:
         axes = [axes]
+    
+    # Store scatter plot for colorbar
+    scatter_plot = None
     
     for sparsity_idx, result in enumerate(all_results):
         sparsity = result['sparsity']
@@ -686,6 +844,10 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
             s=20
         )
         
+        # Store the first valid scatter plot for colorbar
+        if scatter_plot is None and len(all_eigenvals) > 0:
+            scatter_plot = scatter
+        
         # Add unit circle for reference
         theta = np.linspace(0, 2*np.pi, 100)
         ax.plot(np.cos(theta), np.sin(theta), 'k--', alpha=0.3, linewidth=1)
@@ -696,115 +858,141 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
         ax.set_title(f'Sparsity s = {sparsity:.2f}\nFinal loss: {final_loss:.2e}')
         ax.grid(True, alpha=0.3)
         ax.set_aspect('equal')
-        
-        # Add colorbar for first subplot
-        if sparsity_idx == 0 and len(all_eigenvals) > 0:
-            cbar = plt.colorbar(scatter, ax=ax)
-            cbar.set_label('Training Progress')
+    
+    # Add colorbar to the right of all subplots
+    if scatter_plot is not None:
+        plt.tight_layout()
+        # Create space for colorbar
+        fig.subplots_adjust(right=0.85)
+        # Add colorbar
+        cbar_ax = fig.add_axes([0.87, 0.15, 0.02, 0.7])
+        cbar = plt.colorbar(scatter_plot, cax=cbar_ax)
+        cbar.set_label('Training Progress')
     
     plt.suptitle('Connectivity Matrix Eigenvalue Evolution During Training', fontsize=16)
-    plt.tight_layout()
-    save_figure('connectivity_eigenvalue_evolution_comparison')
-    plt.show()
+    
+    # Create sparsity-specific filename
+    sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
+    save_figure(fig, f'connectivity_eigenvalue_evolution_sparsities_{sparsity_str}')
+    # plt.show()  # Commented out to prevent interactive display
 
 
-def plot_jacobian_eigenvalue_evolution_for_frequency(all_results, sparsity_values, freq_idx, cmap):
+def plot_jacobian_eigenvalue_evolution_for_single_sparsity(result, freq_idx, cmap):
     """
-    Plot Jacobian eigenvalue evolution for a specific frequency across all sparsity levels.
+    Plot Jacobian eigenvalue evolution for a specific frequency and single sparsity level.
     """
-    n_sparsity = len(sparsity_values)
-    fig, axes = plt.subplots(1, n_sparsity, figsize=(5*n_sparsity, 5))
-    if n_sparsity == 1:
-        axes = [axes]
+    sparsity = result['sparsity']
+    eigenvalue_data = result['eigenvalue_data']
+    final_loss = result['final_loss']
     
     # Get frequency information for plot title
     freq_value = float(omegas[freq_idx])
     static_input_value = float(static_inputs[freq_idx])
     
-    for sparsity_idx, result in enumerate(all_results):
-        sparsity = result['sparsity']
-        eigenvalue_data = result['eigenvalue_data']
-        final_loss = result['final_loss']
-        
-        ax = axes[sparsity_idx]
-        
-        # Combine eigenvalue data from both training phases
-        all_iterations = []
-        all_eigenvals = []
-        
-        # Add Adam phase data
-        for iteration, eigenval_dict in eigenvalue_data['adam']:
-            if ('jacobian' in eigenval_dict and 
-                isinstance(eigenval_dict['jacobian'], dict) and 
-                freq_idx in eigenval_dict['jacobian'] and
-                len(eigenval_dict['jacobian'][freq_idx]) > 0):
-                
-                eigenvals = eigenval_dict['jacobian'][freq_idx]
-                all_iterations.extend([iteration] * len(eigenvals))
-                all_eigenvals.extend(eigenvals)
-        
-        # Add L-BFGS phase data (offset iterations)
-        adam_max_iter = NUM_EPOCHS_ADAM if eigenvalue_data['adam'] else 0
-        for iteration, eigenval_dict in eigenvalue_data['lbfgs']:
-            if ('jacobian' in eigenval_dict and 
-                isinstance(eigenval_dict['jacobian'], dict) and 
-                freq_idx in eigenval_dict['jacobian'] and
-                len(eigenval_dict['jacobian'][freq_idx]) > 0):
-                
-                eigenvals = eigenval_dict['jacobian'][freq_idx]
-                all_iterations.extend([adam_max_iter + iteration] * len(eigenvals))
-                all_eigenvals.extend(eigenvals)
-        
-        if len(all_eigenvals) == 0:
-            ax.text(0.5, 0.5, f'No Jacobian eigenvalue\ndata for freq {freq_idx}', 
-                   ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(f'Sparsity s = {sparsity:.2f}')
-            continue
-        
-        # Convert to numpy arrays
-        all_iterations = np.array(all_iterations)
-        all_eigenvals = np.array(all_eigenvals)
-        
-        # Normalize iterations for color mapping
-        if len(np.unique(all_iterations)) > 1:
-            norm_iterations = (all_iterations - all_iterations.min()) / (all_iterations.max() - all_iterations.min())
-        else:
-            norm_iterations = np.zeros_like(all_iterations)
-        
-        # Plot eigenvalues with color representing training progress
-        scatter = ax.scatter(
-            all_eigenvals.real, 
-            all_eigenvals.imag,
-            c=norm_iterations,
-            cmap=cmap,
-            alpha=0.7,
-            s=20
-        )
-        
-        # Add unit circle for reference
-        theta = np.linspace(0, 2*np.pi, 100)
-        ax.plot(np.cos(theta), np.sin(theta), 'k--', alpha=0.3, linewidth=1)
-        
-        # Formatting
-        ax.set_xlabel('Real')
-        ax.set_ylabel('Imaginary')
-        ax.set_title(f'Sparsity s = {sparsity:.2f}\nFinal loss: {final_loss:.2e}')
-        ax.grid(True, alpha=0.3)
-        ax.set_aspect('equal')
-        
-        # Add colorbar for first subplot
-        if sparsity_idx == 0 and len(all_eigenvals) > 0:
-            cbar = plt.colorbar(scatter, ax=ax)
-            cbar.set_label('Training Progress')
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
     
-    plt.suptitle(f'Jacobian Eigenvalue Evolution During Training\n'
-                 f'Frequency {freq_idx}: ω = {freq_value:.3f} rad/s, static_input = {static_input_value:.3f}', 
-                 fontsize=16)
+    # Combine eigenvalue data from both training phases
+    all_iterations = []
+    all_eigenvals = []
+    
+    # Add Adam phase data
+    for iteration, eigenval_dict in eigenvalue_data['adam']:
+        if ('jacobian' in eigenval_dict and 
+            isinstance(eigenval_dict['jacobian'], dict) and 
+            freq_idx in eigenval_dict['jacobian'] and
+            len(eigenval_dict['jacobian'][freq_idx]) > 0):
+            
+            eigenvals = eigenval_dict['jacobian'][freq_idx]
+            all_iterations.extend([iteration] * len(eigenvals))
+            all_eigenvals.extend(eigenvals)
+    
+    # Add L-BFGS phase data (offset iterations)
+    adam_max_iter = NUM_EPOCHS_ADAM if eigenvalue_data['adam'] else 0
+    for iteration, eigenval_dict in eigenvalue_data['lbfgs']:
+        if ('jacobian' in eigenval_dict and 
+            isinstance(eigenval_dict['jacobian'], dict) and 
+            freq_idx in eigenval_dict['jacobian'] and
+            len(eigenval_dict['jacobian'][freq_idx]) > 0):
+            
+            eigenvals = eigenval_dict['jacobian'][freq_idx]
+            all_iterations.extend([adam_max_iter + iteration] * len(eigenvals))
+            all_eigenvals.extend(eigenvals)
+    
+    if len(all_eigenvals) == 0:
+        ax.text(0.5, 0.5, f'No Jacobian eigenvalue\ndata for freq {freq_idx}', 
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title(f'Sparsity s = {sparsity:.2f}\nFreq {freq_idx}: ω = {freq_value:.3f} rad/s')
+        plt.tight_layout()
+        
+        # Save with sparsity-specific filename in sparsity subdirectory
+        sparsity_str = f'{sparsity:.2f}'.replace('.', 'p')
+        freq_str = f'{freq_value:.3f}'.replace('.', 'p')
+        save_figure_with_sparsity(fig, f'jacobian_eigenvalue_evolution_freq_{freq_idx}_sparsity_{sparsity_str}_omega_{freq_str}', sparsity)
+        # plt.show()  # Commented out to prevent interactive display
+        plt.close(fig)
+        return
+    
+    # Convert to numpy arrays
+    all_iterations = np.array(all_iterations)
+    all_eigenvals = np.array(all_eigenvals)
+    
+    # Normalize iterations for color mapping
+    if len(np.unique(all_iterations)) > 1:
+        norm_iterations = (all_iterations - all_iterations.min()) / (all_iterations.max() - all_iterations.min())
+    else:
+        norm_iterations = np.zeros_like(all_iterations)
+    
+    # Plot eigenvalues with color representing training progress
+    scatter = ax.scatter(
+        all_eigenvals.real, 
+        all_eigenvals.imag,
+        c=norm_iterations,
+        cmap=cmap,
+        alpha=0.7,
+        s=20
+    )
+    
+    # Add unit circle for reference
+    theta = np.linspace(0, 2*np.pi, 100)
+    ax.plot(np.cos(theta), np.sin(theta), 'k--', alpha=0.3, linewidth=1)
+    
+    # Formatting
+    ax.set_xlabel('Real')
+    ax.set_ylabel('Imaginary')
+    ax.set_title(f'Jacobian Eigenvalue Evolution During Training\n'
+                 f'Sparsity s = {sparsity:.2f} | Frequency {freq_idx}: ω = {freq_value:.3f} rad/s\n'
+                 f'Static input = {static_input_value:.3f} | Final loss: {final_loss:.2e}')
+    ax.grid(True, alpha=0.3)
+    ax.set_aspect('equal')
+    
+    # Add colorbar
+    cbar = plt.colorbar(scatter, ax=ax)
+    cbar.set_label('Training Progress')
+    
     plt.tight_layout()
-    save_figure(f'jacobian_eigenvalue_evolution_freq_{freq_idx}_omega_{freq_value:.3f}')
-    plt.show()
+    
+    # Save with sparsity-specific filename in sparsity subdirectory
+    sparsity_str = f'{sparsity:.2f}'.replace('.', 'p')
+    freq_str = f'{freq_value:.3f}'.replace('.', 'p')
+    save_figure_with_sparsity(fig, f'jacobian_eigenvalue_evolution_freq_{freq_idx}_sparsity_{sparsity_str}_omega_{freq_str}', sparsity)
+    # plt.show()  # Commented out to prevent interactive display
+    plt.close(fig)
 
 
+def plot_eigenvalue_evolution(all_results, sparsity_values):
+    """
+    Backward compatibility function - calls the new comparison function.
+    """
+    plot_eigenvalue_evolution_comparison(all_results, sparsity_values)
+
+
+
+
+# =============================================================================
+# =============================================================================
+# SUMMARY PLOTTING FUNCTIONS
+# =============================================================================
+# =============================================================================
 def create_sparsity_summary_plots(all_results, sparsity_values):
     """
     Create summary plots comparing different metrics across sparsity levels.
@@ -888,16 +1076,121 @@ def create_sparsity_summary_plots(all_results, sparsity_values):
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"sparsity_summary_plots_{timestamp}"
     save_figure(fig, filename)
-    plt.show()
+    # plt.show()  # Commented out to prevent interactive display
 
 
-def plot_eigenvalue_evolution(all_results, sparsity_values):
+def create_unstable_eigenvalue_table(all_results, sparsity_values):
     """
-    Backward compatibility function - calls the new comparison function.
+    Create a table showing the distribution of unstable eigenvalues per fixed point across sparsity levels.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        sparsity_values: list of sparsity values tested
     """
-    plot_eigenvalue_evolution_comparison(all_results, sparsity_values)
+    # Collect unstable eigenvalue counts for each sparsity level
+    unstable_counts_per_sparsity = {}
+    max_unstable_count = 0
+    
+    for result in all_results:
+        sparsity = result['sparsity']
+        unstable_counts = []
+        
+        # Extract unstable eigenvalue counts from fixed points
+        if result['all_unstable_eig_freq'] and len(result['all_unstable_eig_freq']) > 0:
+            for task_unstable_freqs in result['all_unstable_eig_freq']:
+                if task_unstable_freqs:  # Check if not None/empty
+                    for fp_unstable_freqs in task_unstable_freqs:
+                        if fp_unstable_freqs is not None:
+                            # Count unstable eigenvalues for this fixed point
+                            num_unstable = len(fp_unstable_freqs)
+                            unstable_counts.append(num_unstable)
+                            max_unstable_count = max(max_unstable_count, num_unstable)
+        
+        unstable_counts_per_sparsity[sparsity] = unstable_counts
+    
+    # If no unstable eigenvalues found, create a simple message plot
+    if max_unstable_count == 0:
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.text(0.5, 0.5, 'No unstable eigenvalues found\nacross any sparsity levels', 
+               ha='center', va='center', transform=ax.transAxes, fontsize=14)
+        ax.set_title('Unstable Eigenvalue Distribution Table')
+        plt.tight_layout()
+        
+        sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
+        save_figure(fig, f'unstable_eigenvalue_table_sparsities_{sparsity_str}')
+        plt.close(fig)
+        return
+    
+    # Create the table: rows = number of unstable eigenvalues, cols = sparsity levels
+    table_data = np.zeros((max_unstable_count + 1, len(sparsity_values)), dtype=int)
+    
+    for sparsity_idx, sparsity in enumerate(sparsity_values):
+        unstable_counts = unstable_counts_per_sparsity[sparsity]
+        
+        # Count how many fixed points have each number of unstable eigenvalues
+        for num_unstable in range(max_unstable_count + 1):
+            count = unstable_counts.count(num_unstable)
+            table_data[num_unstable, sparsity_idx] = count
+    
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(max(8, len(sparsity_values) * 1.5), max(6, max_unstable_count * 0.8)))
+    
+    # Create heatmap
+    im = ax.imshow(table_data, cmap='YlOrRd', aspect='auto')
+    
+    # Set ticks and labels
+    ax.set_xticks(np.arange(len(sparsity_values)))
+    ax.set_yticks(np.arange(max_unstable_count + 1))
+    ax.set_xticklabels([f'{s:.2f}' for s in sparsity_values])
+    ax.set_yticklabels([f'{i}' for i in range(max_unstable_count + 1)])
+    
+    # Labels and title
+    ax.set_xlabel('Sparsity Level')
+    ax.set_ylabel('Number of Unstable Eigenvalues per Fixed Point')
+    ax.set_title('Distribution of Unstable Eigenvalues per Fixed Point Across Sparsity Levels')
+    
+    # Add text annotations
+    for i in range(max_unstable_count + 1):
+        for j in range(len(sparsity_values)):
+            text = ax.text(j, i, f'{table_data[i, j]}',
+                         ha="center", va="center", color="black" if table_data[i, j] < table_data.max()/2 else "white",
+                         fontweight='bold')
+    
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label('Number of Fixed Points')
+    
+    plt.tight_layout()
+    
+    # Save with sparsity-specific filename
+    sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
+    save_figure(fig, f'unstable_eigenvalue_table_sparsities_{sparsity_str}')
+    plt.close(fig)
+    
+    # Print summary statistics
+    print(f"\n{'='*60}")
+    print("UNSTABLE EIGENVALUE DISTRIBUTION SUMMARY")
+    print(f"{'='*60}")
+    for sparsity_idx, sparsity in enumerate(sparsity_values):
+        unstable_counts = unstable_counts_per_sparsity[sparsity]
+        total_fps = len(unstable_counts)
+        if total_fps > 0:
+            avg_unstable = np.mean(unstable_counts)
+            max_unstable_this_sparsity = max(unstable_counts) if unstable_counts else 0
+            print(f"Sparsity {sparsity:.2f}: {total_fps} fixed points, "
+                  f"avg {avg_unstable:.1f} unstable eigenvalues, max {max_unstable_this_sparsity}")
+        else:
+            print(f"Sparsity {sparsity:.2f}: No fixed points found")
+    print(f"{'='*60}")
 
 
+
+
+# =============================================================================
+# =============================================================================
+# MAIN LOOP FUNCTION
+# =============================================================================
+# =============================================================================
 def main():
     """
     Main function to run comprehensive sparsity experiments with full analysis.
@@ -941,6 +1234,10 @@ def main():
     np.random.seed(NUMPY_SEED)
     key = random.PRNGKey(JAX_SEED)
     
+    # Generate a single set of base parameters that will be used for all sparsity levels
+    # This ensures all networks start from the same underlying structure, only varying in sparsity
+    analysis_key, base_key = random.split(key)
+    
     # Store results for all sparsity levels
     all_results = []
     
@@ -949,11 +1246,12 @@ def main():
         print(f"PROCESSING SPARSITY LEVEL {i+1}/{len(sparsity_values)}: s = {sparsity}")
         print(f"{'='*80}")
         
-        # Generate new random key for this sparsity level
-        key, subkey = random.split(key)
+        # Use the same base key for all sparsity levels to ensure consistent initial parameters
+        # Only the sparsity mask will differ between runs
+        mask, params = init_params_with_sparsity(base_key, sparsity)
         
-        # Initialize parameters with current sparsity level
-        mask, params = init_params_with_sparsity(subkey, sparsity)
+        # Generate a unique analysis key for this sparsity level
+        analysis_key, subkey = random.split(analysis_key)
         
         # Run full training and analysis pipeline
         results = train_with_full_analysis(params, mask, sparsity, subkey, 
@@ -965,11 +1263,12 @@ def main():
         print(f"\nCompleted sparsity {sparsity}: final loss = {results['final_loss']:.6e}")
         
         # Save individual sparsity results
-        save_variable(results, f"complete_results_sparsity_{sparsity}", s=sparsity)
+        save_variable_with_sparsity(results, f"complete_results_sparsity_{sparsity}", sparsity, s=sparsity)
     
-    # =============================================================================
+
+    # ========================================
     # CREATE COMPARATIVE EIGENVALUE EVOLUTION VISUALIZATION
-    # =============================================================================
+    # ========================================
     if compute_jacobian_eigenvals or compute_connectivity_eigenvals:
         print(f"\n{'='*60}")
         print("CREATING COMPARATIVE EIGENVALUE EVOLUTION VISUALIZATION")
@@ -981,18 +1280,30 @@ def main():
         print("SKIPPING EIGENVALUE VISUALIZATION (NO EIGENVALUE DATA)")
         print(f"{'='*60}")
     
-    # =============================================================================
+
+    # ========================================
     # CREATE COMPREHENSIVE SUMMARY PLOTS
-    # =============================================================================
+    # ========================================
     print(f"\n{'='*60}")
     print("CREATING COMPREHENSIVE SUMMARY VISUALIZATIONS")
     print(f"{'='*60}")
     
     create_sparsity_summary_plots(all_results, sparsity_values)
     
-    # =============================================================================
+
+    # ========================================
+    # CREATE UNSTABLE EIGENVALUE DISTRIBUTION TABLE
+    # ========================================
+    print(f"\n{'='*60}")
+    print("CREATING UNSTABLE EIGENVALUE DISTRIBUTION TABLE")
+    print(f"{'='*60}")
+    
+    create_unstable_eigenvalue_table(all_results, sparsity_values)
+    
+
+    # ========================================
     # SAVE COMPLETE EXPERIMENT RESULTS
-    # =============================================================================
+    # ========================================
     print(f"\n{'='*60}")
     print("SAVING COMPLETE EXPERIMENT RESULTS")
     print(f"{'='*60}")
@@ -1017,9 +1328,10 @@ def main():
     }
     save_variable(complete_experiment_results, f"complete_sparsity_experiment_{timestamp}")
     
-    # =============================================================================
+
+    # ========================================
     # FINAL SUMMARY
-    # =============================================================================
+    # ========================================
     print(f"\n{'='*80}")
     print("COMPREHENSIVE SPARSITY EXPERIMENT COMPLETE")
     print(f"{'='*80}")
@@ -1047,19 +1359,6 @@ def main():
     print(f"\nAll results and visualizations saved to: {full_output_path}")
 
 
-def init_params_with_sparsity(key, sparsity_val):
-    """Initialize RNN parameters with specific sparsity value."""
-    k_mask, k1, k2, k3, k4, k5 = random.split(key, 6)
-
-    mask = random.bernoulli(k_mask, p=1.0 - sparsity_val, shape=(N, N)).astype(jnp.float32)
-    J_unscaled = random.normal(k1, (N, N)) / jnp.sqrt(N) * mask
-    J = J_unscaled / jnp.sqrt(1 - sparsity_val) if sparsity_val < 1.0 else J_unscaled
-
-    B = random.normal(k2, (N, I)) / jnp.sqrt(N)
-    b_x = jnp.zeros((N,))
-    w = random.normal(k4, (N,)) / jnp.sqrt(N)
-    b_z = jnp.array(0.0, dtype=jnp.float32)
-    return mask, {"J": J, "B": B, "b_x": b_x, "w": w, "b_z": b_z}
 
 
 if __name__ == "__main__":

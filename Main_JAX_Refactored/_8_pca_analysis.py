@@ -155,17 +155,19 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
             point_idx += 1
 
     # Add decorations
+    from _1_config import s
     title_skip_info = f" (skipping first {skip_initial_steps} steps)" if skip_initial_steps > 0 else ""
     title_tanh_info = " (tanh transformed)" if apply_tanh else ""
-    ax.set_title(f'PCA of Network Trajectories and {point_name}{title_skip_info}{title_tanh_info}')
+    ax.set_title(f'PCA of Network Trajectories and {point_name}{title_skip_info}{title_tanh_info} (Sparsity={s:.2f})')
     ax.set_xlabel('PC1')
     ax.set_ylabel('PC2')
     ax.set_zlabel('PC3')
     plt.legend()
 
     # Save the figure
+    sparsity_str = f"{s:.2f}".replace('.', 'p')
     tanh_suffix = "_tanh" if apply_tanh else ""
-    figure_name = f"pca_plot_{point_type}_skip_{skip_initial_steps}{tanh_suffix}"
+    figure_name = f"pca_plot_{point_type}_skip_{skip_initial_steps}{tanh_suffix}_sparsity_{sparsity_str}"
     save_figure(fig, figure_name)
 
     plt.close()

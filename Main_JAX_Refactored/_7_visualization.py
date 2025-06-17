@@ -12,9 +12,14 @@ from _2_utils import save_figure
 # =============================================================================
 # TRAJECTORY AND PARAMETER PLOTTING FUNCTIONS
 # =============================================================================
-def plot_trajectories_vs_targets(params, test_indices=None):
+def plot_trajectories_vs_targets(params, test_indices=None, sparsity_value=None):
     """
     Plot produced trajectories vs. target signals for selected tasks.
+    
+    Arguments:
+        params: RNN parameters
+        test_indices: indices of tasks to plot
+        sparsity_value: sparsity level for saving plots in appropriate folder
     """
     from _1_config import omegas, static_inputs, time_train, N
     from _4_rnn_model import simulate_trajectory
@@ -45,7 +50,7 @@ def plot_trajectories_vs_targets(params, test_indices=None):
         _, zs_train_test = simulate_trajectory(x_drive_final_test, u_train, params)
         produced_traj = np.array(zs_train_test)
 
-        plt.figure(figsize=(10, 3))
+        fig = plt.figure(figsize=(10, 3))
         plt.plot(time_train, produced_traj, label="Produced Output", linewidth=2)
         plt.plot(time_train, target_train, 'k--', label="Target Signal", linewidth=1.5)
         plt.title(f"Task {j}: ω={omega:.3f}, u_offset={u_off:.3f}")
@@ -53,8 +58,17 @@ def plot_trajectories_vs_targets(params, test_indices=None):
         plt.ylabel("Output")
         plt.legend(loc="upper right")
         plt.tight_layout()
-        plt.show()
-        plt.close()
+        
+        # Save the figure in the appropriate directory
+        if sparsity_value is not None:
+            # For sparsity experiments, save in sparsity-specific folder
+            from _2_utils import save_figure_with_sparsity
+            save_figure_with_sparsity(fig, f"trajectory_vs_target_task_{j}", sparsity_value)
+        else:
+            # For regular experiments, save in main folder
+            save_figure(fig, f"trajectory_vs_target_task_{j}")
+        
+        plt.close(fig)
 
 
 def plot_parameter_matrices(J, B, b_x, j, omega, u_offset):
@@ -119,7 +133,7 @@ def plot_jacobian_matrices(jacobians, j):
     """
     Plot the Jacobian matrices for a given task.
     """
-    from _1_config import omegas
+    from _1_config import omegas, s
     
     # Create the figure and subplots
     fig, axes = plt.subplots(len(jacobians), 1, figsize=(10, 5 * len(jacobians)))
@@ -130,13 +144,14 @@ def plot_jacobian_matrices(jacobians, j):
     # Iterate over the subplots
     for i, J_eff in enumerate(jacobians):
         im = axes[i].imshow(J_eff, cmap='viridis')
-        axes[i].set_title(f'Jacobian Matrix (Task {j}, ω={omegas[j]:.3f}, FP{i+1})')
+        axes[i].set_title(f'Jacobian Matrix (Task {j}, ω={omegas[j]:.3f}, FP{i+1}, Sparsity={s:.2f})')
         plt.colorbar(im, ax=axes[i])
     
     plt.tight_layout()
     
     # Save the figure
-    save_figure(fig, f"Jacobian_Matrices_for_Task_{j}")
+    sparsity_str = f"{s:.2f}".replace('.', 'p')
+    save_figure(fig, f"Jacobian_Matrices_for_Task_{j}_Sparsity_{sparsity_str}")
     
     plt.show()
     plt.close()
@@ -146,7 +161,7 @@ def plot_unstable_eigenvalues(unstable_freqs, j):
     """
     Plot the unstable eigenvalues for a given task on the complex plane.
     """
-    from _1_config import omegas, COLORS, MARKERS
+    from _1_config import omegas, COLORS, MARKERS, s
     
     # Create the figure
     fig = plt.figure(figsize=(10, 8))
@@ -163,12 +178,13 @@ def plot_unstable_eigenvalues(unstable_freqs, j):
     plt.axhline(y=0, color='k', linestyle='--', alpha=0.3)
     plt.xlabel('Real Part')
     plt.ylabel('Imaginary Part')
-    plt.title(f'Unstable Eigenvalues for Task {j} (ω={omegas[j]:.3f})')
+    plt.title(f'Unstable Eigenvalues for Task {j} (ω={omegas[j]:.3f}, Sparsity={s:.2f})')
     plt.legend()
     plt.grid(True)
     
     # Save the figure
-    save_figure(fig, f"Unstable_Eigenvalues_for_Task_{j}")
+    sparsity_str = f"{s:.2f}".replace('.', 'p')
+    save_figure(fig, f"Unstable_Eigenvalues_for_Task_{j}_Sparsity_{sparsity_str}")
     
     plt.show()
     plt.close()
@@ -183,6 +199,9 @@ def plot_frequency_comparison(all_unstable_eig_freq, omegas):
             the middle list is over fixed points,
             and the inner list contains unstable eigenvalues for each fixed point
     """
+    # Import sparsity value from config
+    from _1_config import s
+    
     # Create the figure and axes
     fig = plt.figure(figsize=(12, 6))
 
@@ -212,12 +231,13 @@ def plot_frequency_comparison(all_unstable_eig_freq, omegas):
     # Add decorations
     plt.xlabel('Task #')
     plt.ylabel('Frequency')
-    plt.title('Comparison of Target Frequencies and Maximum Unstable Mode Frequencies')
+    plt.title(f'Comparison of Target Frequencies and Maximum Unstable Mode Frequencies (Sparsity={s:.2f})')
     plt.legend()
     plt.grid(True)
     
     # Save the figure
-    save_figure(fig, "Frequency_Comparison")
+    sparsity_str = f"{s:.2f}".replace('.', 'p')
+    save_figure(fig, f"Frequency_Comparison_Sparsity_{sparsity_str}")
     
     plt.show()
     plt.close()

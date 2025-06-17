@@ -41,6 +41,7 @@ def init_params(key):
     b_x = jnp.zeros((N,))
     w = random.normal(k4, (N,)) / jnp.sqrt(N)
     b_z = jnp.array(0.0, dtype=jnp.float32)
+    
     return mask, {"J": J, "B": B, "b_x": b_x, "w": w, "b_z": b_z}
 
 

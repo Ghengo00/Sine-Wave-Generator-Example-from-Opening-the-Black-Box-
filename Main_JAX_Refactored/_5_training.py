@@ -69,7 +69,7 @@ def create_training_functions(adam_opt, lbfgs_opt, mask):
             loss: current loss value
         """
         # 1) Get loss and gradients
-        loss, grads = jax.value_and_grad_fn(params)
+        loss, grads = value_and_grad_fn(params)
 
         # 2) One optimizer update
         updates, new_state = adam_opt.update(grads, opt_state, params)
@@ -101,7 +101,7 @@ def create_training_functions(adam_opt, lbfgs_opt, mask):
             loss: current loss value
         """
         # 1) Get loss and gradients
-        loss, grads = jax.value_and_grad_fn(params)
+        loss, grads = value_and_grad_fn(params)
 
         # 2) One optimizer update
         updates, new_state = lbfgs_opt.update(
