@@ -25,6 +25,9 @@ num_tasks = 51  # number of different sine-wave tasks (STANDARD VALUE IS 51)
 # Sparsity parameter
 s = 0.0         # sparsity of the recurrent connections
 
+# L1 regularization parameter
+L1_REG_STRENGTH = 0.0  # L1 regularization strength for connectivity matrix (default: no regularization)
+
 
 # =============================================================================
 # TASK PARAMETERS

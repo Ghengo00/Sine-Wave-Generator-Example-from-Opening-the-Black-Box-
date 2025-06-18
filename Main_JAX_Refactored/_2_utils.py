@@ -32,6 +32,8 @@ except ImportError:
     NUM_EPOCHS_LBFGS = 2000
 
 
+
+
 # =============================================================================
 # CUSTOM OUTPUT DIRECTORY
 # =============================================================================
@@ -99,6 +101,41 @@ def get_sparsity_output_dir(sparsity_value=None):
         return sparsity_dir
     else:
         return base_output_dir
+
+
+# =============================================================================
+# For TEST_L_1_Experiments.py
+def get_l1_output_dir(l1_reg_strength=None):
+    """
+    Get the output directory for a specific L1 regularization strength, creating a subdirectory if needed.
+    
+    Arguments:
+        l1_reg_strength: L1 regularization strength (if None, returns main output directory)
+        
+    Returns:
+        output_dir: path to the L1-specific output directory
+    """
+    base_output_dir = get_output_dir()
+    
+    if l1_reg_strength is not None:
+        # Create L1-specific subdirectory
+        if l1_reg_strength == 0.0:
+            l1_str = "0p00"
+        else:
+            # Format to handle both small (e.g., 1e-5) and regular (e.g., 0.01) numbers
+            if l1_reg_strength < 1e-3:
+                l1_str = f"{l1_reg_strength:.2e}".replace('.', 'p').replace('e-', 'em').replace('e+', 'ep')
+            else:
+                l1_str = f"{l1_reg_strength:.4f}".replace('.', 'p').rstrip('0').rstrip('p')
+                if l1_str == '':
+                    l1_str = "0p00"
+        l1_dir = os.path.join(base_output_dir, f"L1_Reg_{l1_str}")
+        os.makedirs(l1_dir, exist_ok=True)
+        return l1_dir
+    else:
+        return base_output_dir
+
+
 
 
 # =============================================================================
@@ -249,6 +286,63 @@ def save_figure_with_sparsity(fig, figure_name, sparsity_value=None, N=N, num_ta
 
 
 # =============================================================================
+# For TEST_L_1_Experiments.py
+def save_variable_with_l1_reg(
+    variable, variable_name, l1_reg_strength=None, N=N, num_tasks=num_tasks,
+    dt=dt, T_drive=T_drive, T_train=T_train, s=s,
+    num_epochs_adam=NUM_EPOCHS_ADAM, num_epochs_lbfgs=NUM_EPOCHS_LBFGS
+    ):
+    """
+    Save a variable to a pickle file in a L1 regularization-specific subdirectory.
+    
+    Arguments:
+        variable: variable to save
+        variable_name: base name for the variable
+        l1_reg_strength: L1 regularization strength (if None, saves to main directory)
+        Other parameters: configuration parameters for filename generation
+    """
+    # Define the output directory (L1-specific if provided)
+    output_dir = get_l1_output_dir(l1_reg_strength)
+    
+    # Generate filename with descriptive parameters
+    filename = generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train, s, num_epochs_adam, num_epochs_lbfgs) + '.pkl'
+    filepath = os.path.join(output_dir, filename)
+    
+    # Use a try-except block to handle potential I/O errors
+    try:
+        with open(filepath, 'wb') as f:
+            pickle.dump(variable, f)
+        print(f"Saved {variable_name} to {filepath}")
+    except Exception as e:
+        print(f"Error saving {variable_name} to {filepath}: {e}")
+
+
+def save_figure_with_l1_reg(fig, figure_name, l1_reg_strength=None, N=N, num_tasks=num_tasks,
+                            dt=dt, T_drive=T_drive, T_train=T_train, s=s,
+                            num_epochs_adam=NUM_EPOCHS_ADAM, num_epochs_lbfgs=NUM_EPOCHS_LBFGS):
+    """
+    Save a matplotlib figure in a L1 regularization-specific subdirectory.
+    
+    Arguments:
+        fig: matplotlib figure object or None (will use current figure)
+        figure_name: base name for the figure file
+        l1_reg_strength: L1 regularization strength (if None, saves to main directory)
+        Other parameters: configuration parameters for filename generation
+    """
+    # Define the output directory (L1-specific if provided)
+    output_dir = get_l1_output_dir(l1_reg_strength)
+    
+    # Generate filename with descriptive parameters
+    filename = generate_filename(figure_name, N, num_tasks, dt, T_drive, T_train, s, num_epochs_adam, num_epochs_lbfgs) + '.png'
+    filepath = os.path.join(output_dir, filename)
+    
+    # Save the figure
+    save_figure(fig, filepath)
+
+
+
+
+# =============================================================================
 # LOADING UTILITIES  
 # =============================================================================
 def load_variable(filepath):
@@ -389,6 +483,8 @@ def list_available_runs(base_path=None, show_details=True):
         runs_info.append(run_info)
     
     return runs_info
+
+
 
 
 # =============================================================================

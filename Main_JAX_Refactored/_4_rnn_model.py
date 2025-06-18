@@ -388,3 +388,55 @@ def batched_loss_from_states_with_final_states(params, current_states):
     loss = jnp.mean((zs_all - targets_all) ** 2)
     
     return loss, final_states
+
+
+# =============================================================================
+# TRAINING LOSS (WITH REGULARIZATION)
+# =============================================================================
+# Loss function factory for creating custom loss functions with regularization
+def create_loss_function(l1_reg_strength=0.0, use_precomputed_states=False):
+    """
+    Factory function that returns a loss function with optional L1 regularization.
+    
+    Arguments:
+        l1_reg_strength: L1 regularization strength for the connectivity matrix J
+        use_precomputed_states: If True, returns a loss function that uses precomputed driving states
+        
+    Returns:
+        loss_function: JIT-compiled loss function with the specified regularization
+    """
+    if use_precomputed_states:
+        @jit
+        def regularized_batched_loss_from_states(params, driving_final_states): # Loss (OPTION 2)
+            """Loss function with L1 regularization using precomputed driving states."""
+            # Original MSE loss
+            tasks = jnp.arange(num_tasks)
+            zs_all = vmap_solve_task_from_state(params, tasks, driving_final_states)
+            targets_all = vmap(get_train_target)(tasks)
+            mse_loss = jnp.mean((zs_all - targets_all) ** 2)
+            
+            # L1 regularization term
+            if l1_reg_strength > 0.0:
+                l1_term = l1_reg_strength * jnp.sum(jnp.abs(params["J"]))
+                return mse_loss + l1_term
+            return mse_loss
+        
+        return regularized_batched_loss_from_states
+    
+    else:
+        @jit
+        def regularized_batched_loss(params):   # Loss (OPTION 1)
+            """Loss function with L1 regularization including driving phase."""
+            # Original MSE loss
+            tasks = jnp.arange(num_tasks)
+            zs_all = vmap_solve_task(params, tasks)
+            targets_all = vmap(get_train_target)(tasks)
+            mse_loss = jnp.mean((zs_all - targets_all) ** 2)
+            
+            # L1 regularization term
+            if l1_reg_strength > 0.0:
+                l1_term = l1_reg_strength * jnp.sum(jnp.abs(params["J"]))
+                return mse_loss + l1_term
+            return mse_loss
+        
+        return regularized_batched_loss

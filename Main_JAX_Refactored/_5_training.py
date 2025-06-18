@@ -34,7 +34,7 @@ def setup_optimizers():
     return adam_opt, lbfgs_opt
 
 
-def create_training_functions(adam_opt, lbfgs_opt, mask):
+def create_training_functions(adam_opt, lbfgs_opt, mask, loss_fn=None):
     """
     Create JIT-compiled training step functions using pre-computed driving phase final states.
     
@@ -42,6 +42,7 @@ def create_training_functions(adam_opt, lbfgs_opt, mask):
         adam_opt: Adam optimizer
         lbfgs_opt: L-BFGS optimizer  
         mask: sparsity mask for J matrix
+        loss_fn: optional custom loss function (defaults to batched_loss)
         
     Returns:
         adam_step: JIT-compiled Adam training step function
@@ -50,8 +51,12 @@ def create_training_functions(adam_opt, lbfgs_opt, mask):
     """
     from _1_config import s
 
+    # Use provided loss function or default to batched_loss
+    if loss_fn is None:
+        loss_fn = batched_loss
+
     # Find the value and gradient of the loss function
-    value_and_grad_fn = jax.value_and_grad(batched_loss)
+    value_and_grad_fn = jax.value_and_grad(loss_fn)
 
 
     @jax.jit
@@ -186,13 +191,14 @@ def scan_with_history(params, opt_state, step_fn, num_steps, tag):
 # =============================================================================
 # TRAINING EXECUTION
 # =============================================================================
-def train_model(params, mask):
+def train_model(params, mask, loss_fn=None):
     """
     Execute the full training procedure with Adam followed by L-BFGS.
     
     Arguments:
         params: initial parameters
         mask: sparsity mask for J matrix
+        loss_fn: optional custom loss function (defaults to batched_loss)
         
     Returns:
         trained_params: best parameters after training
@@ -208,7 +214,7 @@ def train_model(params, mask):
     lbfgs_state = lbfgs_opt.init(params)
     
     # Create training functions with pre-computed driving states
-    adam_step, lbfgs_step, _ = create_training_functions(adam_opt, lbfgs_opt, mask)
+    adam_step, lbfgs_step, _ = create_training_functions(adam_opt, lbfgs_opt, mask, loss_fn)
     
     # Adam training phase
     print("Starting Adam optimization...")

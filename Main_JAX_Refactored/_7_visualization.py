@@ -12,7 +12,7 @@ from _2_utils import save_figure
 # =============================================================================
 # TRAJECTORY AND PARAMETER PLOTTING FUNCTIONS
 # =============================================================================
-def plot_trajectories_vs_targets(params, test_indices=None, sparsity_value=None):
+def plot_trajectories_vs_targets(params, test_indices=None, sparsity_value=None, l1_reg_value=None):
     """
     Plot produced trajectories vs. target signals for selected tasks.
     
@@ -20,6 +20,7 @@ def plot_trajectories_vs_targets(params, test_indices=None, sparsity_value=None)
         params: RNN parameters
         test_indices: indices of tasks to plot
         sparsity_value: sparsity level for saving plots in appropriate folder
+        l1_reg_value: L1 regularization value for saving plots in appropriate folder
     """
     from _1_config import omegas, static_inputs, time_train, N
     from _4_rnn_model import simulate_trajectory
@@ -64,6 +65,10 @@ def plot_trajectories_vs_targets(params, test_indices=None, sparsity_value=None)
             # For sparsity experiments, save in sparsity-specific folder
             from _2_utils import save_figure_with_sparsity
             save_figure_with_sparsity(fig, f"trajectory_vs_target_task_{j}", sparsity_value)
+        elif l1_reg_value is not None:
+            # For L1 regularization experiments, save in L1-specific folder
+            from _2_utils import save_figure_with_l1_reg
+            save_figure_with_l1_reg(fig, f"trajectory_vs_target_task_{j}", l1_reg_value)
         else:
             # For regular experiments, save in main folder
             save_figure(fig, f"trajectory_vs_target_task_{j}")
@@ -71,7 +76,7 @@ def plot_trajectories_vs_targets(params, test_indices=None, sparsity_value=None)
         plt.close(fig)
 
 
-def plot_parameter_matrices(J, B, b_x, j, omega, u_offset, sparsity_value=None):
+def plot_parameter_matrices(J, B, b_x, j, omega, u_offset, sparsity_value=None, l1_reg_value=None):
     """
     Plot the parameter matrices J, B, and b_x for a given task.
 
@@ -83,13 +88,16 @@ def plot_parameter_matrices(J, B, b_x, j, omega, u_offset, sparsity_value=None):
         omega    : Frequency for the task
         u_offset : Static input offset for the task
         sparsity_value : Sparsity level for folder organization and title
+        l1_reg_value : L1 regularization value for folder organization and title
     """
     # Create the figure and axes
     fig, axes = plt.subplots(3, 1, figsize=(10, 15))
 
-    # Set the title for the figure including sparsity information
+    # Set the title for the figure including sparsity or L1 regularization information
     if sparsity_value is not None:
         fig.suptitle(f'Parameter Matrices (Task {j}, ω={omega:.3f}, u_offset={u_offset:.3f}, Sparsity={sparsity_value:.2f})', fontsize=16)
+    elif l1_reg_value is not None:
+        fig.suptitle(f'Parameter Matrices (Task {j}, ω={omega:.3f}, u_offset={u_offset:.3f}, L1={l1_reg_value:.1e})', fontsize=16)
     else:
         fig.suptitle(f'Parameter Matrices (Task {j}, ω={omega:.3f}, u_offset={u_offset:.3f})', fontsize=16)
 
@@ -115,6 +123,10 @@ def plot_parameter_matrices(J, B, b_x, j, omega, u_offset, sparsity_value=None):
         # For sparsity experiments, save in sparsity-specific folder
         from _2_utils import save_figure_with_sparsity
         save_figure_with_sparsity(fig, f"parameter_matrices_task_{j}", sparsity_value)
+    elif l1_reg_value is not None:
+        # For L1 regularization experiments, save in L1-specific folder
+        from _2_utils import save_figure_with_l1_reg
+        save_figure_with_l1_reg(fig, f"parameter_matrices_task_{j}", l1_reg_value)
     else:
         # For regular experiments, save in main folder
         save_figure(fig, f"parameter_matrices_task_{j}")
@@ -122,7 +134,7 @@ def plot_parameter_matrices(J, B, b_x, j, omega, u_offset, sparsity_value=None):
     plt.close(fig)
 
 
-def plot_parameter_matrices_for_tasks(params, test_indices=None, sparsity_value=None):
+def plot_parameter_matrices_for_tasks(params, test_indices=None, sparsity_value=None, l1_reg_value=None):
     """
     Plot parameter matrices for selected tasks.
     
@@ -130,6 +142,7 @@ def plot_parameter_matrices_for_tasks(params, test_indices=None, sparsity_value=
         params: RNN parameters
         test_indices: indices of tasks to plot
         sparsity_value: sparsity level for saving plots in appropriate folder
+        l1_reg_value: L1 regularization value for saving plots in appropriate folder
     """
     from _1_config import omegas, static_inputs
     
@@ -141,7 +154,7 @@ def plot_parameter_matrices_for_tasks(params, test_indices=None, sparsity_value=
     for j in test_indices:
         omega = omegas[j]
         u_off = static_inputs[j]
-        plot_parameter_matrices(params["J"], params["B"], params["b_x"], j, omega, u_off, sparsity_value)
+        plot_parameter_matrices(params["J"], params["B"], params["b_x"], j, omega, u_off, sparsity_value, l1_reg_value)
 
 
 # =============================================================================
