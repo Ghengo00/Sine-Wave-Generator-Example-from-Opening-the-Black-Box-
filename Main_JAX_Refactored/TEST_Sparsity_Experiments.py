@@ -34,7 +34,7 @@ from _2_utils import (Timer, save_variable, set_custom_output_dir, get_output_di
                      save_variable_with_sparsity, save_figure_with_sparsity, get_sparsity_output_dir)
 from _3_data_generation import generate_all_inputs_and_targets
 from _4_rnn_model import init_params, run_batch_diagnostics
-from _5_training import setup_optimizers, create_training_functions
+from _5_training import setup_optimizers, create_training_functions, scan_with_history
 from _6_analysis import find_points, compute_jacobian, find_and_analyze_points, generate_point_summaries
 from _7_visualization import (save_figure, plot_trajectories_vs_targets, plot_parameter_matrices_for_tasks, 
                           analyze_jacobians_visualization, analyze_unstable_frequencies_visualization)
@@ -380,7 +380,10 @@ def compute_eigenvalues_during_training(params, compute_jacobian_eigenvals, comp
 def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, sample_frequency, 
                                    compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies=None):
     """
-    Modified training loop that periodically samples eigenvalues.
+    Optimized training loop that uses lax.scan for chunks between eigenvalue sampling.
+    
+    This hybrid approach uses JAX's lax.scan for fast optimization steps while keeping
+    eigenvalue sampling in Python for flexibility and debugging.
     
     Arguments:
         params: initial parameters
@@ -413,38 +416,76 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
         if compute_connectivity_eigenvals:
             eigenval_types.append("Connectivity")
         print(f"Starting {tag} optimization with {', '.join(eigenval_types)} eigenvalue sampling every {sample_frequency} steps...")
+        print(f"Using optimized lax.scan for {sample_frequency}-step chunks...")
     else:
         print(f"Starting {tag} optimization (no eigenvalue sampling)...")
+        print(f"Using optimized lax.scan for full {num_steps}-step run...")
     
+    # NO EIGENVALUE SAMPLING CASE
+    # If no eigenvalue sampling, use the fast scan_with_history directly
+    if not compute_any_eigenvals:
+        best_params, best_loss, final_params, final_opt_state = scan_with_history(
+            params, opt_state, step_fn, num_steps, tag
+        )
+
+        return best_params, best_loss, final_params, final_opt_state, []
+    
+    # EIGENVALUE SAMPLING CASE
     # Initialize tracking variables
     best_loss = jnp.inf
     best_params = params
     eigenvalue_history = []
-    
-    # Sample eigenvalues at iteration 0 if requested
-    if compute_any_eigenvals:
-        print(f"[{tag}] Sampling eigenvalues at iteration 0...")
-        initial_eigenval_data = compute_eigenvalues_during_training(params, compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies)
-        eigenvalue_history.append((0, initial_eigenval_data))
-    
-    # Training loop
     current_params = params
     current_opt_state = opt_state
     
-    for step in tqdm(range(num_steps), desc=f"{tag} Training"):
-        # Perform optimization step
-        current_params, current_opt_state, loss = step_fn(current_params, current_opt_state)
+    # Sample eigenvalues at iteration 0
+    print(f"[{tag}] Sampling eigenvalues at iteration 0...")
+    initial_eigenval_data = compute_eigenvalues_during_training(
+        params, compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
+    )
+    eigenvalue_history.append((0, initial_eigenval_data))
+    
+    # Calculate chunking strategy
+    chunk_size = sample_frequency
+    num_chunks = num_steps // chunk_size
+    remaining_steps = num_steps % chunk_size
+    
+    print(f"[{tag}] Processing {num_chunks} chunks of {chunk_size} steps each" + 
+          (f" + {remaining_steps} remaining steps" if remaining_steps > 0 else ""))
+    
+    # Process in chunks using optimized scan_with_history
+    for chunk_idx in tqdm(range(num_chunks), desc=f"{tag} Training (Chunks)"):
+        # Use optimized scan_with_history for this chunk
+        chunk_best_params, chunk_best_loss, current_params, current_opt_state = scan_with_history(
+            current_params, current_opt_state, step_fn, chunk_size, f"{tag}-Chunk{chunk_idx+1}"
+        )
         
-        # Update best parameters if improved
-        if loss < best_loss:
-            best_loss = loss
-            best_params = current_params
+        # Update global best if chunk improved
+        if chunk_best_loss < best_loss:
+            best_loss = chunk_best_loss
+            best_params = chunk_best_params
         
-        # Sample eigenvalues at specified frequency if requested
-        if compute_any_eigenvals and (step + 1) % sample_frequency == 0:
-            print(f"[{tag}] step {step + 1}: loss {loss:.6e} - Sampling eigenvalues...")
-            eigenval_data = compute_eigenvalues_during_training(current_params, compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies)
-            eigenvalue_history.append((step + 1, eigenval_data))
+        # Sample eigenvalues at end of chunk
+        step_num = (chunk_idx + 1) * chunk_size
+        print(f"[{tag}] step {step_num}: best_loss {best_loss:.6e} - Sampling eigenvalues...")
+        eigenval_data = compute_eigenvalues_during_training(
+            current_params, compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
+        )
+        eigenvalue_history.append((step_num, eigenval_data))
+    
+    # Handle remaining steps if any
+    if remaining_steps > 0:
+        print(f"[{tag}] Processing final {remaining_steps} steps...")
+        final_best_params, final_best_loss, current_params, current_opt_state = scan_with_history(
+            current_params, current_opt_state, step_fn, remaining_steps, f"{tag}-Final"
+        )
+        
+        # Update global best if final chunk improved
+        if final_best_loss < best_loss:
+            best_loss = final_best_loss
+            best_params = final_best_params
+    
+    print(f"[{tag}] Optimization completed. Final best loss: {best_loss:.6e}")
     
     return best_params, best_loss, current_params, current_opt_state, eigenvalue_history
 
@@ -589,8 +630,8 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     print("Plotting produced trajectories vs. target signals...")
     plot_trajectories_vs_targets(trained_params, test_indices=TEST_INDICES, sparsity_value=sparsity_value)
     
-    # Plot parameter matrices
-    plot_parameter_matrices_for_tasks(trained_params)
+    # Plot parameter matrices (save in sparsity-specific folder)
+    plot_parameter_matrices_for_tasks(trained_params, test_indices=TEST_INDICES, sparsity_value=sparsity_value)
     
 
     # ========================================

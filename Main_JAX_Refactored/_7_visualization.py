@@ -71,7 +71,7 @@ def plot_trajectories_vs_targets(params, test_indices=None, sparsity_value=None)
         plt.close(fig)
 
 
-def plot_parameter_matrices(J, B, b_x, j, omega, u_offset):
+def plot_parameter_matrices(J, B, b_x, j, omega, u_offset, sparsity_value=None):
     """
     Plot the parameter matrices J, B, and b_x for a given task.
 
@@ -82,12 +82,16 @@ def plot_parameter_matrices(J, B, b_x, j, omega, u_offset):
         j        : Task index
         omega    : Frequency for the task
         u_offset : Static input offset for the task
+        sparsity_value : Sparsity level for folder organization and title
     """
     # Create the figure and axes
     fig, axes = plt.subplots(3, 1, figsize=(10, 15))
 
-    # Set the title for the figure
-    fig.suptitle(f'Parameter Matrices (Task {j}, ω={omega:.3f}, u_offset={u_offset:.3f})', fontsize=16)
+    # Set the title for the figure including sparsity information
+    if sparsity_value is not None:
+        fig.suptitle(f'Parameter Matrices (Task {j}, ω={omega:.3f}, u_offset={u_offset:.3f}, Sparsity={sparsity_value:.2f})', fontsize=16)
+    else:
+        fig.suptitle(f'Parameter Matrices (Task {j}, ω={omega:.3f}, u_offset={u_offset:.3f})', fontsize=16)
 
     # Plot J matrix
     im = axes[0].imshow(np.array(J), cmap='viridis')
@@ -105,13 +109,27 @@ def plot_parameter_matrices(J, B, b_x, j, omega, u_offset):
     plt.colorbar(im, ax=axes[2])
 
     plt.tight_layout()
-    plt.show()
-    plt.close()
+    
+    # Save the figure in the appropriate directory
+    if sparsity_value is not None:
+        # For sparsity experiments, save in sparsity-specific folder
+        from _2_utils import save_figure_with_sparsity
+        save_figure_with_sparsity(fig, f"parameter_matrices_task_{j}", sparsity_value)
+    else:
+        # For regular experiments, save in main folder
+        save_figure(fig, f"parameter_matrices_task_{j}")
+    
+    plt.close(fig)
 
 
-def plot_parameter_matrices_for_tasks(params, test_indices=None):
+def plot_parameter_matrices_for_tasks(params, test_indices=None, sparsity_value=None):
     """
     Plot parameter matrices for selected tasks.
+    
+    Arguments:
+        params: RNN parameters
+        test_indices: indices of tasks to plot
+        sparsity_value: sparsity level for saving plots in appropriate folder
     """
     from _1_config import omegas, static_inputs
     
@@ -123,7 +141,7 @@ def plot_parameter_matrices_for_tasks(params, test_indices=None):
     for j in test_indices:
         omega = omegas[j]
         u_off = static_inputs[j]
-        plot_parameter_matrices(params["J"], params["B"], params["b_x"], j, omega, u_off)
+        plot_parameter_matrices(params["J"], params["B"], params["b_x"], j, omega, u_off, sparsity_value)
 
 
 # =============================================================================
