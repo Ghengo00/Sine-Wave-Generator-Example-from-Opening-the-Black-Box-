@@ -619,6 +619,10 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     }
     save_variable_with_sparsity(state_dict, f"state_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
     
+    # Save eigenvalue evolution data during training
+    print("Saving eigenvalue evolution data...")
+    save_variable_with_sparsity(eigenvalue_data, f"eigenvalue_data_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
+    
 
     # ========================================
     # 5. VISUALIZATION OF BASIC RESULTS

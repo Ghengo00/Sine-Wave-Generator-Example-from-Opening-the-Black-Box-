@@ -604,6 +604,10 @@ def train_with_full_analysis(params, mask, key, compute_jacobian_eigenvals, comp
     }
     save_variable_with_l1_reg(state_dict, f"state_l1_reg_{l1_reg_strength}", l1_reg_strength, s=0.0)
     
+    # Save eigenvalue evolution data during training
+    print("Saving eigenvalue evolution data...")
+    save_variable_with_l1_reg(eigenvalue_data, f"eigenvalue_data_l1_reg_{l1_reg_strength}", l1_reg_strength, s=0.0)
+    
 
     # ========================================
     # 5. VISUALIZATION OF BASIC RESULTS
@@ -1060,7 +1064,7 @@ def create_l1_reg_summary_plots(all_results, l1_reg_values):
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
     
     # Plot 1: Final loss vs L1 regularization
-    axes[0, 0].semilogx(l1_reg_values, final_losses, 'bo-', linewidth=2, markersize=8)
+    axes[0, 0].plot(l1_reg_values, final_losses, 'bo-', linewidth=2, markersize=8)
     axes[0, 0].set_xlabel('L1 Regularization')
     axes[0, 0].set_ylabel('Final Loss')
     axes[0, 0].set_title('Training Loss vs L1 Regularization')
@@ -1068,14 +1072,14 @@ def create_l1_reg_summary_plots(all_results, l1_reg_values):
     axes[0, 0].grid(True, alpha=0.3)
     
     # Plot 2: Number of fixed points vs L1 regularization
-    axes[0, 1].semilogx(l1_reg_values, num_fixed_points, 'ro-', linewidth=2, markersize=8)
+    axes[0, 1].plot(l1_reg_values, num_fixed_points, 'ro-', linewidth=2, markersize=8)
     axes[0, 1].set_xlabel('L1 Regularization')
     axes[0, 1].set_ylabel('Number of Fixed Points')
     axes[0, 1].set_title('Fixed Points vs L1 Regularization')
     axes[0, 1].grid(True, alpha=0.3)
     
     # Plot 3: Spectral radius vs L1 regularization
-    axes[1, 0].semilogx(l1_reg_values, spectral_radii, 'go-', linewidth=2, markersize=8)
+    axes[1, 0].plot(l1_reg_values, spectral_radii, 'go-', linewidth=2, markersize=8)
     axes[1, 0].axhline(y=1.0, color='k', linestyle='--', alpha=0.5, label='Unit circle')
     axes[1, 0].set_xlabel('L1 Regularization')
     axes[1, 0].set_ylabel('Spectral Radius')
@@ -1085,7 +1089,7 @@ def create_l1_reg_summary_plots(all_results, l1_reg_values):
     
     # Plot 4: Slow points vs L1 regularization (if applicable)
     if any(n > 0 for n in num_slow_points):
-        axes[1, 1].semilogx(l1_reg_values, num_slow_points, 'mo-', linewidth=2, markersize=8)
+        axes[1, 1].plot(l1_reg_values, num_slow_points, 'mo-', linewidth=2, markersize=8)
         axes[1, 1].set_xlabel('L1 Regularization')
         axes[1, 1].set_ylabel('Number of Slow Points')
         axes[1, 1].set_title('Slow Points vs L1 Regularization')
@@ -1274,7 +1278,7 @@ def main():
         print(f"{'='*80}")
         
         # Use the same base key for all L1 regularization strengths to ensure consistent initial parameters
-        mask, params = init_params(base_key, l1_reg)
+        mask, params = init_params(base_key)
         
         # Generate a unique analysis key for this L1 regularization strength
         analysis_key, subkey = random.split(analysis_key)
