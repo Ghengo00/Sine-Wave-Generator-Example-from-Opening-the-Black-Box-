@@ -354,13 +354,48 @@ def compute_eigenvalues_during_training(params, compute_jacobian_eigenvals, comp
 
 # =============================================================================
 # =============================================================================
-# TRAINING WITH EIGENVALUE TRACKING FUNCTION
+# LOSS MONITORING UTILITIES
 # =============================================================================
 # =============================================================================
-def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, sample_frequency, 
-                                   compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies=None):
+def is_loss_invalid(loss):
+    """Check if loss is infinite, NaN, or otherwise invalid."""
+    return jnp.isnan(loss) or jnp.isinf(loss) or (loss < 0)
+
+
+def save_optimization_interruption_info(l1_reg_strength, adam_steps, lbfgs_steps, final_loss, reason="Invalid loss detected"):
+    """Save information about optimization interruption to a text file."""
+    output_dir = get_l1_output_dir(l1_reg_strength, s=0.0)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    info_file = os.path.join(output_dir, "optimization_interruption_info.txt")
+    with open(info_file, 'w') as f:
+        f.write(f"Optimization Interruption Information\n")
+        f.write(f"=====================================\n")
+        f.write(f"L1 Regularization Strength: {l1_reg_strength}\n")
+        f.write(f"Reason: {reason}\n")
+        f.write(f"Adam steps completed: {adam_steps}\n")
+        f.write(f"L-BFGS steps completed: {lbfgs_steps}\n")
+        f.write(f"Final loss: {final_loss}\n")
+        f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    
+    print(f"Optimization interruption info saved to: {info_file}")
+
+
+
+
+# =============================================================================
+# =============================================================================
+# TRAINING WITH EIGENVALUE TRACKING FUNCTION (WITH LOSS MONITORING)
+# =============================================================================
+# =============================================================================
+def modified_scan_with_eigenvalues_and_loss_monitoring(params, opt_state, step_fn, num_steps, tag, sample_frequency, 
+                                                      compute_jacobian_eigenvals, compute_connectivity_eigenvals, 
+                                                      jacobian_frequencies=None, l1_reg_strength=0.0, 
+                                                      adam_steps_completed=0):
     """
     Optimized training loop that uses lax.scan for chunks between eigenvalue sampling.
+    Includes monitoring for invalid losses (NaN, infinite) and halts training if detected
+    for more than 5 consecutive optimization steps.
     
     This hybrid approach uses JAX's lax.scan for fast optimization steps while keeping
     eigenvalue sampling in Python for flexibility and debugging.
@@ -375,6 +410,8 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
         compute_jacobian_eigenvals: whether to compute Jacobian eigenvalues
         compute_connectivity_eigenvals: whether to compute connectivity eigenvalues
         jacobian_frequencies: list of frequency indices for Jacobian eigenvalue computation
+        l1_reg_strength: L1 regularization strength for saving interruption info
+        adam_steps_completed: number of Adam steps already completed (for tracking total steps)
         
     Returns:
         best_params: parameters with best loss
@@ -382,6 +419,8 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
         final_params: final parameters
         final_opt_state: final optimizer state
         eigenvalue_history: list of (iteration, eigenvalue_data) tuples
+        steps_completed: actual number of steps completed before interruption (if any)
+        was_interrupted: whether training was interrupted due to invalid loss
     """
     # Check if any eigenvalue computation is requested
     compute_any_eigenvals = compute_jacobian_eigenvals or compute_connectivity_eigenvals
@@ -401,22 +440,60 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
         print(f"Starting {tag} optimization (no eigenvalue sampling)...")
         print(f"Using optimized lax.scan for full {num_steps}-step run...")
     
-    # NO EIGENVALUE SAMPLING CASE
-    # If no eigenvalue sampling, use the fast scan_with_history directly
-    if not compute_any_eigenvals:
-        best_params, best_loss, final_params, final_opt_state = scan_with_history(
-            params, opt_state, step_fn, num_steps, tag
-        )
-
-        return best_params, best_loss, final_params, final_opt_state, []
+    # Loss monitoring variables
+    consecutive_invalid_count = 0
+    max_consecutive_invalid = 5
     
-    # EIGENVALUE SAMPLING CASE
+    # NO EIGENVALUE SAMPLING CASE WITH LOSS MONITORING
+    if not compute_any_eigenvals:
+        # For the no-eigenvalue case, we need to implement step-by-step monitoring
+        best_loss = jnp.inf
+        best_params = params
+        current_params = params
+        current_opt_state = opt_state
+        steps_completed = 0
+        
+        for step in range(num_steps):
+            current_params, current_opt_state, loss = step_fn(current_params, current_opt_state)
+            steps_completed += 1
+            
+            # Check for invalid loss
+            if is_loss_invalid(loss):
+                consecutive_invalid_count += 1
+                print(f"[{tag}] Warning: Invalid loss detected at step {step + 1}: {loss}")
+                
+                if consecutive_invalid_count > max_consecutive_invalid:
+                    print(f"[{tag}] INTERRUPTING: Invalid loss for {consecutive_invalid_count} consecutive steps")
+                    total_steps = adam_steps_completed + steps_completed if tag == "L-BFGS" else steps_completed
+                    lbfgs_steps = steps_completed if tag == "L-BFGS" else 0
+                    adam_steps = adam_steps_completed if tag == "L-BFGS" else steps_completed
+                    
+                    save_optimization_interruption_info(
+                        l1_reg_strength, adam_steps, lbfgs_steps, float(loss),
+                        f"Invalid loss for {consecutive_invalid_count} consecutive steps during {tag}"
+                    )
+                    return best_params, best_loss, current_params, current_opt_state, [], steps_completed, True
+            else:
+                consecutive_invalid_count = 0  # Reset counter on valid loss
+                
+                # Update best if current is better
+                if loss < best_loss:
+                    best_loss = loss
+                    best_params = current_params
+            
+            if (step + 1) % 100 == 0:  # Print progress every 100 steps
+                print(f"[{tag}] step {step + 1}: loss {loss:.6e}")
+
+        return best_params, best_loss, current_params, current_opt_state, [], steps_completed, False
+    
+    # EIGENVALUE SAMPLING CASE WITH LOSS MONITORING
     # Initialize tracking variables
     best_loss = jnp.inf
     best_params = params
     eigenvalue_history = []
     current_params = params
     current_opt_state = opt_state
+    steps_completed = 0
     
     # Sample eigenvalues at iteration 0
     print(f"[{tag}] Sampling eigenvalues at iteration 0...")
@@ -433,12 +510,39 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
     print(f"[{tag}] Processing {num_chunks} chunks of {chunk_size} steps each" + 
           (f" + {remaining_steps} remaining steps" if remaining_steps > 0 else ""))
     
-    # Process in chunks using optimized scan_with_history
+    # Process in chunks with loss monitoring
     for chunk_idx in tqdm(range(num_chunks), desc=f"{tag} Training (Chunks)"):
-        # Use optimized scan_with_history for this chunk
-        chunk_best_params, chunk_best_loss, current_params, current_opt_state = scan_with_history(
-            current_params, current_opt_state, step_fn, chunk_size, f"{tag}-Chunk{chunk_idx+1}"
-        )
+        # Process chunk step by step for loss monitoring
+        chunk_best_loss = jnp.inf
+        chunk_best_params = current_params
+        
+        for step_in_chunk in range(chunk_size):
+            current_params, current_opt_state, loss = step_fn(current_params, current_opt_state)
+            steps_completed += 1
+            
+            # Check for invalid loss
+            if is_loss_invalid(loss):
+                consecutive_invalid_count += 1
+                print(f"[{tag}] Warning: Invalid loss detected at step {steps_completed}: {loss}")
+                
+                if consecutive_invalid_count > max_consecutive_invalid:
+                    print(f"[{tag}] INTERRUPTING: Invalid loss for {consecutive_invalid_count} consecutive steps")
+                    total_steps = adam_steps_completed + steps_completed if tag == "L-BFGS" else steps_completed
+                    lbfgs_steps = steps_completed if tag == "L-BFGS" else 0
+                    adam_steps = adam_steps_completed if tag == "L-BFGS" else steps_completed
+                    
+                    save_optimization_interruption_info(
+                        l1_reg_strength, adam_steps, lbfgs_steps, float(loss),
+                        f"Invalid loss for {consecutive_invalid_count} consecutive steps during {tag}"
+                    )
+                    return best_params, best_loss, current_params, current_opt_state, eigenvalue_history, steps_completed, True
+            else:
+                consecutive_invalid_count = 0  # Reset counter on valid loss
+                
+                # Update chunk best if current is better
+                if loss < chunk_best_loss:
+                    chunk_best_loss = loss
+                    chunk_best_params = current_params
         
         # Update global best if chunk improved
         if chunk_best_loss < best_loss:
@@ -456,18 +560,38 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
     # Handle remaining steps if any
     if remaining_steps > 0:
         print(f"[{tag}] Processing final {remaining_steps} steps...")
-        final_best_params, final_best_loss, current_params, current_opt_state = scan_with_history(
-            current_params, current_opt_state, step_fn, remaining_steps, f"{tag}-Final"
-        )
         
-        # Update global best if final chunk improved
-        if final_best_loss < best_loss:
-            best_loss = final_best_loss
-            best_params = final_best_params
+        for step_in_final in range(remaining_steps):
+            current_params, current_opt_state, loss = step_fn(current_params, current_opt_state)
+            steps_completed += 1
+            
+            # Check for invalid loss
+            if is_loss_invalid(loss):
+                consecutive_invalid_count += 1
+                print(f"[{tag}] Warning: Invalid loss detected at step {steps_completed}: {loss}")
+                
+                if consecutive_invalid_count > max_consecutive_invalid:
+                    print(f"[{tag}] INTERRUPTING: Invalid loss for {consecutive_invalid_count} consecutive steps")
+                    total_steps = adam_steps_completed + steps_completed if tag == "L-BFGS" else steps_completed
+                    lbfgs_steps = steps_completed if tag == "L-BFGS" else 0
+                    adam_steps = adam_steps_completed if tag == "L-BFGS" else steps_completed
+                    
+                    save_optimization_interruption_info(
+                        l1_reg_strength, adam_steps, lbfgs_steps, float(loss),
+                        f"Invalid loss for {consecutive_invalid_count} consecutive steps during {tag}"
+                    )
+                    return best_params, best_loss, current_params, current_opt_state, eigenvalue_history, steps_completed, True
+            else:
+                consecutive_invalid_count = 0  # Reset counter on valid loss
+                
+                # Update best if current is better
+                if loss < best_loss:
+                    best_loss = loss
+                    best_params = current_params
     
     print(f"[{tag}] Optimization completed. Final best loss: {best_loss:.6e}")
     
-    return best_params, best_loss, current_params, current_opt_state, eigenvalue_history
+    return best_params, best_loss, current_params, current_opt_state, eigenvalue_history, steps_completed, False
 
 
 
@@ -522,53 +646,86 @@ def train_with_full_analysis(params, mask, key, compute_jacobian_eigenvals, comp
     # Track eigenvalues during training
     eigenvalue_data = {}
     
+    # Track optimization steps for interruption logging
+    adam_steps_completed = 0
+    lbfgs_steps_completed = 0
+    was_interrupted = False
+    
 
     # ========================================
-    # 2. TRAINING WITH EIGENVALUE TRACKING
+    # 2. TRAINING WITH EIGENVALUE TRACKING AND LOSS MONITORING
     # ========================================
-    print("\n2. TRAINING WITH EIGENVALUE TRACKING")
+    print("\n2. TRAINING WITH EIGENVALUE TRACKING AND LOSS MONITORING")
     print("-" * 40)
     
     with Timer(f"Training with L1 regularization {l1_reg_strength}"):
-        # Adam training phase with eigenvalue tracking
-        best_params_adam, best_loss_adam, params_after_adam, adam_state_after, adam_eigenvals = \
-            modified_scan_with_eigenvalues(
+        # Adam training phase with eigenvalue tracking and loss monitoring
+        (best_params_adam, best_loss_adam, params_after_adam, adam_state_after, 
+         adam_eigenvals, adam_steps_completed, adam_interrupted) = \
+            modified_scan_with_eigenvalues_and_loss_monitoring(
                 params, adam_state, adam_step,
                 NUM_EPOCHS_ADAM, "ADAM", EIGENVALUE_SAMPLE_FREQUENCY,
-                compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
+                compute_jacobian_eigenvals, compute_connectivity_eigenvals, 
+                jacobian_frequencies, l1_reg_strength, 0
             )
         
         eigenvalue_data['adam'] = adam_eigenvals
-        print(f"Adam phase completed. Best loss: {best_loss_adam:.6e}")
+        was_interrupted = adam_interrupted
         
-        # Continue with best parameters from Adam
-        trained_params = best_params_adam
-        final_loss = best_loss_adam
-        
-        # L-BFGS training phase (if needed)
-        if best_loss_adam > LOSS_THRESHOLD:
-            print("Loss threshold not met, starting L-BFGS phase...")
-            best_params_lbfgs, best_loss_lbfgs, params_after_lbfgs, lbfgs_state_after, lbfgs_eigenvals = \
-                modified_scan_with_eigenvalues(
-                    trained_params, lbfgs_state, lbfgs_step,
-                    NUM_EPOCHS_LBFGS, "L-BFGS", EIGENVALUE_SAMPLE_FREQUENCY,
-                    compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
-                )
-            
-            eigenvalue_data['lbfgs'] = lbfgs_eigenvals
-            
-            # Use L-BFGS results if better
-            if best_loss_lbfgs < best_loss_adam:
-                trained_params = best_params_lbfgs
-                final_loss = best_loss_lbfgs
-                print(f"L-BFGS improved results. Best loss: {best_loss_lbfgs:.6e}")
+        if adam_interrupted:
+            print(f"Adam phase INTERRUPTED after {adam_steps_completed} steps due to invalid loss.")
+            trained_params = best_params_adam
+            final_loss = best_loss_adam
         else:
+            print(f"Adam phase completed normally. Best loss: {best_loss_adam:.6e}")
+            # Continue with best parameters from Adam
+            trained_params = best_params_adam
+            final_loss = best_loss_adam
+            
+            # L-BFGS training phase (if needed and not interrupted)
+            if best_loss_adam > LOSS_THRESHOLD:
+                print("Loss threshold not met, starting L-BFGS phase...")
+                (best_params_lbfgs, best_loss_lbfgs, params_after_lbfgs, lbfgs_state_after, 
+                 lbfgs_eigenvals, lbfgs_steps_completed, lbfgs_interrupted) = \
+                    modified_scan_with_eigenvalues_and_loss_monitoring(
+                        trained_params, lbfgs_state, lbfgs_step,
+                        NUM_EPOCHS_LBFGS, "L-BFGS", EIGENVALUE_SAMPLE_FREQUENCY,
+                        compute_jacobian_eigenvals, compute_connectivity_eigenvals, 
+                        jacobian_frequencies, l1_reg_strength, adam_steps_completed
+                    )
+                
+                eigenvalue_data['lbfgs'] = lbfgs_eigenvals
+                was_interrupted = lbfgs_interrupted
+                
+                if lbfgs_interrupted:
+                    print(f"L-BFGS phase INTERRUPTED after {lbfgs_steps_completed} steps due to invalid loss.")
+                    # Keep best result between Adam and interrupted L-BFGS
+                    if best_loss_lbfgs < best_loss_adam:
+                        trained_params = best_params_lbfgs
+                        final_loss = best_loss_lbfgs
+                        print(f"Using interrupted L-BFGS results (better loss): {best_loss_lbfgs:.6e}")
+                else:
+                    # Use L-BFGS results if better
+                    if best_loss_lbfgs < best_loss_adam:
+                        trained_params = best_params_lbfgs
+                        final_loss = best_loss_lbfgs
+                        print(f"L-BFGS improved results. Best loss: {best_loss_lbfgs:.6e}")
+            else:
+                eigenvalue_data['lbfgs'] = []
+                lbfgs_steps_completed = 0
+                print("Loss threshold met, skipping L-BFGS phase.")
+        
+        # If interrupted during Adam, skip L-BFGS entirely
+        if adam_interrupted:
             eigenvalue_data['lbfgs'] = []
-            print("Loss threshold met, skipping L-BFGS phase.")
+            lbfgs_steps_completed = 0
     
     results['trained_params'] = trained_params
     results['final_loss'] = final_loss
     results['eigenvalue_data'] = eigenvalue_data
+    results['was_interrupted'] = was_interrupted
+    results['adam_steps_completed'] = adam_steps_completed
+    results['lbfgs_steps_completed'] = lbfgs_steps_completed
     
 
     # ========================================
@@ -1378,7 +1535,17 @@ def main():
     print(f"Eigenvalue tracking: {eigenval_msg}")
     print("Final losses by L1 regularization:")
     for result in all_results:
-        print(f"  L1 reg = {result['l1_reg_strength']:.1e}: loss = {result['final_loss']:.6e}")
+        interrupted_msg = " (INTERRUPTED)" if result.get('was_interrupted', False) else ""
+        print(f"  L1 reg = {result['l1_reg_strength']:.1e}: loss = {result['final_loss']:.6e}{interrupted_msg}")
+    
+    # Print interruption summary
+    interrupted_results = [r for r in all_results if r.get('was_interrupted', False)]
+    if interrupted_results:
+        print(f"\nOptimization interruptions (due to invalid loss):")
+        for result in interrupted_results:
+            adam_steps = result.get('adam_steps_completed', 0)
+            lbfgs_steps = result.get('lbfgs_steps_completed', 0)
+            print(f"  L1 reg = {result['l1_reg_strength']:.1e}: Adam={adam_steps} steps, L-BFGS={lbfgs_steps} steps")
     
     print(f"\nNumber of fixed points found by L1 regularization:")
     for result in all_results:
