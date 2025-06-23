@@ -1,6 +1,71 @@
 """
 Main execution script for RNN sine wave generation experiment.
 Orchestrates the complete workflow from initialization to analysis.
+
+
+OUTPUT VARIABLES SAVED:
+Training results:
+- 'J_param', shape (N, N)
+- 'B_param', shape (N, I)
+- 'b_x_param', shape (N,)
+- 'w_param', shape (I, N)
+- 'b_z_param', shape (I,)
+- 'state' (dict containing):
+  - 'traj_states': array of shape (num_tasks, T_train, N)
+  - 'fixed_point_inits': array of shape (num_tasks, N)
+
+Fixed point and frequency analysis results (replicated for slow points if enabled):
+- 'all_fixed_points': list of lists, outer list over tasks, inner list over fixed points for a given task
+- 'all_fixed_jacobians': list of lists, outer list over tasks, inner list over fixed point Jacobians for a given task
+- 'all_fixed_unstable_eig_freq': list of lists of lists, outer list over tasks, inner list over fixed points, inner list over unstable eigen frequencies for a given task
+
+PCA analysis results:
+- 'pca_results' (dict containing dictionaries, one for each combination of skip and tanh options):
+    - proj_trajs: list of projected trajectories, shape (num_tasks, num_steps_train+1-skip_initial_steps, n_components)
+    - skip_initial_steps: number of initial steps skipped
+    - apply_tanh: whether tanh transformation was applied
+    - pca_components: PCA components, shape (n_components, N)
+    - pca_explained_variance_ratio: explained variance ratio for each component, shape (n_components,)
+    - all_fixed_points: list of fixed points for PCA analysis, same structure as all_fixed_points, so shape (num_total_fixed_ponts, N)
+    - all_slow_points if SLOW_POINT_SEARCH is True
+
+
+OUTPUT PLOTS SAVED:
+Visualization of basic results:
+- 'trajectory_vs_target' plots:
+        From 'plot_trajectories_vs_targets' function
+        One for each of TEST_INDICES
+- 'parameter_matrices' plots:
+        Plot of J, B, and b_x matrices with colour scales
+        From 'plot_parameter_matrices_for_tasks' function
+        One for each of TEST_INDICES
+        
+Fixed point and frequency plots (replicated for slow points if enabled):
+- 'Jacobian_Matrices' plots:
+        From 'analyze_jacobians_visualization' function
+        One for each of TEST_INDICES
+- 'Unstable_Eigenvalues' plots:
+        Plot of the unstable eigenvalues (for given task) on the complex plane
+        From 'analyze_unstable_frequencies_visualization' function, and within that, from 'plot_unstable_eigenvalues' function
+        One for each of TEST_INDICES
+- 'Frequency_Comparison' plots:
+        Plot of the maximum norm of the imaginary component of the unstable eigenvalues vs the target frequency for each task
+        From 'analyze_unstable_frequencies_visualization' function, and within that, from 'plot_frequency_comparison' function
+
+PCA plots (one for each combination of skip and tanh options):
+- 'pca_explained_variance_ratio' plots:
+        Plot of the explained variance ratio for each PCA component
+        From 'run_pca_analysis' function, and within that, from 'plot_pca_explained_variance_ratio' function
+- 'pca_plot_fixed' plots:
+        3-D PCA plot, .png
+        From 'run_pca_analysis' function, and within that, from 'plot_pca_trajectories_and_points' function
+- 'subset_of_indices_pca_plot_fixed' plots:
+        3-D PCA plot, .png, only for specified tasks
+- 'interactive_pca_plot_fixed' plots:
+        Interactive 3-D PCA plot, .html
+        From 'run_pca_analysis' function, and within that, from 'plot_interactive_pca_trajectories_and_points' function
+- 'subset_of_indices_interactive_pca_plot_fixed' plots:
+        Interactive 3-D PCA plot, .html, only for specified tasks
 """
 
 

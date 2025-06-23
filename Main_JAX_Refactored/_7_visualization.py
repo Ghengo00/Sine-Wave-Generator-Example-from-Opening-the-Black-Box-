@@ -6,7 +6,9 @@ Visualization functions for plotting trajectories, parameters, Jacobians, and fr
 import jax.numpy as jnp
 import numpy as np
 import matplotlib.pyplot as plt
-from _2_utils import save_figure
+from _1_config import s, num_tasks, omegas, static_inputs, time_drive, time_train, num_steps_train, N, TEST_INDICES, TEST_INDICES_EXTREMES, COLORS, MARKERS, JACOBIAN_TOL
+from _2_utils import save_figure, save_figure_with_sparsity, save_figure_with_l1_reg
+from _4_rnn_model import simulate_trajectory
 
 
 # =============================================================================
@@ -22,11 +24,7 @@ def plot_trajectories_vs_targets(params, test_indices=None, sparsity_value=None,
         sparsity_value: sparsity level for saving plots in appropriate folder
         l1_reg_value: L1 regularization value for saving plots in appropriate folder
     """
-    from _1_config import omegas, static_inputs, time_train, N
-    from _4_rnn_model import simulate_trajectory
-    
     if test_indices is None:
-        from _1_config import TEST_INDICES
         test_indices = TEST_INDICES
     
     x0_test = jnp.zeros((N,))
@@ -35,7 +33,6 @@ def plot_trajectories_vs_targets(params, test_indices=None, sparsity_value=None,
         omega = omegas[j]
         u_off = static_inputs[j]
 
-        from _1_config import time_drive, num_steps_train
         # Build input sequences
         u_drive_np = (np.sin(omega * time_drive) + u_off).astype(np.float32).reshape(-1, 1)
         u_train_np = np.full((num_steps_train, 1), u_off, dtype=np.float32)
@@ -63,11 +60,9 @@ def plot_trajectories_vs_targets(params, test_indices=None, sparsity_value=None,
         # Save the figure in the appropriate directory
         if sparsity_value is not None:
             # For sparsity experiments, save in sparsity-specific folder
-            from _2_utils import save_figure_with_sparsity
             save_figure_with_sparsity(fig, f"trajectory_vs_target_task_{j}", sparsity_value)
         elif l1_reg_value is not None:
             # For L1 regularization experiments, save in L1-specific folder
-            from _2_utils import save_figure_with_l1_reg
             save_figure_with_l1_reg(fig, f"trajectory_vs_target_task_{j}", l1_reg_value)
         else:
             # For regular experiments, save in main folder
@@ -121,11 +116,9 @@ def plot_parameter_matrices(J, B, b_x, j, omega, u_offset, sparsity_value=None, 
     # Save the figure in the appropriate directory
     if sparsity_value is not None:
         # For sparsity experiments, save in sparsity-specific folder
-        from _2_utils import save_figure_with_sparsity
         save_figure_with_sparsity(fig, f"parameter_matrices_task_{j}", sparsity_value)
     elif l1_reg_value is not None:
         # For L1 regularization experiments, save in L1-specific folder
-        from _2_utils import save_figure_with_l1_reg
         save_figure_with_l1_reg(fig, f"parameter_matrices_task_{j}", l1_reg_value)
     else:
         # For regular experiments, save in main folder
@@ -144,12 +137,18 @@ def plot_parameter_matrices_for_tasks(params, test_indices=None, sparsity_value=
         sparsity_value: sparsity level for saving plots in appropriate folder
         l1_reg_value: L1 regularization value for saving plots in appropriate folder
     """
-    from _1_config import omegas, static_inputs
-    
     if test_indices is None:
-        from _1_config import TEST_INDICES_EXTREMES
         test_indices = TEST_INDICES_EXTREMES
-    
+
+    if sparsity_value is not None:
+        # Calculate the proportion of elements in the J matrix that are zero
+        actual_sparsity = np.sum(params["J"] == 0) / params["J"].size
+        if actual_sparsity != sparsity_value:
+            # Save a .csv file where the first row is the expected sparsity, and the second row is the actual sparsity
+            np.savetxt(f"sparsity_{sparsity_value:.2f}_actual_{actual_sparsity:.2f}.csv",
+                       np.array([[sparsity_value],                                 [actual_sparsity]]),
+                          delimiter=",", header="Expected Sparsity,Actual Sparsity", comments="")
+
     print("\nPlotting parameter matrices for selected tasks...")
     for j in test_indices:
         omega = omegas[j]
@@ -164,8 +163,6 @@ def plot_jacobian_matrices(jacobians, j):
     """
     Plot the Jacobian matrices for a given task.
     """
-    from _1_config import omegas, s
-    
     # Create the figure and subplots
     fig, axes = plt.subplots(len(jacobians), 1, figsize=(10, 5 * len(jacobians)))
     
@@ -192,8 +189,6 @@ def plot_unstable_eigenvalues(unstable_freqs, j):
     """
     Plot the unstable eigenvalues for a given task on the complex plane.
     """
-    from _1_config import omegas, COLORS, MARKERS, s
-    
     # Create the figure
     fig = plt.figure(figsize=(10, 8))
 
@@ -230,9 +225,6 @@ def plot_frequency_comparison(all_unstable_eig_freq, omegas):
             the middle list is over fixed points,
             and the inner list contains unstable eigenvalues for each fixed point
     """
-    # Import sparsity value from config
-    from _1_config import s
-    
     # Create the figure and axes
     fig = plt.figure(figsize=(12, 6))
 
@@ -285,8 +277,6 @@ def analyze_jacobians_visualization(point_type="fixed", all_jacobians=None):
         point_type      : str, either "fixed" or "slow" to specify which type of points
         all_jacobians   : list of lists of Jacobians, one list per task
     """
-    from _1_config import TEST_INDICES, num_tasks, JACOBIAN_TOL, omegas
-    
     # Validate point_type parameter
     if point_type not in ["fixed", "slow"]:
         raise ValueError("point_type must be either 'fixed' or 'slow'")
@@ -334,8 +324,6 @@ def analyze_unstable_frequencies_visualization(point_type="fixed", all_unstable_
         point_type              : str, either "fixed" or "slow" to specify which type of points
         all_unstable_eig_freq   : list of lists of lists of unstable frequencies
     """
-    from _1_config import TEST_INDICES, omegas
-    
     # Validate point_type parameter
     if point_type not in ["fixed", "slow"]:
         raise ValueError("point_type must be either 'fixed' or 'slow'")

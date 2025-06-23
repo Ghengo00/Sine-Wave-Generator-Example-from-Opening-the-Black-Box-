@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import optax
 from functools import partial
+from _1_config import s, NUM_EPOCHS_ADAM, NUM_EPOCHS_LBFGS, LOSS_THRESHOLD, ADAM_LR, LEARNING_RATE, MEMORY_SIZE, SCALE_INIT_PRECOND
 from _4_rnn_model import batched_loss
 
 
@@ -21,8 +22,6 @@ def setup_optimizers():
         adam_opt: Adam optimizer
         lbfgs_opt: L-BFGS optimizer
     """
-    from _1_config import ADAM_LR, LEARNING_RATE, MEMORY_SIZE, SCALE_INIT_PRECOND
-    
     adam_opt = optax.adam(ADAM_LR)
     
     lbfgs_opt = optax.lbfgs(
@@ -49,8 +48,6 @@ def create_training_functions(adam_opt, lbfgs_opt, mask, loss_fn=None):
         lbfgs_step: JIT-compiled L-BFGS training step function
         loss_fn: JIT-compiled loss function using pre-computed states
     """
-    from _1_config import s
-
     # Use provided loss function or default to batched_loss
     if loss_fn is None:
         loss_fn = batched_loss
@@ -204,8 +201,6 @@ def train_model(params, mask, loss_fn=None):
         trained_params: best parameters after training
         final_loss: final loss value
     """
-    from _1_config import NUM_EPOCHS_ADAM, NUM_EPOCHS_LBFGS, LOSS_THRESHOLD
-    
     # Setup optimizers
     adam_opt, lbfgs_opt = setup_optimizers()
     

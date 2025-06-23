@@ -650,7 +650,7 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
 
 
 # ================================================================================
-# RUN THIS FILE INDEPENDENTLY - Should be commented out normally
+# RUN THIS FILE INDEPENDENTLY
 # ================================================================================
 if __name__ == "__main__":
     # ========================================

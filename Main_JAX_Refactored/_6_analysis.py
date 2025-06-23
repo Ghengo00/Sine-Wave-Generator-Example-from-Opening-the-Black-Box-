@@ -8,6 +8,8 @@ from tqdm import tqdm
 from scipy.optimize import root, least_squares
 from scipy.linalg import eig
 import time
+from _1_config import (num_tasks, static_inputs, TEST_INDICES, NUM_ATTEMPTS, TOL, MAXITER, GAUSSIAN_STD,
+                       NUM_ATTEMPTS_SLOW, TOL_SLOW, MAXITER_SLOW, GAUSSIAN_STD_SLOW, SLOW_POINT_CUT_OFF)
 
 
 # =============================================================================
@@ -72,10 +74,6 @@ def find_points(
     Returns:
         points      : list of found fixed or slow points, each point is a NumPy array of shape (N,)
     """
-    from _1_config import (NUM_ATTEMPTS, TOL, MAXITER, GAUSSIAN_STD, 
-                       NUM_ATTEMPTS_SLOW, TOL_SLOW, MAXITER_SLOW, 
-                       GAUSSIAN_STD_SLOW, SLOW_POINT_CUT_OFF)
-    
     mode = mode.lower()
     
     if mode == 'fixed':
@@ -187,9 +185,6 @@ def find_and_analyze_points(state_traj_states, state_fixed_point_inits, params, 
         all_jacobians           : list of lists of Jacobians, one list per task  
         all_unstable_eig_freq   : list of lists of lists of unstable frequencies
     """
-    from _1_config import (num_tasks, static_inputs, NUM_ATTEMPTS, TOL, MAXITER, GAUSSIAN_STD,
-                       NUM_ATTEMPTS_SLOW, TOL_SLOW, MAXITER_SLOW, GAUSSIAN_STD_SLOW)
-    
     # Validate point_type parameter
     if point_type not in ["fixed", "slow"]:
         raise ValueError("point_type must be either 'fixed' or 'slow'")
@@ -272,8 +267,6 @@ def generate_point_summaries(point_type="fixed", all_points=None, all_unstable_e
         all_points              : list of lists of points, one list per task
         all_unstable_eig_freq   : list of lists of lists of unstable frequencies
     """
-    from _1_config import num_tasks, TEST_INDICES
-    
     # Validate point_type parameter
     if point_type not in ["fixed", "slow"]:
         raise ValueError("point_type must be either 'fixed' or 'slow'")
