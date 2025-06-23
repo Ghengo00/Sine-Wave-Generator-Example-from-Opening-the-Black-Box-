@@ -167,6 +167,7 @@ def main():
             # Configuration options for comprehensive PCA analysis
             skip_options = [0, 200, 400, 600]  # Skip initial time steps
             tanh_options = [False, True]  # Apply tanh transformation
+            PCA_N_COMPONENTS = 10  # Number of PCA components to compute
             
             print(f"Running PCA analysis with {len(skip_options)} skip options and {len(tanh_options)} transformation options...")
             print(f"Skip options: {skip_options}")
@@ -188,7 +189,8 @@ def main():
                         params=trained_params,
                         slow_point_search=SLOW_POINT_SEARCH,
                         skip_initial_steps=skip_steps,
-                        apply_tanh=apply_tanh
+                        apply_tanh=apply_tanh,
+                        n_components=PCA_N_COMPONENTS
                     )
                     
                     # Store results with descriptive key

@@ -25,7 +25,7 @@ from _6_analysis import compute_jacobian
 # ================================================================================
 # PCA FUNCTIONS
 # ================================================================================
-def perform_pca_analysis(state_traj_states, skip_initial_steps=0, apply_tanh=False):
+def perform_pca_analysis(state_traj_states, skip_initial_steps=0, apply_tanh=False, n_components=3):
     """
     Perform PCA on trajectory states and return PCA object and projections.
     
@@ -33,10 +33,11 @@ def perform_pca_analysis(state_traj_states, skip_initial_steps=0, apply_tanh=Fal
         state_traj_states: trajectory states from training, shape (num_tasks, num_steps_train+1, N)
         skip_initial_steps: number of initial time steps to skip (default: 0)
         apply_tanh: whether to apply tanh transformation to states before PCA (default: False)
+        n_components: number of principal components to compute (default: 3)
         
     Returns:
         pca: fitted PCA object
-        proj_trajs: list of projected trajectories, shape (num_tasks, num_steps_train+1-skip, 3)
+        proj_trajs: list of projected trajectories, shape (num_tasks, num_steps_train+1-skip, n_components)
     """
     # Track PCA computation time
     start_time = time.time()
@@ -58,9 +59,9 @@ def perform_pca_analysis(state_traj_states, skip_initial_steps=0, apply_tanh=Fal
     # Concatenate all state trajectories from all tasks
     all_states = np.concatenate(state_traj_states_truncated, axis=0)  # shape is (num_tasks * (num_steps_train+1-skip), N)
 
-    # Perform PCA with 3 components
-    pca = PCA(n_components=3)
-    proj_all = pca.fit_transform(all_states)    # shape is (num_tasks * (num_steps_train+1-skip), 3)
+    # Perform PCA with specified number of components
+    pca = PCA(n_components=n_components)
+    proj_all = pca.fit_transform(all_states)    # shape is (num_tasks * (num_steps_train+1-skip), n_components)
 
     # Project each trajectory into the PCA space
     proj_trajs = []
@@ -98,9 +99,9 @@ def project_points_to_pca(pca, all_points):
         all_points_flat = np.array(all_points_flat)
         if all_points_flat.ndim == 1: # If it's a 1D array, reshape it to 2D
             all_points_flat = all_points_flat.reshape(1, -1)
-        proj_points = pca.transform(all_points_flat)   # Projects all points from all tasks into the PCA space, resulting shape is (num_total_points, 3)
+        proj_points = pca.transform(all_points_flat)   # Projects all points from all tasks into the PCA space, resulting shape is (num_total_points, n_components)
     else:
-        proj_points = np.empty((0, 3))   # Empty array with correct shape for plotting
+        proj_points = np.empty((0, pca.n_components_))   # Empty array with correct shape for plotting
     
     return proj_points
 
@@ -110,6 +111,73 @@ def project_points_to_pca(pca, all_points):
 # ================================================================================
 # PLOTTING FUNCTIONS
 # ================================================================================
+def plot_explained_variance_ratio(pca, skip_initial_steps=0, apply_tanh=False, filename_prefix=""):
+    """
+    Plot and save a bar chart of the explained variance ratio for each principal component.
+    
+    Arguments:
+        pca: fitted PCA object
+        skip_initial_steps: number of initial steps that were skipped (for title/filename)
+        apply_tanh: whether tanh transformation was applied (for title/filename)
+        filename_prefix: prefix to add to the filename (default: "")
+    """
+    # Create the figure
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    # Get explained variance ratios
+    explained_variance_ratio = pca.explained_variance_ratio_
+    n_components = len(explained_variance_ratio)
+    
+    # Create bar chart
+    pc_labels = [f'PC{i+1}' for i in range(n_components)]
+    bars = ax.bar(pc_labels, explained_variance_ratio, color='steelblue', alpha=0.7, edgecolor='black')
+    
+    # Add value labels on top of bars
+    for i, (bar, value) in enumerate(zip(bars, explained_variance_ratio)):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.005, 
+                f'{value:.3f}', ha='center', va='bottom', fontweight='bold')
+    
+    # Customize the plot
+    title_skip_info = f" (skipping first {skip_initial_steps} steps)" if skip_initial_steps > 0 else ""
+    title_tanh_info = " (tanh transformed)" if apply_tanh else ""
+    ax.set_title(f'PCA Explained Variance Ratio{title_skip_info}{title_tanh_info} (Sparsity={s:.2f})', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Principal Component', fontsize=12)
+    ax.set_ylabel('Proportion of Total Variance', fontsize=12)
+    
+    # Set y-axis limits to show all variance clearly
+    ax.set_ylim(0, max(explained_variance_ratio) * 1.1)
+    
+    # Add grid for better readability
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    
+    # Add total variance explained as text
+    total_variance = sum(explained_variance_ratio)
+    ax.text(0.98, 0.98, f'Total variance explained: {total_variance:.3f}', 
+            transform=ax.transAxes, fontsize=11, fontweight='bold',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgray', alpha=0.8),
+            verticalalignment='top', horizontalalignment='right')
+    
+    # Add variance explained by first 3 PCs as text (underneath the total variance box)
+    first_3_variance = sum(explained_variance_ratio[:3]) if len(explained_variance_ratio) >= 3 else total_variance
+    ax.text(0.98, 0.90, f'First 3 PCs variance: {first_3_variance:.3f}', 
+            transform=ax.transAxes, fontsize=11, fontweight='bold',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgray', alpha=0.8),
+            verticalalignment='top', horizontalalignment='right')
+    
+    # Improve layout
+    plt.tight_layout()
+    
+    # Save the figure
+    sparsity_str = f"{s:.2f}".replace('.', 'p')
+    tanh_suffix = "_tanh" if apply_tanh else ""
+    figure_name = f"{filename_prefix}pca_explained_variance_ratio_skip_{skip_initial_steps}{tanh_suffix}_sparsity_{sparsity_str}"
+    save_figure(fig, figure_name)
+    
+    plt.close()
+    
+    print(f"Explained variance ratio bar chart saved")
+
+
 def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False, filename_prefix=""):
     """
     Unified function to plot PCA trajectories with either fixed points or slow points.
@@ -414,7 +482,7 @@ def plot_interactive_pca_trajectories_and_points(pca, proj_trajs, point_type="fi
 # ================================================================================
 # EXECUTION FUNCTION
 # ================================================================================
-def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=None, params=None, slow_point_search=False, skip_initial_steps=0, apply_tanh=False):
+def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=None, params=None, slow_point_search=False, skip_initial_steps=0, apply_tanh=False, n_components=3):
     """
     Run complete PCA analysis including trajectory projection and point visualization.
     
@@ -426,12 +494,16 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
         slow_point_search: whether slow point search was performed
         skip_initial_steps: number of initial time steps to skip from trajectories (default: 0)
         apply_tanh: whether to apply tanh transformation to states before PCA (default: False)
+        n_components: number of principal components to compute (default: 3)
         
     Returns:
         pca_results: dictionary containing PCA results
     """
     # Perform PCA on trajectories
-    pca, proj_trajs = perform_pca_analysis(state_traj_states, skip_initial_steps=skip_initial_steps, apply_tanh=apply_tanh)
+    pca, proj_trajs = perform_pca_analysis(state_traj_states, skip_initial_steps=skip_initial_steps, apply_tanh=apply_tanh, n_components=n_components)
+    
+    # Plot explained variance ratio bar chart
+    plot_explained_variance_ratio(pca, skip_initial_steps=skip_initial_steps, apply_tanh=apply_tanh)
     
     pca_results = {
         "proj_trajs": proj_trajs,
@@ -665,7 +737,7 @@ if __name__ == "__main__":
 
         # ========================================
         # RUN PCA WITH SPECIFIED FILES
-        # ========================================
+        # ========================================    
         # Run PCA analysis with different configurations
         print("\n" + "="*60)
         print("RUNNING PCA ANALYSIS")
@@ -681,6 +753,7 @@ if __name__ == "__main__":
         # Configuration options
         skip_options = [0, 200, 400, 600]  # Skip initial time steps - STANDARD IS [0, 200, 400, 600]
         tanh_options = [False, True]  # Apply tanh transformation - STANDARD IS [False, True]
+        n_components = 10  # Number of principal components (3D plotting only supports 3 components)
         
         for skip_steps in skip_options:
             for apply_tanh in tanh_options:
@@ -694,7 +767,8 @@ if __name__ == "__main__":
                     params=params,
                     slow_point_search=slow_point_search,
                     skip_initial_steps=skip_steps,
-                    apply_tanh=apply_tanh
+                    apply_tanh=apply_tanh,
+                    n_components=n_components
                 )
                 
                 # Print summary
