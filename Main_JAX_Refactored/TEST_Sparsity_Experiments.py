@@ -39,8 +39,8 @@ PCA analysis results:
     - apply_tanh: whether tanh transformation was applied
     - pca_components: PCA components, shape (n_components, N)
     - pca_explained_variance_ratio: explained variance ratio for each component, shape (n_components,)
-    - all_fixed_points: list of fixed points for PCA analysis, same structure as all_fixed_points, so shape (num_total_fixed_ponts, N)
-    - all_slow_points if SLOW_POINT_SEARCH is True
+    - proj_fixed: list of fixed points for PCA analysis, same structure as all_fixed_points, so shape (num_total_fixed_ponts, N)
+    - proj_slow if SLOW_POINT_SEARCH is True
 
 
     
