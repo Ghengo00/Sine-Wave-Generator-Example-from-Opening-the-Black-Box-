@@ -229,11 +229,6 @@ def main():
         print("-" * 40)
         
         with Timer("PCA Analysis"):
-            # Configuration options for comprehensive PCA analysis
-            skip_options = [0, 200, 400, 600]  # Skip initial time steps
-            tanh_options = [False, True]  # Apply tanh transformation
-            PCA_N_COMPONENTS = 10  # Number of PCA components to compute
-            
             print(f"Running PCA analysis with {len(skip_options)} skip options and {len(tanh_options)} transformation options...")
             print(f"Skip options: {skip_options}")
             print(f"Tanh transformation options: {tanh_options}")
@@ -241,8 +236,8 @@ def main():
             # Store all PCA results
             all_pca_results = {}
             
-            for skip_steps in skip_options:
-                for apply_tanh in tanh_options:
+            for skip_steps in PCA_SKIP_OPTIONS:
+                for apply_tanh in PCA_TANH_OPTIONS:
                     config_name = f"skip_{skip_steps}_tanh_{apply_tanh}"
                     print(f"\n--- Running PCA with skip={skip_steps}, tanh={apply_tanh} ---")
                     

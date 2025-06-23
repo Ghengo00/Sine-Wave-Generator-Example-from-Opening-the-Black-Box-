@@ -43,6 +43,8 @@ PCA analysis results:
     - all_slow_points if SLOW_POINT_SEARCH is True
 
 
+    
+
 CROSS-SPARSITY OUTPUT VARIABLES SAVED:
 Experiment summary:
 - 'complete_sparsity_experiment_{timestamp}' (dict containing):
@@ -59,6 +61,10 @@ Experiment summary:
     - 'slow_point_search': boolean indicating if slow point search was enabled
     - 'timestamp': experiment timestamp
     - 'output_directory': full path to experiment output directory
+
+    
+========================================
+========================================
 
 
 OUTPUT PLOTS SAVED (per sparsity level):
@@ -114,13 +120,46 @@ PCA plots:
         Interactive 3-D PCA plot, .html, only for specified tasks
 
 
+
+
 CROSS-SPARSITY OUTPUT PLOTS SAVED:
 Eigenvalue evolution comparison plots:
 - 'connectivity_eigenvalue_evolution_sparsities_{sparsity_str}' plots:
         Evolution of connectivity matrix eigenvalues during training comparing all sparsity levels
-        From 'plot_connectivity_eigenvalue_evolution' function
+        From 'plot_connectivity_eigenvalue_evolution' function within 'plot_eigenvalue_evolution_comparison'
         Only saved if connectivity eigenvalues were computed
         Sparsity_str contains all tested sparsity values in filename
+        Shows eigenvalues on complex plane with color indicating training progress
+
+Training loss comparison plots:
+- 'training_loss_evolution_sparsities_{sparsity_str}' plots:
+        Training loss evolution during optimization comparing all sparsity levels
+        From 'plot_training_loss_evolution_comparison' function
+
+Trajectory comparison plots:
+- 'trajectory_vs_target_task_{j}_sparsities_{sparsity_str}' plots:
+        Trajectory vs target comparison for specific task across all sparsity levels
+        From 'plot_trajectories_vs_targets_comparison' function
+        One plot for each task index in TEST_INDICES
+
+Frequency comparison plots:
+- 'frequency_comparison_sparsities_{sparsity_str}' plots:
+        Frequency comparison plots across all sparsity levels
+        From 'plot_frequency_comparison_across_sparsity' function
+
+PCA comparison plots:
+- 'pca_explained_variance_ratio_skip_{skip}_tanh_{tanh}_sparsities_{sparsity_str}' plots:
+        PCA explained variance ratio comparison across all sparsity levels
+        From 'plot_pca_explained_variance_comparison' function
+        One for each combination of skip steps and tanh options
+- 'pca_plot_fixed_skip_{skip}_tanh_{tanh}_sparsities_{sparsity_str}' plots:
+        3D PCA plots comparing all sparsity levels
+        From 'plot_pca_3d_comparison' function
+        One for each combination of skip steps and tanh options
+- 'subset_of_indices_pca_plot_fixed_skip_{skip}_tanh_{tanh}_sparsities_{sparsity_str}' plots:
+        3D PCA plots for subset of tasks comparing all sparsity levels
+        From 'plot_pca_3d_comparison' function
+        One for each combination of skip steps and tanh options
 
 Summary comparison plots:
 - 'sparsity_summary_plots_{timestamp}' plots:
@@ -138,6 +177,15 @@ Unstable eigenvalue distribution plots:
         Columns: sparsity levels
         Values: count of fixed points with that number of unstable eigenvalues
         From 'create_unstable_eigenvalue_table' function
+        Sparsity_str contains all tested sparsity values in filename
+
+Fixed points per task distribution plots:
+- 'fixed_points_per_task_table_sparsities_{sparsity_str}' plots:
+        Heatmap table showing distribution of fixed points per task across all sparsity levels
+        Rows: number of fixed points per task (0, 1, 2, ...)
+        Columns: sparsity levels
+        Values: count of tasks with that number of fixed points
+        From 'create_fixed_points_per_task_table' function
         Sparsity_str contains all tested sparsity values in filename
 """
 
@@ -164,17 +212,19 @@ from _1_config import (
     N, I, num_tasks, s, dt, omegas, static_inputs,
     NUM_EPOCHS_ADAM, NUM_EPOCHS_LBFGS, LOSS_THRESHOLD,
     NUMPY_SEED, JAX_SEED, EIGENVALUE_SAMPLE_FREQUENCY,
-    TOL, MAXITER, GAUSSIAN_STD, NUM_ATTEMPTS, SLOW_POINT_SEARCH, TEST_INDICES
+    TOL, MAXITER, GAUSSIAN_STD, NUM_ATTEMPTS, SLOW_POINT_SEARCH, TEST_INDICES,
+    PCA_N_COMPONENTS, PCA_SKIP_OPTIONS, PCA_TANH_OPTIONS,
+    time_drive, time_train, num_steps_train, TEST_INDICES_EXTREMES, COLORS
 )
 from _2_utils import (Timer, save_variable, set_custom_output_dir, get_output_dir, 
                      save_variable_with_sparsity, save_figure_with_sparsity, get_sparsity_output_dir)
 from _3_data_generation import generate_all_inputs_and_targets
-from _4_rnn_model import init_params, run_batch_diagnostics
+from _4_rnn_model import init_params, run_batch_diagnostics, simulate_trajectory
 from _5_training import setup_optimizers, create_training_functions, scan_with_history
 from _6_analysis import find_points, compute_jacobian, find_and_analyze_points, generate_point_summaries
-from _7_visualization import (save_figure, plot_trajectories_vs_targets, plot_parameter_matrices_for_tasks, 
-                          analyze_jacobians_visualization, analyze_unstable_frequencies_visualization)
-from _8_pca_analysis import run_pca_analysis
+from _7_visualization import (save_figure, plot_single_trajectory_vs_target, plot_trajectories_vs_targets, plot_parameter_matrices_for_tasks, 
+                          plot_frequency_comparison, analyze_jacobians_visualization, analyze_unstable_frequencies_visualization)
+from _8_pca_analysis import plot_explained_variance_ratio, plot_pca_trajectories_and_points, run_pca_analysis
 
 
 # =============================================================================
@@ -582,7 +632,8 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, loss_fn, num_step
     initial_eigenval_data = compute_eigenvalues_during_training(
         params, compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
     )
-    initial_loss = float(loss_fn(params))
+    loss_result = loss_fn(params)
+    initial_loss = float(loss_result[0] if isinstance(loss_result, tuple) else loss_result)
     eigenvalue_history.append((0, initial_eigenval_data))
     loss_history.append((0, initial_loss))
     
@@ -612,7 +663,8 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, loss_fn, num_step
         eigenval_data = compute_eigenvalues_during_training(
             current_params, compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
         )
-        current_loss = float(loss_fn(current_params))
+        loss_result = loss_fn(current_params)
+        current_loss = float(loss_result[0] if isinstance(loss_result, tuple) else loss_result)
         eigenvalue_history.append((step_num, eigenval_data))
         loss_history.append((step_num, current_loss))
     
@@ -794,7 +846,7 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     plot_trajectories_vs_targets(trained_params, test_indices=TEST_INDICES, sparsity_value=sparsity_value)
     
     # Plot parameter matrices (save in sparsity-specific folder)
-    plot_parameter_matrices_for_tasks(trained_params, test_indices=0, sparsity_value=sparsity_value)
+    plot_parameter_matrices_for_tasks(trained_params, test_indices=[0], sparsity_value=sparsity_value)
 
 
     # ========================================
@@ -891,37 +943,162 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     print("-" * 40)
     
     with Timer("PCA Analysis"):
-        print(f"\nRunning PCA analysis...")
+        print(f"\nRunning PCA analysis for all skip/tanh combinations...")
         
-        # Run PCA analysis (save plots in sparsity-specific directory)
-        with sparsity_output_context(sparsity_value):
-            # Temporarily update the config sparsity for plot titles
-            import _1_config
-            original_s = _1_config.s
-            _1_config.s = sparsity_value
-            
-            try:
-                pca_results = run_pca_analysis(
-                    state_traj_states, 
-                    all_fixed_points=all_fixed_points,
-                    all_slow_points=all_slow_points,
-                    params=trained_params,
-                    slow_point_search=SLOW_POINT_SEARCH
-                )
-            finally:
-                # Restore original sparsity value
-                _1_config.s = original_s
+        # Initialize PCA results dictionary
+        pca_results = {}
+        
+        # Run PCA analysis for all combinations of skip and tanh options
+        for skip_steps in PCA_SKIP_OPTIONS:
+            for apply_tanh in PCA_TANH_OPTIONS:
+                print(f"  Processing skip_steps={skip_steps}, apply_tanh={apply_tanh}")
+                
+                # Run PCA analysis (save plots in sparsity-specific directory)
+                with sparsity_output_context(sparsity_value):
+                    # Temporarily update the config sparsity for plot titles
+                    import _1_config
+                    original_s = _1_config.s
+                    _1_config.s = sparsity_value
+                    
+                    try:
+                        pca_result = run_pca_analysis(
+                            state_traj_states, 
+                            all_fixed_points=all_fixed_points,
+                            all_slow_points=all_slow_points,
+                            params=trained_params,
+                            slow_point_search=SLOW_POINT_SEARCH,
+                            skip_initial_steps=skip_steps,
+                            apply_tanh=apply_tanh,
+                            n_components=PCA_N_COMPONENTS
+                        )
+                    finally:
+                        # Restore original sparsity value
+                        _1_config.s = original_s
+                
+                # Store results with key indicating skip and tanh settings
+                key = f"skip_{skip_steps}_tanh_{apply_tanh}"
+                pca_results[key] = pca_result
+                
+                # Debug: check what was stored
+                print(f"    Stored PCA result for key '{key}': {list(pca_result.keys()) if pca_result else 'None'}")
+                if pca_result and 'proj_trajs' in pca_result:
+                    print(f"    - Number of projected trajectories: {len(pca_result['proj_trajs'])}")
+                if pca_result and 'pca' in pca_result:
+                    print(f"    - PCA object available: {pca_result['pca'] is not None}")
         
         # Save PCA results
         save_variable_with_sparsity(pca_results, f"pca_results_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
         
-        print(f"Completed PCA analysis")
+        print(f"Completed PCA analysis for all combinations. Total PCA keys stored: {list(pca_results.keys())}")
     
     results['pca_results'] = pca_results
     
     print(f"Completed full analysis for sparsity {sparsity_value}: final loss = {final_loss:.6e}")
     
     return results
+
+
+
+
+# =============================================================================
+# =============================================================================
+# TRAINING LOSS PLOTTING FUNCTION
+# =============================================================================
+# =============================================================================
+def plot_training_loss_evolution(training_loss_data, sparsity_value, ax=None, for_comparison=False):
+    """
+    Plot training loss evolution during optimization for a single sparsity level.
+    
+    Arguments:
+        training_loss_data: dictionary with 'adam', 'lbfgs', and 'final' keys
+        sparsity_value: sparsity level for this experiment
+        ax: optional matplotlib axis to plot on. If None, creates new figure
+        for_comparison: if True, adjusts styling for comparison plots (smaller markers, shorter labels)
+    """
+    # Create new figure only if ax is not provided
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        standalone_plot = True
+    else:
+        fig = ax.get_figure()
+        standalone_plot = False
+    
+    # Combine loss data from both training phases
+    all_iterations = []
+    all_losses = []
+    phase_colors = []
+    
+    # Add Adam phase data
+    for iteration, loss in training_loss_data['adam']:
+        all_iterations.append(iteration)
+        all_losses.append(loss)
+        phase_colors.append('blue')
+    
+    # Add L-BFGS phase data (offset iterations)
+    adam_max_iter = NUM_EPOCHS_ADAM if training_loss_data['adam'] else 0
+    for iteration, loss in training_loss_data['lbfgs']:
+        all_iterations.append(adam_max_iter + iteration)
+        all_losses.append(loss)
+        phase_colors.append('red')
+    
+    if len(all_losses) == 0:
+        no_data_msg = 'No training loss data available' if standalone_plot else 'No training\nloss data'
+        ax.text(0.5, 0.5, no_data_msg, 
+               ha='center', va='center', transform=ax.transAxes)
+        
+        # Set title based on context
+        if standalone_plot:
+            ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}')
+            plt.tight_layout()
+            # Save with sparsity-specific filename
+            sparsity_str = f'{sparsity_value:.2f}'.replace('.', 'p')
+            save_figure_with_sparsity(fig, f'training_loss_evolution_sparsity_{sparsity_str}', sparsity_value)
+            plt.close(fig)
+        else:
+            ax.set_title(f'Sparsity s = {sparsity_value:.2f}')
+        return
+    
+    # Plot the loss evolution
+    adam_iterations = [iter for iter, color in zip(all_iterations, phase_colors) if color == 'blue']
+    adam_losses = [loss for loss, color in zip(all_losses, phase_colors) if color == 'blue']
+    lbfgs_iterations = [iter for iter, color in zip(all_iterations, phase_colors) if color == 'red']
+    lbfgs_losses = [loss for loss, color in zip(all_losses, phase_colors) if color == 'red']
+    
+    # Adjust styling based on context
+    markersize = 6 if standalone_plot else 4
+    linewidth = 2
+    
+    if adam_iterations:
+        ax.plot(adam_iterations, adam_losses, 'b-o', linewidth=linewidth, markersize=markersize, label='Adam', alpha=0.8)
+    if lbfgs_iterations:
+        ax.plot(lbfgs_iterations, lbfgs_losses, 'r-o', linewidth=linewidth, markersize=markersize, label='L-BFGS', alpha=0.8)
+    
+    # Mark the final best loss
+    final_loss = training_loss_data['final']
+    if all_iterations:
+        final_label = f'Final best loss: {final_loss:.2e}' if standalone_plot else f'Final: {final_loss:.2e}'
+        ax.axhline(y=final_loss, color='green', linestyle='--', alpha=0.7, label=final_label)
+    
+    # Formatting
+    ax.set_xlabel('Training Iteration')
+    ax.set_ylabel('Training Loss')
+    
+    # Set title based on context
+    if standalone_plot:
+        ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}')
+    else:
+        ax.set_title(f'Sparsity s = {sparsity_value:.2f}\nFinal loss: {final_loss:.2e}')
+    
+    ax.set_yscale('log')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    
+    # Save only for standalone plots
+    if standalone_plot:
+        plt.tight_layout()
+        sparsity_str = f'{sparsity_value:.2f}'.replace('.', 'p')
+        save_figure_with_sparsity(fig, f'training_loss_evolution_sparsity_{sparsity_str}', sparsity_value)
+        plt.close(fig)
 
 
 
@@ -981,9 +1158,22 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
     Plot connectivity matrix eigenvalue evolution for all sparsity levels.
     """
     n_sparsity = len(sparsity_values)
-    fig, axes = plt.subplots(1, n_sparsity, figsize=(5*n_sparsity, 5))
+    
+    # Calculate subplot layout - prefer wider layouts
+    if n_sparsity <= 3:
+        nrows, ncols = 1, n_sparsity
+    elif n_sparsity <= 6:
+        nrows, ncols = 2, 3
+    else:
+        nrows, ncols = 3, (n_sparsity + 2) // 3
+    
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5*ncols, 5*nrows))
     if n_sparsity == 1:
         axes = [axes]
+    elif nrows == 1:
+        axes = axes  # Already a 1D array for single row
+    else:
+        axes = axes.flatten()  # Flatten for easy indexing
     
     # Store scatter plot for colorbar
     scatter_plot = None
@@ -1037,7 +1227,7 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
             c=norm_iterations,
             cmap=cmap,
             alpha=0.7,
-            s=5
+            s=1
         )
         
         # Store the first valid scatter plot for colorbar
@@ -1054,6 +1244,10 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
         ax.set_title(f'Sparsity s = {sparsity:.2f}\nFinal loss: {final_loss:.2e}')
         ax.grid(True, alpha=0.3)
         ax.set_aspect('equal')
+    
+    # Hide unused subplots if any
+    for idx in range(n_sparsity, len(axes)):
+        axes[idx].set_visible(False)
     
     # Add colorbar to the right of all subplots
     if scatter_plot is not None:
@@ -1145,7 +1339,7 @@ def plot_jacobian_eigenvalue_evolution_for_single_sparsity(result, freq_idx, cma
         c=norm_iterations,
         cmap=cmap,
         alpha=0.7,
-        s=20
+        s=1
     )
     
     # Add unit circle for reference
@@ -1373,86 +1567,574 @@ def create_unstable_eigenvalue_table(all_results, sparsity_values):
     print(f"{'='*60}")
 
 
-
-
-# =============================================================================
-# =============================================================================
-# TRAINING LOSS PLOTTING FUNCTION
-# =============================================================================
-# =============================================================================
-def plot_training_loss_evolution(training_loss_data, sparsity_value):
+def create_fixed_points_per_task_table(all_results, sparsity_values):
     """
-    Plot training loss evolution during optimization for a single sparsity level.
+    Create a table showing the distribution of fixed points per task across sparsity levels.
     
     Arguments:
-        training_loss_data: dictionary with 'adam', 'lbfgs', and 'final' keys
-        sparsity_value: sparsity level for this experiment
+        all_results: list of results dictionaries
+        sparsity_values: list of sparsity values tested
     """
-    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+    # Collect fixed point counts per task for each sparsity level
+    fp_counts_per_sparsity = {}
+    max_fp_count = 0
     
-    # Combine loss data from both training phases
-    all_iterations = []
-    all_losses = []
-    phase_colors = []
+    for result in all_results:
+        sparsity = result['sparsity']
+        fp_counts = []
+        
+        # Extract fixed point counts per task
+        if result['all_fixed_points'] and len(result['all_fixed_points']) > 0:
+            for task_fixed_points in result['all_fixed_points']:
+                num_fps = len(task_fixed_points) if task_fixed_points else 0
+                fp_counts.append(num_fps)
+                max_fp_count = max(max_fp_count, num_fps)
+        else:
+            # If no fixed points data, assume 0 fixed points for all tasks
+            fp_counts = [0] * num_tasks
+        
+        fp_counts_per_sparsity[sparsity] = fp_counts
     
-    # Add Adam phase data
-    for iteration, loss in training_loss_data['adam']:
-        all_iterations.append(iteration)
-        all_losses.append(loss)
-        phase_colors.append('blue')
-    
-    # Add L-BFGS phase data (offset iterations)
-    adam_max_iter = NUM_EPOCHS_ADAM if training_loss_data['adam'] else 0
-    for iteration, loss in training_loss_data['lbfgs']:
-        all_iterations.append(adam_max_iter + iteration)
-        all_losses.append(loss)
-        phase_colors.append('red')
-    
-    if len(all_losses) == 0:
-        ax.text(0.5, 0.5, 'No training loss data available', 
-               ha='center', va='center', transform=ax.transAxes)
-        ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}')
+    # If no fixed points found, create a simple message plot
+    if max_fp_count == 0:
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.text(0.5, 0.5, 'No fixed points found\nacross any sparsity levels', 
+               ha='center', va='center', transform=ax.transAxes, fontsize=14)
+        ax.set_title('Fixed Points per Task Distribution Table')
         plt.tight_layout()
         
-        # Save with sparsity-specific filename
-        sparsity_str = f'{sparsity_value:.2f}'.replace('.', 'p')
-        save_figure_with_sparsity(fig, f'training_loss_evolution_sparsity_{sparsity_str}', sparsity_value)
+        sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
+        save_figure(fig, f'fixed_points_per_task_table_sparsities_{sparsity_str}')
         plt.close(fig)
         return
     
-    # Plot the loss evolution
-    adam_iterations = [iter for iter, color in zip(all_iterations, phase_colors) if color == 'blue']
-    adam_losses = [loss for loss, color in zip(all_losses, phase_colors) if color == 'blue']
-    lbfgs_iterations = [iter for iter, color in zip(all_iterations, phase_colors) if color == 'red']
-    lbfgs_losses = [loss for loss, color in zip(all_losses, phase_colors) if color == 'red']
+    # Create the table: rows = number of fixed points per task, cols = sparsity levels
+    table_data = np.zeros((max_fp_count + 1, len(sparsity_values)), dtype=int)
     
-    if adam_iterations:
-        ax.plot(adam_iterations, adam_losses, 'b-o', linewidth=2, markersize=6, label='Adam', alpha=0.8)
-    if lbfgs_iterations:
-        ax.plot(lbfgs_iterations, lbfgs_losses, 'r-o', linewidth=2, markersize=6, label='L-BFGS', alpha=0.8)
+    for sparsity_idx, sparsity in enumerate(sparsity_values):
+        fp_counts = fp_counts_per_sparsity[sparsity]
+        
+        # Count how many tasks have each number of fixed points
+        for num_fps in range(max_fp_count + 1):
+            count = fp_counts.count(num_fps)
+            table_data[num_fps, sparsity_idx] = count
     
-    # Mark the final best loss
-    final_loss = training_loss_data['final']
-    if all_iterations:
-        ax.axhline(y=final_loss, color='green', linestyle='--', alpha=0.7, 
-                  label=f'Final best loss: {final_loss:.2e}')
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(max(8, len(sparsity_values) * 1.5), max(6, max_fp_count * 0.8)))
     
-    # Formatting
-    ax.set_xlabel('Training Iteration')
-    ax.set_ylabel('Training Loss')
-    ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}')
-    ax.set_yscale('log')
-    ax.grid(True, alpha=0.3)
-    ax.legend()
+    # Create heatmap
+    im = ax.imshow(table_data, cmap='YlOrRd', aspect='auto')
+    
+    # Set ticks and labels
+    ax.set_xticks(np.arange(len(sparsity_values)))
+    ax.set_yticks(np.arange(max_fp_count + 1))
+    ax.set_xticklabels([f'{s:.2f}' for s in sparsity_values])
+    ax.set_yticklabels([f'{i}' for i in range(max_fp_count + 1)])
+    
+    # Labels and title
+    ax.set_xlabel('Sparsity Level')
+    ax.set_ylabel('Number of Fixed Points per Task')
+    ax.set_title('Distribution of Fixed Points per Task Across Sparsity Levels')
+    
+    # Add text annotations
+    for i in range(max_fp_count + 1):
+        for j in range(len(sparsity_values)):
+            text = ax.text(j, i, f'{table_data[i, j]}',
+                         ha="center", va="center", color="black" if table_data[i, j] < table_data.max()/2 else "white",
+                         fontweight='bold')
+    
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label('Number of Tasks')
     
     plt.tight_layout()
     
-    # Save with sparsity-specific filename in sparsity subdirectory
-    sparsity_str = f'{sparsity_value:.2f}'.replace('.', 'p')
-    save_figure_with_sparsity(fig, f'training_loss_evolution_sparsity_{sparsity_str}', sparsity_value)
+    # Save with sparsity-specific filename
+    sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
+    save_figure(fig, f'fixed_points_per_task_table_sparsities_{sparsity_str}')
+    plt.close(fig)
+    
+    # Print summary statistics
+    print(f"\n{'='*60}")
+    print("FIXED POINTS PER TASK DISTRIBUTION SUMMARY")
+    print(f"{'='*60}")
+    for sparsity_idx, sparsity in enumerate(sparsity_values):
+        fp_counts = fp_counts_per_sparsity[sparsity]
+        total_tasks = len(fp_counts)
+        if total_tasks > 0:
+            avg_fps = np.mean(fp_counts)
+            std_fps = np.std(fp_counts)
+            min_fps = np.min(fp_counts)
+            max_fps = np.max(fp_counts)
+            print(f"Sparsity {sparsity:.2f}: {total_tasks} tasks, "
+                  f"avg {avg_fps:.1f}±{std_fps:.1f} FPs/task, "
+                  f"range [{min_fps}-{max_fps}] FPs/task")
+        else:
+            print(f"Sparsity {sparsity:.2f}: No task data available")
+    print(f"{'='*60}")
+
+
+# =============================================================================
+# =============================================================================
+# AGGREGATE PLOTTING FUNCTIONS (CROSS-SPARSITY)
+# =============================================================================
+# =============================================================================
+def plot_training_loss_evolution_comparison(all_results, sparsity_values):
+    """
+    Create visualization showing training loss evolution for all sparsity levels.
+    This function now reuses the individual plotting logic to avoid code duplication.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        sparsity_values: list of sparsity values tested
+    """
+    n_sparsity = len(sparsity_values)
+    
+    # Calculate subplot layout - prefer wider layouts
+    if n_sparsity <= 3:
+        nrows, ncols = 1, n_sparsity
+    elif n_sparsity <= 6:
+        nrows, ncols = 2, 3
+    else:
+        nrows, ncols = 3, (n_sparsity + 2) // 3
+    
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 5*nrows))
+    if n_sparsity == 1:
+        axes = [axes]
+    elif nrows == 1:
+        axes = axes  # Already a 1D array for single row
+    else:
+        axes = axes.flatten()  # Flatten for easy indexing
+    
+    # Use the individual plotting function for each sparsity level
+    for sparsity_idx, result in enumerate(all_results):
+        ax = axes[sparsity_idx]
+        
+        # Call the individual plotting function with the provided axis
+        plot_training_loss_evolution(
+            training_loss_data=result['training_loss_data'],
+            sparsity_value=result['sparsity'],
+            ax=ax,
+            for_comparison=True
+        )
+    
+    # Hide unused subplots if any
+    for idx in range(n_sparsity, len(axes)):
+        axes[idx].set_visible(False)
+    
+    # Add overall title and formatting
+    plt.suptitle('Training Loss Evolution Across Sparsity Levels', fontsize=16)
+    plt.tight_layout()
+    
+    # Create sparsity-specific filename
+    sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
+    save_figure(fig, f'training_loss_evolution_sparsities_{sparsity_str}')
+    plt.close(fig)
     plt.close(fig)
 
 
+def plot_trajectories_vs_targets_comparison(all_results, sparsity_values, test_index):
+    """
+    Create visualization showing trajectory vs target for specific test index across all sparsity levels.
+    This function now reuses the individual plotting logic to avoid code duplication.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        sparsity_values: list of sparsity values tested
+        test_index: specific test index to plot
+    """
+    n_sparsity = len(sparsity_values)
+    
+    # Calculate subplot layout - prefer wider layouts
+    if n_sparsity <= 3:
+        nrows, ncols = 1, n_sparsity
+    elif n_sparsity <= 6:
+        nrows, ncols = 2, 3
+    else:
+        nrows, ncols = 3, (n_sparsity + 2) // 3
+    
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 5*nrows))
+    if n_sparsity == 1:
+        axes = [axes]
+    elif nrows == 1:
+        axes = axes  # Already a 1D array for single row
+    else:
+        axes = axes.flatten()  # Flatten for easy indexing
+    
+    # Get task information for title
+    j = test_index
+    omega = omegas[j]
+    u_off = static_inputs[j]
+    
+    # Common initial state for all sparsity levels
+    x0_test = jnp.zeros((N,))
+    
+    # Use the individual plotting function for each sparsity level
+    for sparsity_idx, result in enumerate(all_results):
+        ax = axes[sparsity_idx]
+        sparsity = result['sparsity']
+        trained_params = result['trained_params']
+        final_loss = result['final_loss']
+        
+        try:
+            # Call the individual plotting function with the provided axis
+            error = plot_single_trajectory_vs_target(
+                params=trained_params,
+                task_index=j,
+                x0_test=x0_test,
+                ax=ax,
+                for_comparison=True
+            )
+            
+            # Add additional information to the title for comparison context
+            current_title = ax.get_title()
+            ax.set_title(f'Sparsity s = {sparsity:.2f}\n{current_title.split(": ")[1]}\nFinal loss: {final_loss:.2e}')
+            
+        except Exception as e:
+            ax.text(0.5, 0.5, f'Simulation failed\n{str(e)[:30]}...', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+    
+    # Hide unused subplots if any
+    for idx in range(n_sparsity, len(axes)):
+        axes[idx].set_visible(False)
+    
+    # Add overall title and formatting
+    plt.suptitle(f'Trajectory vs Target Across Sparsity Levels\nTask {j}: ω = {omega:.3f} rad/s, u_offset = {u_off:.3f}', fontsize=16)
+    plt.tight_layout()
+    
+    # Create sparsity-specific filename
+    sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
+    save_figure(fig, f'trajectory_vs_target_task_{j}_sparsities_{sparsity_str}')
+    plt.close(fig)
+
+
+def plot_frequency_comparison_across_sparsity(all_results, sparsity_values):
+    """
+    Create visualization showing frequency comparison plots across all sparsity levels.
+    This function now reuses the individual plotting logic to avoid code duplication.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        sparsity_values: list of sparsity values tested
+    """
+    n_sparsity = len(sparsity_values)
+    
+    # Calculate subplot layout - prefer wider layouts
+    if n_sparsity <= 3:
+        nrows, ncols = 1, n_sparsity
+    elif n_sparsity <= 6:
+        nrows, ncols = 2, 3
+    else:
+        nrows, ncols = 3, (n_sparsity + 2) // 3
+    
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 5*nrows))
+    if n_sparsity == 1:
+        axes = [axes]
+    elif nrows == 1:
+        axes = axes  # Already a 1D array for single row
+    else:
+        axes = axes.flatten()  # Flatten for easy indexing
+    
+    # Use the individual plotting function for each sparsity level
+    for sparsity_idx, result in enumerate(all_results):
+        ax = axes[sparsity_idx]
+        sparsity = result['sparsity']
+        all_unstable_eig_freq = result['all_unstable_eig_freq']
+        final_loss = result['final_loss']
+        
+        if not all_unstable_eig_freq or len(all_unstable_eig_freq) == 0:
+            ax.text(0.5, 0.5, 'No unstable\neigenvalue data', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+            continue
+        
+        try:
+            # Call the individual plotting function with the provided axis
+            plot_frequency_comparison(
+                all_unstable_eig_freq=all_unstable_eig_freq,
+                omegas=omegas,
+                ax=ax,
+                sparsity_value=sparsity,
+                for_comparison=True
+            )
+            
+            # Add final loss information to the title
+            current_title = ax.get_title()
+            if current_title and not current_title.startswith('Sparsity'):
+                ax.set_title(f'Sparsity s = {sparsity:.2f}\nFinal loss: {final_loss:.2e}')
+            elif 'Sparsity' in current_title and 'Final loss' not in current_title:
+                ax.set_title(f'{current_title}\nFinal loss: {final_loss:.2e}')
+            
+        except Exception as e:
+            ax.text(0.5, 0.5, f'Plot failed\n{str(e)[:30]}...', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+    
+    # Hide unused subplots if any
+    for idx in range(n_sparsity, len(axes)):
+        axes[idx].set_visible(False)
+    
+    # Add overall title and formatting
+    plt.suptitle('Frequency Comparison Across Sparsity Levels', fontsize=16)
+    plt.tight_layout()
+    
+    # Create sparsity-specific filename
+    sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
+    save_figure(fig, f'frequency_comparison_sparsities_{sparsity_str}')
+    plt.close(fig)
+
+
+def plot_pca_explained_variance_comparison(all_results, sparsity_values, skip_steps, apply_tanh):
+    """
+    Create visualization showing PCA explained variance ratio across all sparsity levels.
+    This function now reuses the individual plotting logic to avoid code duplication.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        sparsity_values: list of sparsity values tested
+        skip_steps: skip steps parameter for PCA
+        apply_tanh: tanh application parameter for PCA
+    """
+    n_sparsity = len(sparsity_values)
+    
+    # Calculate subplot layout - prefer wider layouts
+    if n_sparsity <= 3:
+        nrows, ncols = 1, n_sparsity
+    elif n_sparsity <= 6:
+        nrows, ncols = 2, 3
+    else:
+        nrows, ncols = 3, (n_sparsity + 2) // 3
+    
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 5*nrows))
+    if n_sparsity == 1:
+        axes = [axes]
+    elif nrows == 1:
+        axes = axes  # Already a 1D array for single row
+    else:
+        axes = axes.flatten()  # Flatten for easy indexing
+    
+    pca_key = f"skip_{skip_steps}_tanh_{apply_tanh}"
+    
+    # Use the individual plotting function for each sparsity level
+    for sparsity_idx, result in enumerate(all_results):
+        ax = axes[sparsity_idx]
+        sparsity = result['sparsity']
+        pca_results = result['pca_results']
+        final_loss = result['final_loss']
+        
+        if pca_key not in pca_results:
+            ax.text(0.5, 0.5, f'No PCA data for\nskip={skip_steps}, tanh={apply_tanh}', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+            continue
+        
+        pca_data = pca_results[pca_key]
+        pca_object = pca_data['pca']
+        
+        try:
+            # Call the individual plotting function with the provided axis
+            plot_explained_variance_ratio(
+                pca=pca_object,
+                skip_initial_steps=skip_steps,
+                apply_tanh=apply_tanh,
+                ax=ax,
+                sparsity_value=sparsity,
+                for_comparison=True
+            )
+            
+        except Exception as e:
+            ax.text(0.5, 0.5, f'Plot failed\n{str(e)[:30]}...', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+    
+    # Hide unused subplots if any
+    for idx in range(n_sparsity, len(axes)):
+        axes[idx].set_visible(False)
+    
+    # Add overall title and formatting
+    plt.suptitle(f'PCA Explained Variance Ratio Across Sparsity Levels\n(skip_steps={skip_steps}, apply_tanh={apply_tanh})', fontsize=16)
+    plt.tight_layout()
+    
+    # Create sparsity-specific filename
+    sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
+    save_figure(fig, f'pca_explained_variance_ratio_skip_{skip_steps}_tanh_{apply_tanh}_sparsities_{sparsity_str}')
+    plt.close(fig)
+
+
+def plot_pca_3d_comparison(all_results, sparsity_values, skip_steps, apply_tanh, plot_type='fixed'):
+    """
+    Create 3D PCA plots across all sparsity levels.
+    This function now reuses the individual plotting logic to avoid code duplication.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        sparsity_values: list of sparsity values tested
+        skip_steps: skip steps parameter for PCA
+        apply_tanh: tanh application parameter for PCA
+        plot_type: 'fixed' for regular plot, 'subset' for subset plot
+    """
+    n_sparsity = len(sparsity_values)
+    
+    # Calculate subplot layout - prefer wider layouts
+    if n_sparsity <= 3:
+        nrows, ncols = 1, n_sparsity
+    elif n_sparsity <= 6:
+        nrows, ncols = 2, 3
+    else:
+        nrows, ncols = 3, (n_sparsity + 2) // 3
+    
+    fig = plt.figure(figsize=(6*ncols, 5*nrows))
+    
+    pca_key = f"skip_{skip_steps}_tanh_{apply_tanh}"
+    
+    # Use the individual plotting function for each sparsity level
+    for sparsity_idx, result in enumerate(all_results):
+        sparsity = result['sparsity']
+        pca_results = result['pca_results']
+        final_loss = result['final_loss']
+        
+        print(f"\nProcessing sparsity {sparsity:.2f} for PCA 3D comparison:")
+        print(f"  Available PCA result keys: {list(pca_results.keys()) if pca_results else 'None'}")
+        
+        ax = fig.add_subplot(nrows, ncols, sparsity_idx + 1, projection='3d')
+        
+        if pca_key not in pca_results:
+            ax.text(0.5, 0.5, 0.5, f'No PCA data for\nskip={skip_steps}, tanh={apply_tanh}', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+            print(f"WARNING: No PCA data found for key '{pca_key}' in sparsity {sparsity:.2f}")
+            print(f"Available PCA keys: {list(pca_results.keys())}")
+            continue
+        
+        pca_data = pca_results[pca_key]
+        pca_object = pca_data.get('pca', None)
+        proj_trajs = pca_data.get('proj_trajs', [])
+        
+        # Debug information
+        print(f"DEBUG: Sparsity {sparsity:.2f}, PCA key '{pca_key}':")
+        print(f"  - PCA object available: {pca_object is not None}")
+        print(f"  - Number of projected trajectories: {len(proj_trajs) if proj_trajs else 0}")
+        print(f"  - PCA data keys: {list(pca_data.keys())}")
+        
+        if pca_object is None:
+            ax.text(0.5, 0.5, 0.5, f'No PCA object for\nskip={skip_steps}, tanh={apply_tanh}', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+            continue
+        
+        # Get fixed points from main results, not from PCA data
+        all_fixed_points = result.get('all_fixed_points', [])
+        proj_fixed_points = pca_data.get('proj_fixed', np.array([]))
+        
+        print(f"  - Fixed points from result: {len(all_fixed_points) if all_fixed_points else 0} tasks")
+        print(f"  - Projected fixed points shape: {proj_fixed_points.shape if proj_fixed_points.size > 0 else 'Empty'}")
+        if all_fixed_points:
+            total_fps = sum(len(task_fps) for task_fps in all_fixed_points if task_fps is not None)
+            print(f"  - Total fixed points across all tasks: {total_fps}")
+        
+        if not proj_trajs or len(proj_trajs) == 0:
+            ax.text(0.5, 0.5, 0.5, 'No projection\ndata available', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+            print(f"WARNING: No projected trajectories found for sparsity {sparsity:.2f}")
+            continue
+        
+        print(f"  - First trajectory shape: {proj_trajs[0].shape if len(proj_trajs) > 0 else 'N/A'}")
+        print(f"  - All trajectory shapes: {[traj.shape for traj in proj_trajs[:3]]}...")  # Show first 3
+        
+        # Define which trajectories to plot based on plot_type
+        if plot_type == 'subset':
+            # Use TEST_INDICES_EXTREMES if available, otherwise first few tasks
+            try:
+                task_indices = TEST_INDICES_EXTREMES[:min(len(TEST_INDICES_EXTREMES), len(proj_trajs))]
+                # Filter trajectories to plot only the subset
+                subset_proj_trajs = [proj_trajs[i] for i in task_indices if i < len(proj_trajs)]
+            except (NameError, AttributeError):
+                task_indices = list(range(min(3, len(proj_trajs))))
+                subset_proj_trajs = proj_trajs[:min(3, len(proj_trajs))]
+            
+            # Also filter fixed points if they exist per task
+            if all_fixed_points and len(all_fixed_points) > 0:
+                subset_all_fixed_points = [all_fixed_points[i] if i < len(all_fixed_points) else [] for i in task_indices]
+            else:
+                subset_all_fixed_points = all_fixed_points
+        else:
+            subset_proj_trajs = proj_trajs
+            subset_all_fixed_points = all_fixed_points
+        
+        try:
+            # Call the individual plotting function with the provided axis
+            plot_pca_trajectories_and_points(
+                pca=pca_object,
+                proj_trajs=subset_proj_trajs,
+                point_type="fixed",
+                all_points=subset_all_fixed_points,
+                proj_points=proj_fixed_points,
+                params=result.get('trained_params', {}),
+                skip_initial_steps=skip_steps,
+                apply_tanh=apply_tanh,
+                filename_prefix="",
+                ax=ax,
+                sparsity_value=sparsity,
+                for_comparison=True
+            )
+            
+        except Exception as e:
+            ax.text(0.5, 0.5, 0.5, f'Plot failed\n{str(e)[:30]}...', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+    
+    plot_name = 'pca_plot_fixed' if plot_type == 'fixed' else 'subset_of_indices_pca_plot_fixed'
+    plt.suptitle(f'3D PCA Plots Across Sparsity Levels ({plot_name})\n(skip_steps={skip_steps}, apply_tanh={apply_tanh})', fontsize=16)
+    plt.tight_layout()
+    
+    # Create sparsity-specific filename
+    sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
+    save_figure(fig, f'{plot_name}_skip_{skip_steps}_tanh_{apply_tanh}_sparsities_{sparsity_str}')
+    plt.close(fig)
+
+
+def create_all_aggregate_plots(all_results, sparsity_values):
+    """
+    Create all aggregate plots across sparsity levels.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        sparsity_values: list of sparsity values tested
+    """
+    print("\n" + "="*60)
+    print("CREATING AGGREGATE PLOTS ACROSS SPARSITY LEVELS")
+    print("="*60)
+    
+    # 1. Training loss evolution comparison
+    print("Creating training loss evolution comparison...")
+    plot_training_loss_evolution_comparison(all_results, sparsity_values)
+    
+    # 2. Trajectory vs target comparisons for each test index
+    print("Creating trajectory vs target comparisons...")
+    for test_idx in TEST_INDICES:
+        print(f"  Processing test index {test_idx}...")
+        plot_trajectories_vs_targets_comparison(all_results, sparsity_values, test_idx)
+    
+    # 3. Frequency comparison across sparsity
+    print("Creating frequency comparison across sparsity...")
+    plot_frequency_comparison_across_sparsity(all_results, sparsity_values)
+    
+    # 4. PCA plots for each combination of skip steps and tanh activations
+    print("Creating PCA comparison plots...")
+    for skip_steps in PCA_SKIP_OPTIONS:
+        for apply_tanh in PCA_TANH_OPTIONS:
+            print(f"  Processing skip_steps={skip_steps}, apply_tanh={apply_tanh}...")
+            
+            # PCA explained variance ratio
+            plot_pca_explained_variance_comparison(all_results, sparsity_values, skip_steps, apply_tanh)
+            
+            # PCA 3D plots
+            plot_pca_3d_comparison(all_results, sparsity_values, skip_steps, apply_tanh, 'fixed')
+            plot_pca_3d_comparison(all_results, sparsity_values, skip_steps, apply_tanh, 'subset')
+    
+    print("Completed all aggregate plots!")
 
 
 # =============================================================================
@@ -1565,6 +2247,26 @@ def main():
     print(f"{'='*60}")
     
     create_unstable_eigenvalue_table(all_results, sparsity_values)
+    
+
+    # ========================================
+    # CREATE FIXED POINTS PER TASK DISTRIBUTION TABLE
+    # ========================================
+    print(f"\n{'='*60}")
+    print("CREATING FIXED POINTS PER TASK DISTRIBUTION TABLE")
+    print(f"{'='*60}")
+    
+    create_fixed_points_per_task_table(all_results, sparsity_values)
+    
+
+    # ========================================
+    # CREATE ALL AGGREGATE PLOTS ACROSS SPARSITY LEVELS
+    # ========================================
+    print(f"\n{'='*60}")
+    print("CREATING ALL AGGREGATE PLOTS ACROSS SPARSITY LEVELS")
+    print(f"{'='*60}")
+    
+    create_all_aggregate_plots(all_results, sparsity_values)
     
 
     # ========================================
