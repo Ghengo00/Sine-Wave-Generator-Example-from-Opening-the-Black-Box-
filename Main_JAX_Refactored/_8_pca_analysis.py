@@ -4,15 +4,27 @@ PCA analysis and visualization for trajectory and fixed point analysis.
 
 
 import numpy as np
-import matplotlib.pyplot as plt
+from scipy.linalg import eig
 from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.offline as pyo
+
+import sys
+import os
 from tqdm import tqdm
 import time
-from scipy.linalg import eig
-from _2_utils import save_figure, save_variable
+
+from _1_config import s
+from _2_utils import get_output_dir, save_figure, save_variable, load_variable, set_custom_output_dir
 from _6_analysis import compute_jacobian
 
 
+
+
+# ================================================================================
+# PCA FUNCTIONS
+# ================================================================================
 def perform_pca_analysis(state_traj_states, skip_initial_steps=0, apply_tanh=False):
     """
     Perform PCA on trajectory states and return PCA object and projections.
@@ -24,7 +36,7 @@ def perform_pca_analysis(state_traj_states, skip_initial_steps=0, apply_tanh=Fal
         
     Returns:
         pca: fitted PCA object
-        proj_trajs: list of projected trajectories
+        proj_trajs: list of projected trajectories, shape (num_tasks, num_steps_train+1-skip, 3)
     """
     # Track PCA computation time
     start_time = time.time()
@@ -48,13 +60,13 @@ def perform_pca_analysis(state_traj_states, skip_initial_steps=0, apply_tanh=Fal
 
     # Perform PCA with 3 components
     pca = PCA(n_components=3)
-    proj_all = pca.fit_transform(all_states)
+    proj_all = pca.fit_transform(all_states)    # shape is (num_tasks * (num_steps_train+1-skip), 3)
 
     # Project each trajectory into the PCA space
     proj_trajs = []
     start = 0
     for traj in tqdm(state_traj_states_truncated, desc="Projecting trajectories"):
-        T = traj.shape[0]   # Number of time steps in the trajectory
+        T = traj.shape[0]   # Number of time steps in the trajectory, T = num_steps_train + 1 - skip_initial_steps
         proj_traj = proj_all[start:start + T]   # Extracts the projected trajectory from the PCA space, resulting shape is (T, 3)
         proj_trajs.append(proj_traj)
         start += T
@@ -93,7 +105,12 @@ def project_points_to_pca(pca, all_points):
     return proj_points
 
 
-def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False):
+
+
+# ================================================================================
+# PLOTTING FUNCTIONS
+# ================================================================================
+def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False, filename_prefix=""):
     """
     Unified function to plot PCA trajectories with either fixed points or slow points.
     
@@ -106,6 +123,7 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
         params       : model parameters for computing Jacobians
         skip_initial_steps : number of initial steps that were skipped (for title/filename)
         apply_tanh   : whether tanh transformation was applied (for title/filename)
+        filename_prefix : prefix to add to the filename (default: "")
     """
     
     # Validate point_type parameter
@@ -121,16 +139,33 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
 
-    # Plot the projected trajectories in blue
-    for traj in proj_trajs:
-        ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], color='blue', alpha=0.5)
+    # Plot the projected trajectories with color gradient from light to dark blue
+    for traj_idx, traj in enumerate(proj_trajs):
+        # Create a color gradient along the trajectory
+        num_points = len(traj)
+        if num_points > 1:
+            # Create segments for the line plot with varying colors
+            for i in range(num_points - 1):
+                # Calculate color intensity based on time step (0 = light, 1 = dark)
+                color_intensity = i / (num_points - 1)
+                # Create blue color with varying intensity (start with lighter blue and transition to darker blue)
+                blue_color = (0.7 - 0.5 * color_intensity, 0.7 - 0.5 * color_intensity, 1.0)
+                
+                # Plot each segment with increased transparency
+                ax.plot(traj[i:i+2, 0], traj[i:i+2, 1], traj[i:i+2, 2], 
+                       color=blue_color, alpha=0.3, linewidth=1.5)
+        else:
+            # Fallback for single point trajectories
+            ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], color='blue', alpha=0.2)
 
     # Plot the projected points as green scatter points
     if proj_points.size > 0:
-        ax.scatter(proj_points[:, 0], proj_points[:, 1], proj_points[:, 2], color='green', s=50, label=point_name)
+        ax.scatter(proj_points[:, 0], proj_points[:, 1], proj_points[:, 2], color='green', s=15, label=point_name)
 
     # For each point, plot all unstable modes as red lines
     point_idx = 0
+    unstable_mode_counts = {}  # Dictionary to track number of unstable modes per point
+    
     for j, task_points in enumerate(all_points):
         for x_star in task_points:
             # Compute the Jacobian and find the eigenvalues at the point
@@ -138,12 +173,20 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
             eigenvals, eigenvecs = eig(J_eff)
             # Find all the unstable eigenvalues for the given point
             unstable_idx = np.where(np.real(eigenvals) > 0)[0]
+            num_unstable = len(unstable_idx)
+            
+            # Track unstable mode counts
+            if num_unstable in unstable_mode_counts:
+                unstable_mode_counts[num_unstable] += 1
+            else:
+                unstable_mode_counts[num_unstable] = 1
+            
             if len(unstable_idx) > 0:
                 # For each unstable eigenvalue, plot the corresponding eigenvector direction
                 for idx in unstable_idx:
                     # Take the real part for the plotting direction
                     v = np.real(eigenvecs[:, idx])
-                    scale = 0.5
+                    scale = 1.0
                     # Project the unstable eigenvector direction into PCA space
                     v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_points[point_idx]
                     # Plot a line centred on the point in PCA space
@@ -153,26 +196,224 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
                     ])
                     ax.plot(line[:, 0], line[:, 1], line[:, 2], color='red', linewidth=2, alpha=0.5)
             point_idx += 1
+    
+    # Print summary of unstable modes
+    print(f"\nUnstable modes summary for {point_name}:")
+    for num_modes in sorted(unstable_mode_counts.keys()):
+        count = unstable_mode_counts[num_modes]
+        print(f"Number of fixed points with {num_modes} unstable modes: {count}")
 
+    # Calculate the overall data range for equal scaling
+    all_data = np.concatenate([np.concatenate(proj_trajs, axis=0)])
+    if proj_points.size > 0:
+        all_data = np.concatenate([all_data, proj_points], axis=0)
+    
+    # Find the maximum absolute value across all dimensions
+    max_range = np.max(np.abs(all_data))
+    
     # Add decorations
-    from _1_config import s
     title_skip_info = f" (skipping first {skip_initial_steps} steps)" if skip_initial_steps > 0 else ""
     title_tanh_info = " (tanh transformed)" if apply_tanh else ""
     ax.set_title(f'PCA of Network Trajectories and {point_name}{title_skip_info}{title_tanh_info} (Sparsity={s:.2f})')
     ax.set_xlabel('PC1')
     ax.set_ylabel('PC2')
     ax.set_zlabel('PC3')
+    
+    # Set equal aspect ratio and equal scaling for all axes
+    ax.set_box_aspect([1,1,1])
+    ax.set_xlim([-max_range, max_range])
+    ax.set_ylim([-max_range, max_range])
+    ax.set_zlim([-max_range, max_range])
+    
     plt.legend()
 
     # Save the figure
     sparsity_str = f"{s:.2f}".replace('.', 'p')
     tanh_suffix = "_tanh" if apply_tanh else ""
-    figure_name = f"pca_plot_{point_type}_skip_{skip_initial_steps}{tanh_suffix}_sparsity_{sparsity_str}"
+    figure_name = f"{filename_prefix}pca_plot_{point_type}_skip_{skip_initial_steps}{tanh_suffix}_sparsity_{sparsity_str}"
     save_figure(fig, figure_name)
 
     plt.close()
 
 
+def plot_interactive_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False, filename_prefix=""):
+    """
+    Create an interactive 3D plot using Plotly that can be rotated and saved as HTML.
+    
+    Arguments:
+        pca          : fitted PCA object
+        proj_trajs   : list of projected trajectories
+        point_type   : str, either "fixed" or "slow" to specify which type of points to plot
+        all_points   : list of lists of points, one list per task
+        proj_points  : projected points in PCA space, shape (num_total_points, 3)
+        params       : model parameters for computing Jacobians
+        skip_initial_steps : number of initial steps that were skipped (for title/filename)
+        apply_tanh   : whether tanh transformation was applied (for title/filename)
+        filename_prefix : prefix to add to the filename (default: "")
+    """
+    # Validate point_type parameter
+    if point_type not in ["fixed", "slow"]:
+        raise ValueError("point_type must be either 'fixed' or 'slow'")
+    
+    # Set point name based on point type
+    point_name = "Fixed Points" if point_type == "fixed" else "Slow Points"
+    
+    # Create figure
+    fig = go.Figure()
+    
+    # Add trajectories with color gradient from light to dark blue
+    for i, traj in enumerate(proj_trajs):
+        num_points = len(traj)
+        if num_points > 1:
+            # Create color values for gradient (0 = light blue, 1 = dark blue)
+            color_values = np.linspace(0, 1, num_points)
+            
+            fig.add_trace(go.Scatter3d(
+                x=traj[:, 0], y=traj[:, 1], z=traj[:, 2],
+                mode='lines+markers',
+                line=dict(
+                    color=color_values,
+                    colorscale=[[0, 'lightblue'], [1, 'darkblue']],
+                    width=4,
+                    showscale=False
+                ),
+                marker=dict(
+                    color=color_values,
+                    colorscale=[[0, 'lightblue'], [1, 'darkblue']],
+                    size=3,
+                    showscale=False
+                ),
+                showlegend=False,
+                opacity=0.3  # Reduced opacity for more transparency
+            ))
+        else:
+            # Fallback for single point trajectories
+            fig.add_trace(go.Scatter3d(
+                x=traj[:, 0], y=traj[:, 1], z=traj[:, 2],
+                mode='lines',
+                line=dict(color='blue', width=3),
+                showlegend=False,
+                opacity=0.2  # Reduced opacity for more transparency
+            ))
+    
+    # Add points
+    if proj_points.size > 0:
+        fig.add_trace(go.Scatter3d(
+            x=proj_points[:, 0], y=proj_points[:, 1], z=proj_points[:, 2],
+            mode='markers',
+            marker=dict(color='green', size=3),  # Reduced size from 5 to 3
+            name=point_name
+        ))
+    
+    # Add unstable modes as lines
+    if all_points is not None and params is not None:
+        J_trained = np.array(params["J"])
+        point_idx = 0
+        unstable_lines_x, unstable_lines_y, unstable_lines_z = [], [], []
+        unstable_mode_counts = {}  # Dictionary to track number of unstable modes per point
+        
+        for j, task_points in enumerate(all_points):
+            for x_star in task_points:
+                # Compute the Jacobian and find the eigenvalues at the point
+                J_eff = np.array(compute_jacobian(x_star, J_trained))
+                eigenvals, eigenvecs = eig(J_eff)
+                # Find all the unstable eigenvalues for the given point
+                unstable_idx = np.where(np.real(eigenvals) > 0)[0]
+                num_unstable = len(unstable_idx)
+                
+                # Track unstable mode counts
+                if num_unstable in unstable_mode_counts:
+                    unstable_mode_counts[num_unstable] += 1
+                else:
+                    unstable_mode_counts[num_unstable] = 1
+                
+                if len(unstable_idx) > 0:
+                    # For each unstable eigenvalue, plot the corresponding eigenvector direction
+                    for idx in unstable_idx:
+                        # Take the real part for the plotting direction
+                        v = np.real(eigenvecs[:, idx])
+                        scale = 1.0
+                        # Project the unstable eigenvector direction into PCA space
+                        v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_points[point_idx]
+                        # Create line data
+                        line_start = proj_points[point_idx] - v_proj
+                        line_end = proj_points[point_idx] + v_proj
+                        
+                        # Add to line collections
+                        unstable_lines_x.extend([line_start[0], line_end[0], None])
+                        unstable_lines_y.extend([line_start[1], line_end[1], None])
+                        unstable_lines_z.extend([line_start[2], line_end[2], None])
+                
+                point_idx += 1
+        
+        # Print summary of unstable modes
+        print(f"\nUnstable modes summary for {point_name} (Interactive Plot):")
+        for num_modes in sorted(unstable_mode_counts.keys()):
+            count = unstable_mode_counts[num_modes]
+            print(f"Number of fixed points with {num_modes} unstable modes: {count}")
+        
+        # Add unstable modes as a single trace
+        if unstable_lines_x:
+            fig.add_trace(go.Scatter3d(
+                x=unstable_lines_x, y=unstable_lines_y, z=unstable_lines_z,
+                mode='lines',
+                line=dict(color='red', width=4),
+                name='Unstable Modes',
+                opacity=0.7
+            ))
+    
+    # Calculate the overall data range for equal scaling
+    all_data = np.concatenate([np.concatenate(proj_trajs, axis=0)])
+    if proj_points.size > 0:
+        all_data = np.concatenate([all_data, proj_points], axis=0)
+    
+    # Find the maximum absolute value across all dimensions
+    max_range = np.max(np.abs(all_data))
+    
+    # Set layout and styling
+    title_skip_info = f" (skipping first {skip_initial_steps} steps)" if skip_initial_steps > 0 else ""
+    title_tanh_info = " (tanh transformed)" if apply_tanh else ""
+    
+    fig.update_layout(
+        title=f'Interactive PCA of Network Trajectories and {point_name}{title_skip_info}{title_tanh_info} (Sparsity={s:.2f})',
+        scene=dict(
+            xaxis_title='PC1',
+            yaxis_title='PC2',
+            zaxis_title='PC3',
+            aspectmode='cube',  # This ensures equal aspect ratios
+            xaxis=dict(range=[-max_range, max_range]),
+            yaxis=dict(range=[-max_range, max_range]),
+            zaxis=dict(range=[-max_range, max_range]),
+            camera=dict(
+                eye=dict(x=1.5, y=1.5, z=1.5)  # Default viewing angle
+            )
+        ),
+        width=900,
+        height=700
+    )
+    
+    # Save as interactive HTML file
+    sparsity_str = f"{s:.2f}".replace('.', 'p')
+    tanh_suffix = "_tanh" if apply_tanh else ""
+    html_filename = f"{filename_prefix}interactive_pca_plot_{point_type}_skip_{skip_initial_steps}{tanh_suffix}_sparsity_{sparsity_str}.html"
+    
+    # Use the same output directory as static plots
+    output_dir = get_output_dir()
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    html_filepath = os.path.join(output_dir, html_filename)
+    pyo.plot(fig, filename=html_filepath, auto_open=False)
+    print(f"Interactive PCA plot saved as: {html_filepath}")
+    
+    return fig
+
+
+
+
+# ================================================================================
+# EXECUTION FUNCTION
+# ================================================================================
 def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=None, params=None, slow_point_search=False, skip_initial_steps=0, apply_tanh=False):
     """
     Run complete PCA analysis including trajectory projection and point visualization.
@@ -200,12 +441,15 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
         "pca_explained_variance_ratio": pca.explained_variance_ratio_,
     }
     
+
+    # ========================================
+    # FIXED POINTS
     # Project and plot fixed points if available
     if all_fixed_points is not None:
         proj_fixed = project_points_to_pca(pca, all_fixed_points)
         pca_results["proj_fixed"] = proj_fixed
         
-        # Plot PCA with fixed points
+        # Plot PCA with fixed points - all trajectories (static matplotlib)
         plot_pca_trajectories_and_points(
             pca, proj_trajs,
             point_type="fixed",
@@ -215,13 +459,59 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
             skip_initial_steps=skip_initial_steps,
             apply_tanh=apply_tanh
         )
+        
+        # Create interactive plot - all trajectories (Plotly)
+        plot_interactive_pca_trajectories_and_points(
+            pca, proj_trajs,
+            point_type="fixed",
+            all_points=all_fixed_points,
+            proj_points=proj_fixed,
+            params=params,
+            skip_initial_steps=skip_initial_steps,
+            apply_tanh=apply_tanh
+        )
+        
+        # Plot subset of trajectories (first, middle, last: indices 0, 25, 50)
+        subset_indices = [0, 25, 50]
+        subset_proj_trajs = [proj_trajs[i] for i in subset_indices if i < len(proj_trajs)]
+        subset_fixed_points = [all_fixed_points[i] for i in subset_indices if i < len(all_fixed_points)]
+        
+        if subset_proj_trajs and subset_fixed_points:
+            subset_proj_fixed = project_points_to_pca(pca, subset_fixed_points)
+            
+            # Plot subset with fixed points (static matplotlib)
+            plot_pca_trajectories_and_points(
+                pca, subset_proj_trajs,
+                point_type="fixed",
+                all_points=subset_fixed_points,
+                proj_points=subset_proj_fixed,
+                params=params,
+                skip_initial_steps=skip_initial_steps,
+                apply_tanh=apply_tanh,
+                filename_prefix="subset_of_indices_"
+            )
+            
+            # Create interactive subset plot with modified filename
+            subset_fig = plot_interactive_pca_trajectories_and_points(
+                pca, subset_proj_trajs,
+                point_type="fixed",
+                all_points=subset_fixed_points,
+                proj_points=subset_proj_fixed,
+                params=params,
+                skip_initial_steps=skip_initial_steps,
+                apply_tanh=apply_tanh,
+                filename_prefix="subset_of_indices_"
+            )
     
+
+    # ========================================
+    # SLOW POINTS
     # Project and plot slow points if available
     if slow_point_search and all_slow_points is not None:
         proj_slow = project_points_to_pca(pca, all_slow_points)
         pca_results["proj_slow"] = proj_slow
         
-        # Plot PCA with slow points
+        # Plot PCA with slow points - all trajectories (static matplotlib)
         plot_pca_trajectories_and_points(
             pca, proj_trajs,
             point_type="slow",
@@ -231,10 +521,203 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
             skip_initial_steps=skip_initial_steps,
             apply_tanh=apply_tanh
         )
+        
+        # Create interactive plot - all trajectories (Plotly)
+        plot_interactive_pca_trajectories_and_points(
+            pca, proj_trajs,
+            point_type="slow",
+            all_points=all_slow_points,
+            proj_points=proj_slow,
+            params=params,
+            skip_initial_steps=skip_initial_steps,
+            apply_tanh=apply_tanh
+        )
+        
+        # Plot subset of trajectories (first, middle, last: indices 0, 25, 50)
+        subset_indices = [0, 25, 50]
+        subset_proj_trajs = [proj_trajs[i] for i in subset_indices if i < len(proj_trajs)]
+        subset_slow_points = [all_slow_points[i] for i in subset_indices if i < len(all_slow_points)]
+        
+        if subset_proj_trajs and subset_slow_points:
+            subset_proj_slow = project_points_to_pca(pca, subset_slow_points)
+            
+            # Plot subset with slow points (static matplotlib)
+            plot_pca_trajectories_and_points(
+                pca, subset_proj_trajs,
+                point_type="slow",
+                all_points=subset_slow_points,
+                proj_points=subset_proj_slow,
+                params=params,
+                skip_initial_steps=skip_initial_steps,
+                apply_tanh=apply_tanh,
+                filename_prefix="subset_of_indices_"
+            )
+            
+            # Create interactive subset plot with modified filename
+            subset_fig = plot_interactive_pca_trajectories_and_points(
+                pca, subset_proj_trajs,
+                point_type="slow",
+                all_points=subset_slow_points,
+                proj_points=subset_proj_slow,
+                params=params,
+                skip_initial_steps=skip_initial_steps,
+                apply_tanh=apply_tanh,
+                filename_prefix="subset_of_indices_"
+            )
     
-    # Save PCA results
+
+    # ========================================
+    # SAVE PCA RESULTS
     tanh_suffix = "_tanh" if apply_tanh else ""
     results_filename = f"pca_results_skip_{skip_initial_steps}{tanh_suffix}"
     save_variable(pca_results, results_filename)
     
     return pca_results
+
+
+
+
+# ================================================================================
+# RUN THIS FILE INDEPENDENTLY - Should be commented out normally
+# ================================================================================
+if __name__ == "__main__":
+    # ========================================
+    # MANUAL FILEPATH SPECIFICATION
+    # ========================================
+    # Base directory for the experiment
+    base_dir = "/Users/gianlucacarrozzo/Documents/University and Education/UCL/Machine Learning/MSc Project/Palmigiano Lab/Code/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/JAX_Refactored_Outputs_20250616_103938"
+    
+    # REQUIRED FILES - Update these paths to your specific files
+    # State trajectories file (required)
+    state_file = f"{base_dir}/state_20250616_103938_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl"
+    
+    # Model parameter files (required)
+    J_param_file = f"{base_dir}/J_param_20250616_103938_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl"
+
+    # OPTIONAL FILES - Set to None if not available or update paths
+    # Fixed points file (optional)
+    fixed_points_file = f"{base_dir}/all_fixed_points_20250616_103938_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl"
+    
+    # Slow points file (optional)
+    slow_points_file = None
+
+    # Create a new subfolder 'Further_PCA' in the current directory
+    further_pca_dir = os.path.join(base_dir, 'Further_PCA')
+    # Create the directory if it doesn't exist
+    if not os.path.exists(further_pca_dir):
+        os.makedirs(further_pca_dir)
+        print(f"Created new directory: {further_pca_dir}")
+    else:
+        print(f"Using existing directory: {further_pca_dir}")
+    # Set the custom output directory for saving new results
+    set_custom_output_dir(further_pca_dir)
+
+
+    # ========================================
+    # LOAD DATA FROM SPECIFIED FILES
+    # ========================================    
+    try:
+        # Load trajectory states (required)
+        print(f"Loading state trajectories from: {state_file}")
+        if not os.path.exists(state_file):
+            raise FileNotFoundError(f"State trajectory file not found: {state_file}")
+        state_states = load_variable(state_file)
+        state_traj_states = state_states["traj_states"]
+        
+        # Load model parameters (required)
+        params = {}
+        param_files = {
+            'J': J_param_file
+        }
+        
+        for param_name, param_file in param_files.items():
+            print(f"Loading {param_name} parameters from: {param_file}")
+            if not os.path.exists(param_file):
+                raise FileNotFoundError(f"{param_name} parameter file not found: {param_file}")
+            params[param_name] = load_variable(param_file)
+        
+        # Load fixed points (optional)
+        all_fixed_points = None
+        if fixed_points_file is not None:
+            if os.path.exists(fixed_points_file):
+                print(f"Loading fixed points from: {fixed_points_file}")
+                all_fixed_points = load_variable(fixed_points_file)
+            else:
+                print(f"Warning: Fixed points file specified but not found: {fixed_points_file}")
+                print("PCA will be performed without fixed points")
+        else:
+            print("No fixed points file specified - PCA will be performed without fixed points")
+        
+        # Load slow points (optional)
+        all_slow_points = None
+        slow_point_search = False
+        if slow_points_file is not None:
+            if os.path.exists(slow_points_file):
+                print(f"Loading slow points from: {slow_points_file}")
+                all_slow_points = load_variable(slow_points_file)
+                slow_point_search = True
+            else:
+                print(f"Warning: Slow points file specified but not found: {slow_points_file}")
+                print("PCA will be performed without slow points")
+        else:
+            print("No slow points file specified - PCA will be performed without slow points")
+        
+
+        # ========================================
+        # RUN PCA WITH SPECIFIED FILES
+        # ========================================
+        # Run PCA analysis with different configurations
+        print("\n" + "="*60)
+        print("RUNNING PCA ANALYSIS")
+        print("="*60)
+
+        print(f"\nLoaded data shapes:")
+        print(f"  State trajectories: {state_traj_states.shape}")
+        if all_fixed_points is not None:
+            print(f"  Fixed points: {len(all_fixed_points)} tasks")
+        if all_slow_points is not None:
+            print(f"  Slow points: {len(all_slow_points)} tasks")
+        
+        # Configuration options
+        skip_options = [0, 200, 400, 600]  # Skip initial time steps - STANDARD IS [0, 200, 400, 600]
+        tanh_options = [False, True]  # Apply tanh transformation - STANDARD IS [False, True]
+        
+        for skip_steps in skip_options:
+            for apply_tanh in tanh_options:
+                print(f"\n--- Running PCA with skip={skip_steps}, tanh={apply_tanh} ---")
+                
+                # Run PCA analysis
+                pca_results = run_pca_analysis(
+                    state_traj_states=state_traj_states,
+                    all_fixed_points=all_fixed_points,
+                    all_slow_points=all_slow_points,
+                    params=params,
+                    slow_point_search=slow_point_search,
+                    skip_initial_steps=skip_steps,
+                    apply_tanh=apply_tanh
+                )
+                
+                # Print summary
+                explained_variance = pca_results["pca_explained_variance_ratio"]
+                total_variance = sum(explained_variance)
+                print(f"PCA explained variance ratio: {explained_variance}")
+                print(f"Total variance explained by first 3 components: {total_variance:.3f}")
+        
+        print("\n" + "="*60)
+        print("PCA ANALYSIS COMPLETED SUCCESSFULLY")
+        print("="*60)
+        print("Results and plots have been saved to the output directory.")
+    
+
+    # ========================================
+    # HANDLE ERRORS
+    # ========================================
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        print("Please check that the specified directory exists and contains the necessary data files.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"An error occurred during PCA analysis: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

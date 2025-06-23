@@ -164,17 +164,45 @@ def main():
         print("-" * 40)
         
         with Timer("PCA Analysis"):
-            # Run PCA analysis
-            pca_results = run_pca_analysis(
-                state_traj_states, 
-                all_fixed_points=all_fixed_points,
-                all_slow_points=all_slow_points,
-                params=trained_params,
-                slow_point_search=SLOW_POINT_SEARCH
-            )
+            # Configuration options for comprehensive PCA analysis
+            skip_options = [0, 200, 400, 600]  # Skip initial time steps
+            tanh_options = [False, True]  # Apply tanh transformation
             
-            # Save PCA results
-            save_variable(pca_results, "pca_results")
+            print(f"Running PCA analysis with {len(skip_options)} skip options and {len(tanh_options)} transformation options...")
+            print(f"Skip options: {skip_options}")
+            print(f"Tanh transformation options: {tanh_options}")
+            
+            # Store all PCA results
+            all_pca_results = {}
+            
+            for skip_steps in skip_options:
+                for apply_tanh in tanh_options:
+                    config_name = f"skip_{skip_steps}_tanh_{apply_tanh}"
+                    print(f"\n--- Running PCA with skip={skip_steps}, tanh={apply_tanh} ---")
+                    
+                    # Run PCA analysis with current configuration
+                    pca_results = run_pca_analysis(
+                        state_traj_states=state_traj_states,
+                        all_fixed_points=all_fixed_points,
+                        all_slow_points=all_slow_points,
+                        params=trained_params,
+                        slow_point_search=SLOW_POINT_SEARCH,
+                        skip_initial_steps=skip_steps,
+                        apply_tanh=apply_tanh
+                    )
+                    
+                    # Store results with descriptive key
+                    all_pca_results[config_name] = pca_results
+                    
+                    # Print summary for this configuration
+                    explained_variance = pca_results["pca_explained_variance_ratio"]
+                    total_variance = sum(explained_variance)
+                    print(f"PCA explained variance ratio: {explained_variance}")
+                    print(f"Total variance explained by first 3 components: {total_variance:.3f}")
+            
+            # Save all PCA results
+            save_variable(all_pca_results, "all_pca_results")
+            print(f"\nSaved results for {len(all_pca_results)} PCA configurations")
         
         # =============================================================================
         # 9. FINAL SUMMARY
@@ -185,6 +213,7 @@ def main():
         print(f"Number of fixed points found: {sum(len(task_fps) for task_fps in all_fixed_points)}")
         if SLOW_POINT_SEARCH and all_slow_points:
             print(f"Number of slow points found: {sum(len(task_sps) for task_sps in all_slow_points)}")
+        print(f"PCA analysis completed for {len(skip_options)} × {len(tanh_options)} = {len(skip_options) * len(tanh_options)} configurations")
         print("All results saved to the Outputs directory.")
 
 
