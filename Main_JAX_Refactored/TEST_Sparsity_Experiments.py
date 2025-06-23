@@ -3,6 +3,142 @@ Sparsity experiments: Train RNN with different sparsity levels and track Jacobia
 
 This script trains RNNs at different sparsity levels and visualizes how the eigenvalues
 of the Jacobian matrix at fixed points evolve during the optimization process.
+
+
+OUTPUT VARIABLES SAVED (per sparsity level):
+Eigenvalue evolution data during training:
+- 'eigenvalue_data_sparsity_{sparsity_value}' (dict containing):
+  - 'connectivity_eigenvals_all': list of connectivity matrix eigenvalues at each sample point
+  - 'jacobian_eigenvals_all': list of lists, outer list over sample points, inner list over frequencies
+  - 'sample_iterations': array of training iterations where eigenvalues were sampled
+
+Training loss evolution data during training:
+- 'training_loss_over_iterations_sparsity_{sparsity_value}' (dict containing):
+  - 'losses': array of loss values at each eigenvalue sample point
+  - 'iterations': array of training iterations corresponding to loss values
+
+Training results:
+- 'J_param_sparsity_{sparsity_value}', shape (N, N)
+- 'B_param_sparsity_{sparsity_value}', shape (N, I)
+- 'b_x_param_sparsity_{sparsity_value}', shape (N,)
+- 'w_param_sparsity_{sparsity_value}', shape (I, N)  
+- 'b_z_param_sparsity_{sparsity_value}', shape (I,)
+- 'state_sparsity_{sparsity_value}' (dict containing):
+  - 'traj_states': array of shape (num_tasks, T_train, N)
+  - 'fixed_point_inits': array of shape (num_tasks, N)
+
+Fixed point and frequency analysis results (replicated for slow points if enabled):
+- 'all_fixed_points_sparsity_{sparsity_value}': list of lists, outer list over tasks, inner list over fixed points for a given task
+- 'all_fixed_jacobians_sparsity_{sparsity_value}': list of lists, outer list over tasks, inner list over fixed point Jacobians for a given task
+- 'all_fixed_unstable_eig_freq_sparsity_{sparsity_value}': list of lists of lists, outer list over tasks, inner list over fixed points, inner list over unstable eigen frequencies for a given task
+
+PCA analysis results:
+- 'pca_results' (dict containing dictionaries, one for each combination of skip and tanh options):
+    - proj_trajs: list of projected trajectories, shape (num_tasks, num_steps_train+1-skip_initial_steps, n_components)
+    - skip_initial_steps: number of initial steps skipped
+    - apply_tanh: whether tanh transformation was applied
+    - pca_components: PCA components, shape (n_components, N)
+    - pca_explained_variance_ratio: explained variance ratio for each component, shape (n_components,)
+    - all_fixed_points: list of fixed points for PCA analysis, same structure as all_fixed_points, so shape (num_total_fixed_ponts, N)
+    - all_slow_points if SLOW_POINT_SEARCH is True
+
+
+CROSS-SPARSITY OUTPUT VARIABLES SAVED:
+Experiment summary:
+- 'complete_sparsity_experiment_{timestamp}' (dict containing):
+  - 'sparsity_values': array of all tested sparsity values
+  - 'experiment_config': dict with experiment configuration including:
+    - 'eigenvalue_sample_frequency': frequency of eigenvalue sampling during training
+    - 'compute_jacobian_eigenvals': boolean indicating if Jacobian eigenvalues were computed
+    - 'compute_connectivity_eigenvals': boolean indicating if connectivity eigenvalues were computed
+    - 'jacobian_frequencies': list of frequency indices used for Jacobian eigenvalue computation
+    - 'num_epochs_adam': number of Adam optimization epochs
+    - 'num_epochs_lbfgs': number of L-BFGS optimization epochs
+    - 'network_size': network size (N)
+    - 'num_tasks': number of tasks
+    - 'slow_point_search': boolean indicating if slow point search was enabled
+    - 'timestamp': experiment timestamp
+    - 'output_directory': full path to experiment output directory
+
+
+OUTPUT PLOTS SAVED (per sparsity level):
+Eigenvalue evolution plots (single sparsity):
+- 'jacobian_eigenvalue_evolution_freq_{freq_idx}_sparsity_{sparsity_str}_omega_{freq_str}' plots:
+        Evolution of Jacobian eigenvalues during training for specific frequency and sparsity
+        From 'plot_jacobian_eigenvalue_evolution_for_single_sparsity' function
+        One for each frequency index and sparsity level combination
+- 'connectivity_eigenvalue_evolution_sparsity_{sparsity_str}' plots:
+        Evolution of connectivity matrix eigenvalues during training for specific sparsity
+        From 'plot_connectivity_eigenvalue_evolution_for_single_sparsity' function
+        One plot for each sparsity level
+
+Training progress:
+- 'training_loss_evolution_sparsity_{sparsity_str}' plots:
+        Plot of training loss evolution during optimization
+        From 'plot_training_loss_evolution' function
+
+Visualization of basic results:
+- 'trajectory_vs_target' plots:
+        From 'plot_trajectories_vs_targets' function
+        One for each of TEST_INDICES
+- 'parameter_matrices' plots:
+        Plot of J, B, and b_x matrices with colour scales
+        From 'plot_parameter_matrices_for_tasks' function
+        For test_indices=0
+
+Fixed point and frequency plots (replicated for slow points if enabled):
+- 'Jacobian_Matrices' plots:
+        From 'analyze_jacobians_visualization' function
+        One for each of TEST_INDICES
+- 'Unstable_Eigenvalues' plots:
+        Plot of the unstable eigenvalues (for given task) on the complex plane
+        From 'analyze_unstable_frequencies_visualization' function, and within that, from 'plot_unstable_eigenvalues' function
+        One for each of TEST_INDICES
+- 'Frequency_Comparison' plots:
+        Plot of the maximum norm of the imaginary component of the unstable eigenvalues vs the target frequency for each task
+        From 'analyze_unstable_frequencies_visualization' function, and within that, from 'plot_frequency_comparison' function
+
+PCA plots:
+- 'pca_explained_variance_ratio' plots:
+        Plot of the explained variance ratio for each PCA component
+        From 'run_pca_analysis' function, and within that, from 'plot_pca_explained_variance_ratio' function
+- 'pca_plot_fixed' plots:
+        3-D PCA plot, .png
+        From 'run_pca_analysis' function, and within that, from 'plot_pca_trajectories_and_points' function
+- 'subset_of_indices_pca_plot_fixed' plots:
+        3-D PCA plot, .png, only for specified tasks
+- 'interactive_pca_plot_fixed' plots:
+        Interactive 3-D PCA plot, .html
+        From 'run_pca_analysis' function, and within that, from 'plot_interactive_pca_trajectories_and_points' function
+- 'subset_of_indices_interactive_pca_plot_fixed' plots:
+        Interactive 3-D PCA plot, .html, only for specified tasks
+
+
+CROSS-SPARSITY OUTPUT PLOTS SAVED:
+Eigenvalue evolution comparison plots:
+- 'connectivity_eigenvalue_evolution_sparsities_{sparsity_str}' plots:
+        Evolution of connectivity matrix eigenvalues during training comparing all sparsity levels
+        From 'plot_connectivity_eigenvalue_evolution' function
+        Only saved if connectivity eigenvalues were computed
+        Sparsity_str contains all tested sparsity values in filename
+
+Summary comparison plots:
+- 'sparsity_summary_plots_{timestamp}' plots:
+        2x2 subplot comparing metrics across all sparsity levels including:
+        - Final training loss vs sparsity (log scale)
+        - Number of fixed points vs sparsity
+        - Spectral radius vs sparsity (with unit circle reference)
+        - Number of slow points vs sparsity (if slow point search enabled)
+        From 'create_sparsity_summary_plots' function
+
+Unstable eigenvalue distribution plots:
+- 'unstable_eigenvalue_table_sparsities_{sparsity_str}' plots:
+        Heatmap table showing distribution of unstable eigenvalues per fixed point across all sparsity levels
+        Rows: number of unstable eigenvalues per fixed point (0, 1, 2, ...)
+        Columns: sparsity levels
+        Values: count of fixed points with that number of unstable eigenvalues
+        From 'create_unstable_eigenvalue_table' function
+        Sparsity_str contains all tested sparsity values in filename
 """
 
 
@@ -377,7 +513,7 @@ def compute_eigenvalues_during_training(params, compute_jacobian_eigenvals, comp
 # TRAINING WITH EIGENVALUE TRACKING FUNCTION
 # =============================================================================
 # =============================================================================
-def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, sample_frequency, 
+def modified_scan_with_eigenvalues(params, opt_state, step_fn, loss_fn, num_steps, tag, sample_frequency, 
                                    compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies=None):
     """
     Optimized training loop that uses lax.scan for chunks between eigenvalue sampling.
@@ -389,6 +525,7 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
         params: initial parameters
         opt_state: initial optimizer state
         step_fn: optimization step function
+        loss_fn: loss function to evaluate training loss
         num_steps: total number of steps
         tag: string tag for logging
         sample_frequency: how often to sample eigenvalues
@@ -402,6 +539,7 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
         final_params: final parameters
         final_opt_state: final optimizer state
         eigenvalue_history: list of (iteration, eigenvalue_data) tuples
+        loss_history: list of (iteration, training_loss) tuples
     """
     # Check if any eigenvalue computation is requested
     compute_any_eigenvals = compute_jacobian_eigenvals or compute_connectivity_eigenvals
@@ -428,22 +566,25 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
             params, opt_state, step_fn, num_steps, tag
         )
 
-        return best_params, best_loss, final_params, final_opt_state, []
+        return best_params, best_loss, final_params, final_opt_state, [], []
     
     # EIGENVALUE SAMPLING CASE
     # Initialize tracking variables
     best_loss = jnp.inf
     best_params = params
     eigenvalue_history = []
+    loss_history = []
     current_params = params
     current_opt_state = opt_state
     
-    # Sample eigenvalues at iteration 0
-    print(f"[{tag}] Sampling eigenvalues at iteration 0...")
+    # Sample eigenvalues and loss at iteration 0
+    print(f"[{tag}] Sampling eigenvalues and loss at iteration 0...")
     initial_eigenval_data = compute_eigenvalues_during_training(
         params, compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
     )
+    initial_loss = float(loss_fn(params))
     eigenvalue_history.append((0, initial_eigenval_data))
+    loss_history.append((0, initial_loss))
     
     # Calculate chunking strategy
     chunk_size = sample_frequency
@@ -465,13 +606,15 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
             best_loss = chunk_best_loss
             best_params = chunk_best_params
         
-        # Sample eigenvalues at end of chunk
+        # Sample eigenvalues and loss at end of chunk
         step_num = (chunk_idx + 1) * chunk_size
-        print(f"[{tag}] step {step_num}: best_loss {best_loss:.6e} - Sampling eigenvalues...")
+        print(f"[{tag}] step {step_num}: best_loss {best_loss:.6e} - Sampling eigenvalues and loss...")
         eigenval_data = compute_eigenvalues_during_training(
             current_params, compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
         )
+        current_loss = float(loss_fn(current_params))
         eigenvalue_history.append((step_num, eigenval_data))
+        loss_history.append((step_num, current_loss))
     
     # Handle remaining steps if any
     if remaining_steps > 0:
@@ -487,7 +630,7 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
     
     print(f"[{tag}] Optimization completed. Final best loss: {best_loss:.6e}")
     
-    return best_params, best_loss, current_params, current_opt_state, eigenvalue_history
+    return best_params, best_loss, current_params, current_opt_state, eigenvalue_history, loss_history
 
 
 
@@ -532,10 +675,11 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     lbfgs_state = lbfgs_opt.init(params)
     
     # Create training functions 
-    adam_step, lbfgs_step, _ = create_training_functions(adam_opt, lbfgs_opt, mask)
+    adam_step, lbfgs_step, loss_fn = create_training_functions(adam_opt, lbfgs_opt, mask)
     
     # Track eigenvalues during training
     eigenvalue_data = {}
+    training_loss_data = {}
     
 
     # ========================================
@@ -546,14 +690,15 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     
     with Timer(f"Training with sparsity {sparsity_value}"):
         # Adam training phase with eigenvalue tracking
-        best_params_adam, best_loss_adam, params_after_adam, adam_state_after, adam_eigenvals = \
+        best_params_adam, best_loss_adam, params_after_adam, adam_state_after, adam_eigenvals, adam_losses = \
             modified_scan_with_eigenvalues(
-                params, adam_state, adam_step,
+                params, adam_state, adam_step, loss_fn,
                 NUM_EPOCHS_ADAM, "ADAM", EIGENVALUE_SAMPLE_FREQUENCY,
                 compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
             )
         
         eigenvalue_data['adam'] = adam_eigenvals
+        training_loss_data['adam'] = adam_losses
         print(f"Adam phase completed. Best loss: {best_loss_adam:.6e}")
         
         # Continue with best parameters from Adam
@@ -563,14 +708,15 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
         # L-BFGS training phase (if needed)
         if best_loss_adam > LOSS_THRESHOLD:
             print("Loss threshold not met, starting L-BFGS phase...")
-            best_params_lbfgs, best_loss_lbfgs, params_after_lbfgs, lbfgs_state_after, lbfgs_eigenvals = \
+            best_params_lbfgs, best_loss_lbfgs, params_after_lbfgs, lbfgs_state_after, lbfgs_eigenvals, lbfgs_losses = \
                 modified_scan_with_eigenvalues(
-                    trained_params, lbfgs_state, lbfgs_step,
+                    trained_params, lbfgs_state, lbfgs_step, loss_fn,
                     NUM_EPOCHS_LBFGS, "L-BFGS", EIGENVALUE_SAMPLE_FREQUENCY,
                     compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
                 )
             
             eigenvalue_data['lbfgs'] = lbfgs_eigenvals
+            training_loss_data['lbfgs'] = lbfgs_losses
             
             # Use L-BFGS results if better
             if best_loss_lbfgs < best_loss_adam:
@@ -579,11 +725,16 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
                 print(f"L-BFGS improved results. Best loss: {best_loss_lbfgs:.6e}")
         else:
             eigenvalue_data['lbfgs'] = []
+            training_loss_data['lbfgs'] = []
             print("Loss threshold met, skipping L-BFGS phase.")
+    
+    # Add final best loss to training loss data
+    training_loss_data['final'] = final_loss
     
     results['trained_params'] = trained_params
     results['final_loss'] = final_loss
     results['eigenvalue_data'] = eigenvalue_data
+    results['training_loss_data'] = training_loss_data
     
 
     # ========================================
@@ -623,6 +774,14 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     print("Saving eigenvalue evolution data...")
     save_variable_with_sparsity(eigenvalue_data, f"eigenvalue_data_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
     
+    # Save training loss evolution data
+    print("Saving training loss evolution data...")
+    save_variable_with_sparsity(training_loss_data, f"training_loss_over_iterations_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
+    
+    # Plot training loss evolution
+    print("Plotting training loss evolution...")
+    plot_training_loss_evolution(training_loss_data, sparsity_value)
+    
 
     # ========================================
     # 5. VISUALIZATION OF BASIC RESULTS
@@ -635,8 +794,8 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     plot_trajectories_vs_targets(trained_params, test_indices=TEST_INDICES, sparsity_value=sparsity_value)
     
     # Plot parameter matrices (save in sparsity-specific folder)
-    plot_parameter_matrices_for_tasks(trained_params, test_indices=TEST_INDICES, sparsity_value=sparsity_value)
-    
+    plot_parameter_matrices_for_tasks(trained_params, test_indices=0, sparsity_value=sparsity_value)
+
 
     # ========================================
     # 6. FIXED POINT ANALYSIS
@@ -726,48 +885,40 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     
 
     # ========================================
-    # 8. PCA ANALYSIS WITH MULTIPLE TRUNCATIONS
+    # 8. PCA ANALYSIS
     # ========================================
-    print("\n8. PCA ANALYSIS WITH MULTIPLE TRUNCATIONS")
+    print("\n8. PCA ANALYSIS")
     print("-" * 40)
     
-    # Define truncation levels
-    truncation_levels = [0, 200, 400, 600]
-    pca_results_all_truncations = {}
-    
-    with Timer("PCA Analysis (Multiple Truncations)"):
-        for truncation in truncation_levels:
-            print(f"\nRunning PCA with {truncation} truncations...")
+    with Timer("PCA Analysis"):
+        print(f"\nRunning PCA analysis...")
+        
+        # Run PCA analysis (save plots in sparsity-specific directory)
+        with sparsity_output_context(sparsity_value):
+            # Temporarily update the config sparsity for plot titles
+            import _1_config
+            original_s = _1_config.s
+            _1_config.s = sparsity_value
             
-            # Run PCA analysis (save plots in sparsity-specific directory)
-            with sparsity_output_context(sparsity_value):
-                # Temporarily update the config sparsity for plot titles
-                import _1_config
-                original_s = _1_config.s
-                _1_config.s = sparsity_value
-                
-                try:
-                    pca_results = run_pca_analysis(
-                        state_traj_states, 
-                        all_fixed_points=all_fixed_points,
-                        all_slow_points=all_slow_points,
-                        params=trained_params,
-                        slow_point_search=SLOW_POINT_SEARCH,
-                        skip_initial_steps=truncation
-                    )
-                finally:
-                    # Restore original sparsity value
-                    _1_config.s = original_s
-            
-            # Save PCA results for this truncation level
-            pca_results_all_truncations[f"truncation_{truncation}"] = pca_results
-            save_variable_with_sparsity(pca_results, f"pca_results_truncation_{truncation}_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
-            
-            print(f"Completed PCA analysis with {truncation} truncations")
+            try:
+                pca_results = run_pca_analysis(
+                    state_traj_states, 
+                    all_fixed_points=all_fixed_points,
+                    all_slow_points=all_slow_points,
+                    params=trained_params,
+                    slow_point_search=SLOW_POINT_SEARCH
+                )
+            finally:
+                # Restore original sparsity value
+                _1_config.s = original_s
+        
+        # Save PCA results
+        save_variable_with_sparsity(pca_results, f"pca_results_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
+        
+        print(f"Completed PCA analysis")
     
-    results['pca_results'] = pca_results_all_truncations
+    results['pca_results'] = pca_results
     
-    print(f"\nCompleted PCA analysis with truncations: {truncation_levels}")
     print(f"Completed full analysis for sparsity {sparsity_value}: final loss = {final_loss:.6e}")
     
     return results
@@ -886,7 +1037,7 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
             c=norm_iterations,
             cmap=cmap,
             alpha=0.7,
-            s=20
+            s=5
         )
         
         # Store the first valid scatter plot for colorbar
@@ -1022,13 +1173,6 @@ def plot_jacobian_eigenvalue_evolution_for_single_sparsity(result, freq_idx, cma
     save_figure_with_sparsity(fig, f'jacobian_eigenvalue_evolution_freq_{freq_idx}_sparsity_{sparsity_str}_omega_{freq_str}', sparsity)
     # plt.show()  # Commented out to prevent interactive display
     plt.close(fig)
-
-
-def plot_eigenvalue_evolution(all_results, sparsity_values):
-    """
-    Backward compatibility function - calls the new comparison function.
-    """
-    plot_eigenvalue_evolution_comparison(all_results, sparsity_values)
 
 
 
@@ -1233,6 +1377,86 @@ def create_unstable_eigenvalue_table(all_results, sparsity_values):
 
 # =============================================================================
 # =============================================================================
+# TRAINING LOSS PLOTTING FUNCTION
+# =============================================================================
+# =============================================================================
+def plot_training_loss_evolution(training_loss_data, sparsity_value):
+    """
+    Plot training loss evolution during optimization for a single sparsity level.
+    
+    Arguments:
+        training_loss_data: dictionary with 'adam', 'lbfgs', and 'final' keys
+        sparsity_value: sparsity level for this experiment
+    """
+    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+    
+    # Combine loss data from both training phases
+    all_iterations = []
+    all_losses = []
+    phase_colors = []
+    
+    # Add Adam phase data
+    for iteration, loss in training_loss_data['adam']:
+        all_iterations.append(iteration)
+        all_losses.append(loss)
+        phase_colors.append('blue')
+    
+    # Add L-BFGS phase data (offset iterations)
+    adam_max_iter = NUM_EPOCHS_ADAM if training_loss_data['adam'] else 0
+    for iteration, loss in training_loss_data['lbfgs']:
+        all_iterations.append(adam_max_iter + iteration)
+        all_losses.append(loss)
+        phase_colors.append('red')
+    
+    if len(all_losses) == 0:
+        ax.text(0.5, 0.5, 'No training loss data available', 
+               ha='center', va='center', transform=ax.transAxes)
+        ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}')
+        plt.tight_layout()
+        
+        # Save with sparsity-specific filename
+        sparsity_str = f'{sparsity_value:.2f}'.replace('.', 'p')
+        save_figure_with_sparsity(fig, f'training_loss_evolution_sparsity_{sparsity_str}', sparsity_value)
+        plt.close(fig)
+        return
+    
+    # Plot the loss evolution
+    adam_iterations = [iter for iter, color in zip(all_iterations, phase_colors) if color == 'blue']
+    adam_losses = [loss for loss, color in zip(all_losses, phase_colors) if color == 'blue']
+    lbfgs_iterations = [iter for iter, color in zip(all_iterations, phase_colors) if color == 'red']
+    lbfgs_losses = [loss for loss, color in zip(all_losses, phase_colors) if color == 'red']
+    
+    if adam_iterations:
+        ax.plot(adam_iterations, adam_losses, 'b-o', linewidth=2, markersize=6, label='Adam', alpha=0.8)
+    if lbfgs_iterations:
+        ax.plot(lbfgs_iterations, lbfgs_losses, 'r-o', linewidth=2, markersize=6, label='L-BFGS', alpha=0.8)
+    
+    # Mark the final best loss
+    final_loss = training_loss_data['final']
+    if all_iterations:
+        ax.axhline(y=final_loss, color='green', linestyle='--', alpha=0.7, 
+                  label=f'Final best loss: {final_loss:.2e}')
+    
+    # Formatting
+    ax.set_xlabel('Training Iteration')
+    ax.set_ylabel('Training Loss')
+    ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}')
+    ax.set_yscale('log')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    
+    plt.tight_layout()
+    
+    # Save with sparsity-specific filename in sparsity subdirectory
+    sparsity_str = f'{sparsity_value:.2f}'.replace('.', 'p')
+    save_figure_with_sparsity(fig, f'training_loss_evolution_sparsity_{sparsity_str}', sparsity_value)
+    plt.close(fig)
+
+
+
+
+# =============================================================================
+# =============================================================================
 # MAIN LOOP FUNCTION
 # =============================================================================
 # =============================================================================
@@ -1306,9 +1530,6 @@ def main():
         all_results.append(results)
         
         print(f"\nCompleted sparsity {sparsity}: final loss = {results['final_loss']:.6e}")
-        
-        # Save individual sparsity results
-        save_variable_with_sparsity(results, f"complete_results_sparsity_{sparsity}", sparsity, s=sparsity)
     
 
     # ========================================
@@ -1356,7 +1577,6 @@ def main():
     # Save all results together
     complete_experiment_results = {
         'sparsity_values': sparsity_values,
-        'all_results': all_results,
         'experiment_config': {
             'eigenvalue_sample_frequency': EIGENVALUE_SAMPLE_FREQUENCY,
             'compute_jacobian_eigenvals': compute_jacobian_eigenvals,
