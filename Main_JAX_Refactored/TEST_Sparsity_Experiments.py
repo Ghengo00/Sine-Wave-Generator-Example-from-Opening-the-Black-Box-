@@ -8,9 +8,11 @@ of the Jacobian matrix at fixed points evolve during the optimization process.
 OUTPUT VARIABLES SAVED (per sparsity level):
 Eigenvalue evolution data during training:
 - 'eigenvalue_data_sparsity_{sparsity_value}' (dict containing):
-  - 'connectivity_eigenvals_all': list of connectivity matrix eigenvalues at each sample point
-  - 'jacobian_eigenvals_all': list of lists, outer list over sample points, inner list over frequencies
-  - 'sample_iterations': array of training iterations where eigenvalues were sampled
+  - 'adam': list of (iteration, eigenvalue_data) tuples for Adam phase
+  - 'lbfgs': list of (iteration, eigenvalue_data) tuples for L-BFGS phase
+  - eigenvalue_data dict contains:
+    - 'jacobian': dict mapping frequency indices to eigenvalue arrays (if computed)
+    - 'connectivity': array of connectivity matrix eigenvalues (if computed)
 
 Training loss evolution data during training:
 - 'training_loss_over_iterations_sparsity_{sparsity_value}' (dict containing):
@@ -104,7 +106,7 @@ Fixed point and frequency plots (replicated for slow points if enabled):
         Plot of the maximum norm of the imaginary component of the unstable eigenvalues vs the target frequency for each task
         From 'analyze_unstable_frequencies_visualization' function, and within that, from 'plot_frequency_comparison' function
 
-PCA plots:
+PCA plots (multiple skip/tanh combinations):
 - 'pca_explained_variance_ratio' plots:
         Plot of the explained variance ratio for each PCA component
         From 'run_pca_analysis' function, and within that, from 'plot_pca_explained_variance_ratio' function
@@ -1674,6 +1676,8 @@ def create_fixed_points_per_task_table(all_results, sparsity_values):
     print(f"{'='*60}")
 
 
+
+
 # =============================================================================
 # =============================================================================
 # AGGREGATE PLOTTING FUNCTIONS (CROSS-SPARSITY)
@@ -2135,6 +2139,8 @@ def create_all_aggregate_plots(all_results, sparsity_values):
             plot_pca_3d_comparison(all_results, sparsity_values, skip_steps, apply_tanh, 'subset')
     
     print("Completed all aggregate plots!")
+
+
 
 
 # =============================================================================

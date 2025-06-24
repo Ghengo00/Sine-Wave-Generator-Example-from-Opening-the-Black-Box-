@@ -413,7 +413,7 @@ def create_loss_function(l1_reg_strength=0.0, use_precomputed_states=False):
             
             # L1 regularization term
             if l1_reg_strength > 0.0:
-                l1_term = l1_reg_strength * jnp.sum(jnp.abs(params["J"]))
+                l1_term = l1_reg_strength * jnp.mean(jnp.abs(params["J"]))
                 return mse_loss + l1_term
             return mse_loss
         
@@ -431,7 +431,7 @@ def create_loss_function(l1_reg_strength=0.0, use_precomputed_states=False):
             
             # L1 regularization term
             if l1_reg_strength > 0.0:
-                l1_term = l1_reg_strength * jnp.sum(jnp.abs(params["J"]))
+                l1_term = l1_reg_strength * jnp.mean(jnp.abs(params["J"]))
                 return mse_loss + l1_term
             return mse_loss
         

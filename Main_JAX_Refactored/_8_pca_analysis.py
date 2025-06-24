@@ -38,6 +38,7 @@ def perform_pca_analysis(state_traj_states, skip_initial_steps=0, apply_tanh=Fal
     Returns:
         pca: fitted PCA object
         proj_trajs: list of projected trajectories, shape (num_tasks, num_steps_train+1-skip, n_components)
+        all_trajectories_combined: combined trajectory matrix used for PCA fitting, shape (num_tasks * (num_steps_train+1-skip), N)
     """
     # Track PCA computation time
     start_time = time.time()
@@ -76,7 +77,7 @@ def perform_pca_analysis(state_traj_states, skip_initial_steps=0, apply_tanh=Fal
     pca_time = time.time() - start_time
     print(f"\nPCA computation completed in {pca_time:.2f} seconds")
     
-    return pca, proj_trajs
+    return pca, proj_trajs, all_states
 
 
 def project_points_to_pca(pca, all_points):
@@ -556,7 +557,7 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
         pca_results: dictionary containing PCA results
     """
     # Perform PCA on trajectories
-    pca, proj_trajs = perform_pca_analysis(state_traj_states, skip_initial_steps=skip_initial_steps, apply_tanh=apply_tanh, n_components=n_components)
+    pca, proj_trajs, all_trajectories_combined = perform_pca_analysis(state_traj_states, skip_initial_steps=skip_initial_steps, apply_tanh=apply_tanh, n_components=n_components)
     
     # Plot explained variance ratio bar chart
     plot_explained_variance_ratio(pca, skip_initial_steps=skip_initial_steps, apply_tanh=apply_tanh)
@@ -564,6 +565,7 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
     pca_results = {
         "pca": pca,  # Add the PCA object itself
         "proj_trajs": proj_trajs,
+        "all_trajectories_combined": all_trajectories_combined,  # Add combined trajectory matrix
         "skip_initial_steps": skip_initial_steps,
         "apply_tanh": apply_tanh,
         "pca_components": pca.components_,

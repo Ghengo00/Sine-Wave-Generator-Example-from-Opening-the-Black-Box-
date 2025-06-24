@@ -10,6 +10,217 @@ DIFFERENCES FROM TEST_Sparsity_Experiments.py:
 3. Uses create_loss_function() with l1_reg_strength parameter
 4. Saves results with L1 regularization naming convention instead of sparsity
 5. All other functionality (eigenvalue tracking, analysis, visualization) is identical
+
+
+OUTPUT VARIABLES SAVED (per L1 regularization strength):
+Eigenvalue evolution data during training:
+- 'eigenvalue_data_l1_reg_{l1_reg_strength}' (dict containing):
+  - 'adam': list of (iteration, eigenvalue_data) tuples for Adam phase
+  - 'lbfgs': list of (iteration, eigenvalue_data) tuples for L-BFGS phase
+  - eigenvalue_data dict contains:
+    - 'jacobian': dict mapping frequency indices to eigenvalue arrays (if computed)
+    - 'connectivity': array of connectivity matrix eigenvalues (if computed)
+
+Training loss evolution data during training:
+- 'training_loss_over_iterations_l1_reg_{l1_reg_strength}' (dict containing):
+  - 'adam': list of (iteration, training_loss) tuples for Adam phase
+  - 'lbfgs': list of (iteration, training_loss) tuples for L-BFGS phase
+  - 'final': final best loss value achieved
+
+Training results:
+- 'J_param_l1_reg_{l1_reg_strength}', shape (N, N)
+- 'B_param_l1_reg_{l1_reg_strength}', shape (N, I)
+- 'b_x_param_l1_reg_{l1_reg_strength}', shape (N,)
+- 'w_param_l1_reg_{l1_reg_strength}', shape (I, N)  
+- 'b_z_param_l1_reg_{l1_reg_strength}', shape (I,)
+- 'state_l1_reg_{l1_reg_strength}' (dict containing):
+  - 'traj_states': array of shape (num_tasks, T_train, N)
+  - 'fixed_point_inits': array of shape (num_tasks, N)
+
+Fixed point and frequency analysis results (replicated for slow points if enabled):
+- 'all_fixed_points_l1_reg_{l1_reg_strength}': list of lists, outer list over tasks, inner list over fixed points for a given task
+- 'all_fixed_jacobians_l1_reg_{l1_reg_strength}': list of lists, outer list over tasks, inner list over fixed point Jacobians for a given task
+- 'all_fixed_unstable_eig_freq_l1_reg_{l1_reg_strength}': list of lists of lists, outer list over tasks, inner list over fixed points, inner list over unstable eigen frequencies for a given task
+
+PCA analysis results
+- 'pca_results_l1_reg_{l1_reg_strength}' (dict containing):
+  Keys: 'skip_{skip_steps}_tanh_{apply_tanh}' for each combination of PCA_SKIP_OPTIONS and PCA_TANH_OPTIONS
+  Values: dict containing:
+    - 'pca': fitted PCA object
+    - 'proj_trajs': list of projected trajectories for each task
+    - 'all_trajectories_combined': combined trajectory matrix used for PCA fitting
+    - 'proj_fixed': projected fixed points (if available)
+    - 'proj_slow': projected slow points (if SLOW_POINT_SEARCH is True and available)
+
+
+    
+
+CROSS-L1-REGULARIZATION OUTPUT VARIABLES SAVED:
+Experiment summary:
+- 'complete_l1_regularization_experiment_{timestamp}' (dict containing):
+  - 'l1_reg_values': array of all tested L1 regularization values
+  - 'all_results': list of complete results dictionaries for each L1 regularization level
+  - 'experiment_config': dict with experiment configuration including:
+    - 'eigenvalue_sample_frequency': frequency of eigenvalue sampling during training
+    - 'compute_jacobian_eigenvals': boolean indicating if Jacobian eigenvalues were computed
+    - 'compute_connectivity_eigenvals': boolean indicating if connectivity eigenvalues were computed
+    - 'jacobian_frequencies': list of frequency indices used for Jacobian eigenvalue computation
+    - 'num_epochs_adam': number of Adam optimization epochs
+    - 'num_epochs_lbfgs': number of L-BFGS optimization epochs
+    - 'network_size': network size (N)
+    - 'num_tasks': number of tasks
+    - 'slow_point_search': boolean indicating if slow point search was enabled
+    - 'fixed_sparsity': sparsity level (always 0.0 for L1 experiments)
+    - 'timestamp': experiment timestamp
+    - 'output_directory': full path to experiment output directory
+
+
+========================================
+========================================
+
+
+OUTPUT PLOTS SAVED (per L1 regularization strength):
+Eigenvalue evolution plots (single L1 regularization):
+- 'jacobian_eigenvalue_evolution_freq_{freq_idx}_l1_reg_{l1_reg_str}_omega_{freq_str}' plots:
+        Evolution of Jacobian eigenvalues during training for specific frequency and L1 regularization
+        From 'plot_jacobian_eigenvalue_evolution_for_single_l1_reg' function
+        One for each frequency index and L1 regularization level combination
+        Saved in L1-specific subdirectories
+
+Training progress:
+- 'training_loss_evolution_l1_reg_{l1_reg_str}' plots:
+        Plot of training loss evolution during optimization
+        From 'plot_training_loss_evolution' function
+        Shows Adam and L-BFGS phases with final best loss marked
+        Saved in L1-specific subdirectories
+
+Visualization of basic results:
+- 'trajectory_vs_target' plots:
+        From 'plot_trajectories_vs_targets' function
+        One for each of TEST_INDICES
+        Saved in L1-specific subdirectories
+- 'parameter_matrices' plots:
+        Plot of J, B, and b_x matrices with colour scales
+        From 'plot_parameter_matrices_for_tasks' function
+        For test_indices=0
+        Saved in L1-specific subdirectories
+
+Fixed point and frequency plots (replicated for slow points if enabled):
+- 'Jacobian_Matrices' plots:
+        From 'analyze_jacobians_visualization' function
+        One for each of TEST_INDICES
+        Saved in L1-specific subdirectories
+- 'Unstable_Eigenvalues' plots:
+        Plot of the unstable eigenvalues (for given task) on the complex plane
+        From 'analyze_unstable_frequencies_visualization' function, and within that, from 'plot_unstable_eigenvalues' function
+        One for each of TEST_INDICES
+        Saved in L1-specific subdirectories
+- 'Frequency_Comparison' plots:
+        Plot of the maximum norm of the imaginary component of the unstable eigenvalues vs the target frequency for each task
+        From 'analyze_unstable_frequencies_visualization' function, and within that, from 'plot_frequency_comparison' function
+        Saved in L1-specific subdirectories
+
+PCA plots (multiple skip/tanh combinations):
+- 'pca_explained_variance_ratio' plots:
+        Plot of the explained variance ratio for each PCA component
+        From 'run_pca_analysis' function, and within that, from 'plot_explained_variance_ratio' function
+        One plot for each combination of PCA_SKIP_OPTIONS and PCA_TANH_OPTIONS
+        Saved in L1-specific subdirectories
+- 'pca_plot_fixed' plots:
+        3-D PCA plot, .png
+        From 'run_pca_analysis' function, and within that, from 'plot_pca_trajectories_and_points' function
+        One plot for each combination of PCA_SKIP_OPTIONS and PCA_TANH_OPTIONS
+        Saved in L1-specific subdirectories
+- 'subset_of_indices_pca_plot_fixed' plots:
+        3-D PCA plot, .png, only for specified tasks
+        One plot for each combination of PCA_SKIP_OPTIONS and PCA_TANH_OPTIONS
+        Saved in L1-specific subdirectories
+- 'interactive_pca_plot_fixed' plots:
+        Interactive 3-D PCA plot, .html
+        From 'run_pca_analysis' function, and within that, from 'plot_interactive_pca_trajectories_and_points' function
+        One plot for each combination of PCA_SKIP_OPTIONS and PCA_TANH_OPTIONS
+        Saved in L1-specific subdirectories
+- 'subset_of_indices_interactive_pca_plot_fixed' plots:
+        Interactive 3-D PCA plot, .html, only for specified tasks
+        One plot for each combination of PCA_SKIP_OPTIONS and PCA_TANH_OPTIONS
+        Saved in L1-specific subdirectories
+
+
+
+
+CROSS-L1-REGULARIZATION OUTPUT PLOTS SAVED:
+Eigenvalue evolution comparison plots:
+- 'connectivity_eigenvalue_evolution_l1_reg_{l1_reg_str}' plots:
+        Evolution of connectivity matrix eigenvalues during training comparing all L1 regularization levels
+        From 'plot_connectivity_eigenvalue_evolution' function within 'plot_eigenvalue_evolution_comparison'
+        Only saved if connectivity eigenvalues were computed
+        L1_reg_str contains all tested L1 regularization values in filename
+        Shows eigenvalues on complex plane with color indicating training progress
+
+Training loss comparison plots:
+- 'training_loss_evolution_l1_reg_{l1_reg_str}' plots:
+        Subplots comparing training loss evolution across all L1 regularization levels
+        From 'plot_training_loss_evolution_comparison' function
+        Shows Adam and L-BFGS phases with final best loss for each L1 regularization level
+        L1_reg_str contains all tested L1 regularization values in filename
+
+Trajectory comparison plots:
+- 'trajectory_vs_target_task_{j}_l1_reg_{l1_reg_str}' plots:
+        Subplots comparing trajectory vs target for specific task across all L1 regularization levels
+        From 'plot_trajectories_vs_targets_comparison' function
+        One plot for each task index in TEST_INDICES
+        L1_reg_str contains all tested L1 regularization values in filename
+
+Frequency comparison plots:
+- 'frequency_comparison_l1_reg_{l1_reg_str}' plots:
+        Subplots comparing frequency analysis across all L1 regularization levels
+        Shows maximum norm of imaginary component of unstable eigenvalues vs target frequency
+        From 'plot_frequency_comparison_across_l1_reg' function
+        L1_reg_str contains all tested L1 regularization values in filename
+
+PCA comparison plots:
+- 'pca_explained_variance_ratio_skip_{skip_steps}_tanh_{apply_tanh}_l1_reg_{l1_reg_str}' plots:
+        Subplots comparing PCA explained variance ratio across all L1 regularization levels
+        From 'plot_pca_explained_variance_comparison' function
+        One plot for each combination of PCA_SKIP_OPTIONS and PCA_TANH_OPTIONS
+        L1_reg_str contains all tested L1 regularization values in filename
+- '3d_pca_comparison_skip_{skip_steps}_tanh_{apply_tanh}_l1_reg_{l1_reg_str}' plots:
+        3D PCA plots comparing across all L1 regularization levels (fixed points version)
+        From 'plot_pca_3d_comparison' function with plot_type='fixed'
+        One plot for each combination of PCA_SKIP_OPTIONS and PCA_TANH_OPTIONS
+        L1_reg_str contains all tested L1 regularization values in filename
+- '3d_pca_comparison_subset_skip_{skip_steps}_tanh_{apply_tanh}_l1_reg_{l1_reg_str}' plots:
+        3D PCA plots comparing across all L1 regularization levels (subset version)
+        From 'plot_pca_3d_comparison' function with plot_type='subset'
+        One plot for each combination of PCA_SKIP_OPTIONS and PCA_TANH_OPTIONS
+        L1_reg_str contains all tested L1 regularization values in filename
+
+Summary comparison plots:
+- 'l1_reg_summary_plots_{timestamp}' plots:
+        2x2 subplot comparing metrics across all L1 regularization levels including:
+        - Final training loss vs L1 regularization (log scale)
+        - Number of fixed points vs L1 regularization
+        - Spectral radius vs L1 regularization (with unit circle reference)
+        - Number of slow points vs L1 regularization (if slow point search enabled)
+        From 'create_l1_reg_summary_plots' function
+
+Unstable eigenvalue distribution plots:
+- 'unstable_eigenvalue_table_l1_reg_{l1_reg_str}' plots:
+        Heatmap table showing distribution of unstable eigenvalues per fixed point across all L1 regularization levels
+        Rows: number of unstable eigenvalues per fixed point (0, 1, 2, ...)
+        Columns: L1 regularization levels
+        Values: count of fixed points with that number of unstable eigenvalues
+        From 'create_unstable_eigenvalue_table' function
+        L1_reg_str contains all tested L1 regularization values in filename
+
+Fixed points per task distribution plots:
+- 'fixed_points_per_task_table_l1_reg_{l1_reg_str}' plots:
+        Heatmap table showing distribution of number of fixed points per task across all L1 regularization levels
+        Rows: number of fixed points per task (0, 1, 2, ...)
+        Columns: L1 regularization levels
+        Values: count of tasks with that number of fixed points
+        From 'create_fixed_points_per_task_table' function (defined but not called in main)
+        L1_reg_str contains all tested L1 regularization values in filename
 """
 
 
@@ -31,11 +242,13 @@ import os
 from contextlib import contextmanager
 
 # Import all modules
+import _1_config
 from _1_config import (
     N, I, num_tasks, s, dt, omegas, static_inputs,
     NUM_EPOCHS_ADAM, NUM_EPOCHS_LBFGS, LOSS_THRESHOLD,
     NUMPY_SEED, JAX_SEED, EIGENVALUE_SAMPLE_FREQUENCY,
-    TOL, MAXITER, GAUSSIAN_STD, NUM_ATTEMPTS, SLOW_POINT_SEARCH, TEST_INDICES
+    TOL, MAXITER, GAUSSIAN_STD, NUM_ATTEMPTS, SLOW_POINT_SEARCH, TEST_INDICES,
+    PCA_SKIP_OPTIONS, PCA_TANH_OPTIONS, PCA_N_COMPONENTS
 )
 from _2_utils import (Timer, save_variable, set_custom_output_dir, get_output_dir, 
                      save_variable_with_l1_reg, save_figure_with_l1_reg, get_l1_output_dir)
@@ -44,8 +257,9 @@ from _4_rnn_model import init_params, run_batch_diagnostics, create_loss_functio
 from _5_training import setup_optimizers, create_training_functions, scan_with_history
 from _6_analysis import find_points, compute_jacobian, find_and_analyze_points, generate_point_summaries
 from _7_visualization import (save_figure, plot_trajectories_vs_targets, plot_parameter_matrices_for_tasks, 
+                          plot_single_trajectory_vs_target, plot_frequency_comparison,
                           analyze_jacobians_visualization, analyze_unstable_frequencies_visualization)
-from _8_pca_analysis import run_pca_analysis
+from _8_pca_analysis import plot_explained_variance_ratio, plot_pca_trajectories_and_points, run_pca_analysis
 
 
 
@@ -357,7 +571,7 @@ def compute_eigenvalues_during_training(params, compute_jacobian_eigenvals, comp
 # TRAINING WITH EIGENVALUE TRACKING FUNCTION
 # =============================================================================
 # =============================================================================
-def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, sample_frequency, 
+def modified_scan_with_eigenvalues(params, opt_state, step_fn, loss_fn, num_steps, tag, sample_frequency, 
                                    compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies=None):
     """
     Optimized training loop that uses lax.scan for chunks between eigenvalue sampling.
@@ -369,6 +583,7 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
         params: initial parameters
         opt_state: initial optimizer state
         step_fn: optimization step function
+        loss_fn: loss function to evaluate training loss
         num_steps: total number of steps
         tag: string tag for logging
         sample_frequency: how often to sample eigenvalues
@@ -382,6 +597,7 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
         final_params: final parameters
         final_opt_state: final optimizer state
         eigenvalue_history: list of (iteration, eigenvalue_data) tuples
+        loss_history: list of (iteration, training_loss) tuples
     """
     # Check if any eigenvalue computation is requested
     compute_any_eigenvals = compute_jacobian_eigenvals or compute_connectivity_eigenvals
@@ -459,22 +675,26 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
             print("Training terminated early due to invalid loss.")
             save_early_termination_summary(tag, num_steps, best_loss)
 
-        return best_params, best_loss, final_params, final_opt_state, []
+        return best_params, best_loss, final_params, final_opt_state, [], []
     
     # EIGENVALUE SAMPLING CASE
     # Initialize tracking variables
     best_loss = jnp.inf
     best_params = params
     eigenvalue_history = []
+    loss_history = []
     current_params = params
     current_opt_state = opt_state
     
-    # Sample eigenvalues at iteration 0
-    print(f"[{tag}] Sampling eigenvalues at iteration 0...")
+    # Sample eigenvalues and loss at iteration 0
+    print(f"[{tag}] Sampling eigenvalues and loss at iteration 0...")
     initial_eigenval_data = compute_eigenvalues_during_training(
         params, compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
     )
+    loss_result = loss_fn(params)
+    initial_loss = float(loss_result[0] if isinstance(loss_result, tuple) else loss_result)
     eigenvalue_history.append((0, initial_eigenval_data))
+    loss_history.append((0, initial_loss))
     
     # Calculate chunking strategy
     chunk_size = sample_frequency
@@ -498,20 +718,23 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
             print("Training terminated early due to invalid loss.")
             save_early_termination_summary(tag, steps_completed, chunk_best_loss)
             # Return the best valid parameters found so far
-            return best_params, best_loss, current_params, current_opt_state, eigenvalue_history
+            return best_params, best_loss, current_params, current_opt_state, eigenvalue_history, loss_history
         
         # Update global best if chunk improved
         if chunk_best_loss < best_loss:
             best_loss = chunk_best_loss
             best_params = chunk_best_params
         
-        # Sample eigenvalues at end of chunk
+        # Sample eigenvalues and loss at end of chunk
         step_num = (chunk_idx + 1) * chunk_size
-        print(f"[{tag}] step {step_num}: best_loss {best_loss:.6e} - Sampling eigenvalues...")
+        print(f"[{tag}] step {step_num}: best_loss {best_loss:.6e} - Sampling eigenvalues and loss...")
         eigenval_data = compute_eigenvalues_during_training(
             current_params, compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
         )
+        loss_result = loss_fn(current_params)
+        current_loss = float(loss_result[0] if isinstance(loss_result, tuple) else loss_result)
         eigenvalue_history.append((step_num, eigenval_data))
+        loss_history.append((step_num, current_loss))
     
     # Handle remaining steps if any
     if remaining_steps > 0:
@@ -527,7 +750,7 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
             print("Training terminated early due to invalid loss.")
             save_early_termination_summary(tag, steps_completed, final_best_loss)
             # Return the best valid parameters found so far
-            return best_params, best_loss, current_params, current_opt_state, eigenvalue_history
+            return best_params, best_loss, current_params, current_opt_state, eigenvalue_history, loss_history
         
         # Update global best if final chunk improved
         if final_best_loss < best_loss:
@@ -536,7 +759,7 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, num_steps, tag, s
     
     print(f"[{tag}] Optimization completed. Final best loss: {best_loss:.6e}")
     
-    return best_params, best_loss, current_params, current_opt_state, eigenvalue_history
+    return best_params, best_loss, current_params, current_opt_state, eigenvalue_history, loss_history
 
 
 
@@ -590,6 +813,7 @@ def train_with_full_analysis(params, mask, key, compute_jacobian_eigenvals, comp
     
     # Track eigenvalues during training
     eigenvalue_data = {}
+    training_loss_data = {}
     
 
     # ========================================
@@ -600,14 +824,15 @@ def train_with_full_analysis(params, mask, key, compute_jacobian_eigenvals, comp
     
     with Timer(f"Training with L1 regularization {l1_reg_strength}"):
         # Adam training phase with eigenvalue tracking
-        best_params_adam, best_loss_adam, params_after_adam, adam_state_after, adam_eigenvals = \
+        best_params_adam, best_loss_adam, params_after_adam, adam_state_after, adam_eigenvals, adam_losses = \
             modified_scan_with_eigenvalues(
-                params, adam_state, adam_step,
+                params, adam_state, adam_step, loss_fn,
                 NUM_EPOCHS_ADAM, "ADAM", EIGENVALUE_SAMPLE_FREQUENCY,
                 compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
             )
         
         eigenvalue_data['adam'] = adam_eigenvals
+        training_loss_data['adam'] = adam_losses
         print(f"Adam phase completed. Best loss: {best_loss_adam:.6e}")
         
         # Continue with best parameters from Adam
@@ -617,14 +842,15 @@ def train_with_full_analysis(params, mask, key, compute_jacobian_eigenvals, comp
         # L-BFGS training phase (if needed)
         if best_loss_adam > LOSS_THRESHOLD:
             print("Loss threshold not met, starting L-BFGS phase...")
-            best_params_lbfgs, best_loss_lbfgs, params_after_lbfgs, lbfgs_state_after, lbfgs_eigenvals = \
+            best_params_lbfgs, best_loss_lbfgs, params_after_lbfgs, lbfgs_state_after, lbfgs_eigenvals, lbfgs_losses = \
                 modified_scan_with_eigenvalues(
-                    trained_params, lbfgs_state, lbfgs_step,
+                    trained_params, lbfgs_state, lbfgs_step, loss_fn,
                     NUM_EPOCHS_LBFGS, "L-BFGS", EIGENVALUE_SAMPLE_FREQUENCY,
                     compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies
                 )
             
             eigenvalue_data['lbfgs'] = lbfgs_eigenvals
+            training_loss_data['lbfgs'] = lbfgs_losses
             
             # Use L-BFGS results if better
             if best_loss_lbfgs < best_loss_adam:
@@ -633,11 +859,16 @@ def train_with_full_analysis(params, mask, key, compute_jacobian_eigenvals, comp
                 print(f"L-BFGS improved results. Best loss: {best_loss_lbfgs:.6e}")
         else:
             eigenvalue_data['lbfgs'] = []
+            training_loss_data['lbfgs'] = []
             print("Loss threshold met, skipping L-BFGS phase.")
+    
+    # Add final best loss to training loss data
+    training_loss_data['final'] = final_loss
     
     results['trained_params'] = trained_params
     results['final_loss'] = final_loss
     results['eigenvalue_data'] = eigenvalue_data
+    results['training_loss_data'] = training_loss_data
     
 
     # ========================================
@@ -676,6 +907,14 @@ def train_with_full_analysis(params, mask, key, compute_jacobian_eigenvals, comp
     # Save eigenvalue evolution data during training
     print("Saving eigenvalue evolution data...")
     save_variable_with_l1_reg(eigenvalue_data, f"eigenvalue_data_l1_reg_{l1_reg_strength}", l1_reg_strength, s=0.0)
+    
+    # Save training loss evolution data
+    print("Saving training loss evolution data...")
+    save_variable_with_l1_reg(training_loss_data, f"training_loss_over_iterations_l1_reg_{l1_reg_strength}", l1_reg_strength, s=0.0)
+    
+    # Plot training loss evolution
+    print("Plotting training loss evolution...")
+    plot_training_loss_evolution(training_loss_data, l1_reg_strength)
     
 
     # ========================================
@@ -780,51 +1019,171 @@ def train_with_full_analysis(params, mask, key, compute_jacobian_eigenvals, comp
     
 
     # ========================================
-    # 8. PCA ANALYSIS WITH MULTIPLE TRUNCATIONS
+    # 8. PCA ANALYSIS
     # ========================================
-    print("\n8. PCA ANALYSIS WITH MULTIPLE TRUNCATIONS")
+    print("\n8. PCA ANALYSIS")
     print("-" * 40)
     
-    # Define truncation levels
-    truncation_levels = [0, 200, 400, 600]
-    pca_results_all_truncations = {}
-    
-    with Timer("PCA Analysis (Multiple Truncations)"):
-        for truncation in truncation_levels:
-            print(f"\nRunning PCA with {truncation} truncations...")
+    with Timer("PCA Analysis"):
+        print(f"\nRunning PCA analysis for all skip/tanh combinations...")
+
+        # Initialize PCA results dictionary
+        pca_results = {}
+
+        # Run PCA analysis for all combinations of skip and tanh options
+        for skip_steps in PCA_SKIP_OPTIONS:
+            for apply_tanh in PCA_TANH_OPTIONS:
+                print(f"  Processing skip_steps={skip_steps}, apply_tanh={apply_tanh}")
             
-            # Run PCA analysis (save plots in L1-specific directory)
-            with l1_output_context(l1_reg_strength):
-                # Temporarily update the config sparsity for plot titles (keep at 0.0 for L1 experiments)
-                import _1_config
-                original_s = _1_config.s
-                _1_config.s = 0.0  # Fixed sparsity for L1 experiments
+                # Run PCA analysis (save plots in L1-specific directory)
+                with l1_output_context(l1_reg_strength):
+                    # Temporarily update the config sparsity for plot titles (keep at 0.0 for L1 experiments)
+                    original_s = _1_config.s
+                    _1_config.s = 0.0  # Fixed sparsity for L1 experiments
+                    
+                    try:
+                        pca_result = run_pca_analysis(
+                            state_traj_states, 
+                            all_fixed_points=all_fixed_points,
+                            all_slow_points=all_slow_points,
+                            params=trained_params,
+                            slow_point_search=SLOW_POINT_SEARCH,
+                            skip_initial_steps=skip_steps,
+                            apply_tanh=apply_tanh,
+                            n_components=PCA_N_COMPONENTS
+                        )
+                    finally:
+                        # Restore original sparsity value
+                        _1_config.s = original_s
+                    
+                # Store results with key indicating skip and tanh settings
+                key = f"skip_{skip_steps}_tanh_{apply_tanh}"
+                pca_results[key] = pca_result
                 
-                try:
-                    pca_results = run_pca_analysis(
-                        state_traj_states, 
-                        all_fixed_points=all_fixed_points,
-                        all_slow_points=all_slow_points,
-                        params=trained_params,
-                        slow_point_search=SLOW_POINT_SEARCH,
-                        skip_initial_steps=truncation
-                    )
-                finally:
-                    # Restore original sparsity value
-                    _1_config.s = original_s
+                # Debug: check what was stored
+                print(f"    Stored PCA result for key '{key}': {list(pca_result.keys()) if pca_result else 'None'}")
+                if pca_result and 'proj_trajs' in pca_result:
+                    print(f"    - Number of projected trajectories: {len(pca_result['proj_trajs'])}")
+                if pca_result and 'pca' in pca_result:
+                    print(f"    - PCA object available: {pca_result['pca'] is not None}")
+                if pca_result and 'all_trajectories_combined' in pca_result:
+                    print(f"    - All trajectories combined shape: {pca_result['all_trajectories_combined'].shape}")
             
-            # Save PCA results for this truncation level
-            pca_results_all_truncations[f"truncation_{truncation}"] = pca_results
-            save_variable_with_l1_reg(pca_results, f"pca_results_truncation_{truncation}_l1_reg_{l1_reg_strength}", l1_reg_strength, s=0.0)
+        # Save PCA results for this truncation level
+        save_variable_with_l1_reg(pca_results, f"pca_results_l1_reg_{l1_reg_strength}", l1_reg_strength, s=0.0)
             
-            print(f"Completed PCA analysis with {truncation} truncations")
+        print(f"Completed PCA analysis for all combinations. Total PCA keys stored: {list(pca_results.keys())}")
     
-    results['pca_results'] = pca_results_all_truncations
+    results['pca_results'] = pca_results
     
-    print(f"\nCompleted PCA analysis with truncations: {truncation_levels}")
     print(f"Completed full analysis for L1 regularization {l1_reg_strength}: final loss = {final_loss:.6e}")
     
     return results
+
+
+
+
+# =============================================================================
+# =============================================================================
+# TRAINING LOSS PLOTTING FUNCTIONS
+# =============================================================================
+# =============================================================================
+def plot_training_loss_evolution(training_loss_data, l1_reg_strength, ax=None, for_comparison=False):
+    """
+    Plot training loss evolution during optimization for a single L1 regularization level.
+    
+    Arguments:
+        training_loss_data: dictionary with 'adam', 'lbfgs', and 'final' keys
+        l1_reg_strength: L1 regularization strength for this experiment
+        ax: optional matplotlib axis to plot on. If None, creates new figure
+        for_comparison: if True, adjusts styling for comparison plots (smaller markers, shorter labels)
+    """
+    # Create new figure only if ax is not provided
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        standalone_plot = True
+    else:
+        fig = ax.get_figure()
+        standalone_plot = False
+    
+    # Combine loss data from both training phases
+    all_iterations = []
+    all_losses = []
+    phase_colors = []
+    
+    # Add Adam phase data
+    for iteration, loss in training_loss_data['adam']:
+        all_iterations.append(iteration)
+        all_losses.append(loss)
+        phase_colors.append('blue')
+    
+    # Add L-BFGS phase data (offset iterations)
+    adam_max_iter = NUM_EPOCHS_ADAM if training_loss_data['adam'] else 0
+    for iteration, loss in training_loss_data['lbfgs']:
+        all_iterations.append(adam_max_iter + iteration)
+        all_losses.append(loss)
+        phase_colors.append('red')
+    
+    if len(all_losses) == 0:
+        no_data_msg = 'No training loss data available' if standalone_plot else 'No training\nloss data'
+        ax.text(0.5, 0.5, no_data_msg, 
+               ha='center', va='center', transform=ax.transAxes)
+        
+        # Set title based on context
+        if standalone_plot:
+            ax.set_title(f'Training Loss Evolution - L1 reg = {l1_reg_strength:.1e}')
+            plt.tight_layout()
+            # Save with L1-specific filename
+            l1_reg_str = f'{l1_reg_strength:.1e}'.replace('.', 'p').replace('-', 'm').replace('+', 'p')
+            save_figure_with_l1_reg(fig, f'training_loss_evolution_l1_reg_{l1_reg_str}', l1_reg_strength)
+            plt.close(fig)
+        else:
+            ax.set_title(f'L1 reg = {l1_reg_strength:.1e}\nNo loss data')
+        return
+    
+    # Plot the loss evolution
+    adam_iterations = [iter for iter, color in zip(all_iterations, phase_colors) if color == 'blue']
+    adam_losses = [loss for loss, color in zip(all_losses, phase_colors) if color == 'blue']
+    lbfgs_iterations = [iter for iter, color in zip(all_iterations, phase_colors) if color == 'red']
+    lbfgs_losses = [loss for loss, color in zip(all_losses, phase_colors) if color == 'red']
+    
+    # Adjust styling based on context
+    markersize = 6 if standalone_plot else 4
+    linewidth = 2
+    
+    if adam_iterations:
+        ax.plot(adam_iterations, adam_losses, 'b-o', linewidth=linewidth, markersize=markersize, label='Adam', alpha=0.8)
+    if lbfgs_iterations:
+        ax.plot(lbfgs_iterations, lbfgs_losses, 'r-o', linewidth=linewidth, markersize=markersize, label='L-BFGS', alpha=0.8)
+    
+    # Mark the final best loss
+    final_loss = training_loss_data['final']
+    if all_iterations:
+        final_label = f'Final best loss: {final_loss:.2e}' if standalone_plot else f'Final: {final_loss:.2e}'
+        ax.axhline(y=final_loss, color='green', linestyle='--', alpha=0.7, label=final_label)
+    
+    # Formatting
+    ax.set_xlabel('Training Iteration')
+    ax.set_ylabel('Training Loss')
+    
+    # Set title based on context
+    if standalone_plot:
+        ax.set_title(f'Training Loss Evolution - L1 reg = {l1_reg_strength:.1e}')
+    else:
+        ax.set_title(f'L1 reg = {l1_reg_strength:.1e}\nFinal loss: {final_loss:.2e}')
+    
+    ax.set_yscale('log')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    
+    # Save only for standalone plots
+    if standalone_plot:
+        plt.tight_layout()
+        # Save with L1-specific filename in L1 subdirectory
+        l1_reg_str = f'{l1_reg_strength:.1e}'.replace('.', 'p').replace('-', 'm').replace('+', 'p')
+        save_figure_with_l1_reg(fig, f'training_loss_evolution_l1_reg_{l1_reg_str}', l1_reg_strength)
+        # plt.show()  # Commented out to prevent interactive display
+        plt.close(fig)
 
 
 
@@ -940,7 +1299,7 @@ def plot_connectivity_eigenvalue_evolution(all_results, l1_reg_values, cmap):
             c=norm_iterations,
             cmap=cmap,
             alpha=0.7,
-            s=20
+            s=1
         )
         
         # Store the first valid scatter plot for colorbar
@@ -1048,7 +1407,7 @@ def plot_jacobian_eigenvalue_evolution_for_single_l1_reg(result, freq_idx, cmap)
         c=norm_iterations,
         cmap=cmap,
         alpha=0.7,
-        s=20
+        s=1
     )
     
     # Add unit circle for reference
@@ -1076,13 +1435,6 @@ def plot_jacobian_eigenvalue_evolution_for_single_l1_reg(result, freq_idx, cmap)
     save_figure_with_l1_reg(fig, f'jacobian_eigenvalue_evolution_freq_{freq_idx}_l1_reg_{l1_reg_str}_omega_{freq_str}', l1_reg)
     # plt.show()  # Commented out to prevent interactive display
     plt.close(fig)
-
-
-def plot_eigenvalue_evolution(all_results, l1_reg_values):
-    """
-    Backward compatibility function - calls the new comparison function.
-    """
-    plot_eigenvalue_evolution_comparison(all_results, l1_reg_values)
 
 
 
@@ -1137,6 +1489,7 @@ def create_l1_reg_summary_plots(all_results, l1_reg_values):
     axes[0, 0].set_xlabel('L1 Regularization')
     axes[0, 0].set_ylabel('Final Loss')
     axes[0, 0].set_title('Training Loss vs L1 Regularization')
+    axes[0, 0].set_xscale('log')
     axes[0, 0].set_yscale('log')
     axes[0, 0].grid(True, alpha=0.3)
     
@@ -1145,6 +1498,7 @@ def create_l1_reg_summary_plots(all_results, l1_reg_values):
     axes[0, 1].set_xlabel('L1 Regularization')
     axes[0, 1].set_ylabel('Number of Fixed Points')
     axes[0, 1].set_title('Fixed Points vs L1 Regularization')
+    axes[0, 1].set_xscale('log')
     axes[0, 1].grid(True, alpha=0.3)
     
     # Plot 3: Spectral radius vs L1 regularization
@@ -1153,6 +1507,7 @@ def create_l1_reg_summary_plots(all_results, l1_reg_values):
     axes[1, 0].set_xlabel('L1 Regularization')
     axes[1, 0].set_ylabel('Spectral Radius')
     axes[1, 0].set_title('Spectral Radius vs L1 Regularization')
+    axes[1, 0].set_xscale('log')
     axes[1, 0].legend()
     axes[1, 0].grid(True, alpha=0.3)
     
@@ -1162,6 +1517,7 @@ def create_l1_reg_summary_plots(all_results, l1_reg_values):
         axes[1, 1].set_xlabel('L1 Regularization')
         axes[1, 1].set_ylabel('Number of Slow Points')
         axes[1, 1].set_title('Slow Points vs L1 Regularization')
+        axes[1, 1].set_xscale('log')
         axes[1, 1].grid(True, alpha=0.3)
     else:
         axes[1, 1].text(0.5, 0.5, 'No slow point analysis\nperformed', 
@@ -1282,12 +1638,584 @@ def create_unstable_eigenvalue_table(all_results, l1_reg_values):
             print(f"L1 reg {l1_reg:.1e}: No fixed points found")
     print(f"{'='*60}")
 
+
+def create_fixed_points_per_task_table(all_results, l1_reg_values):
+    """
+    Create a table showing the distribution of fixed points per task across L1 regularization levels.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        l1_reg_values: list of L1 regularization values tested
+    """
+    # Collect fixed point counts per task for each L1 regularization level
+    fp_counts_per_l1_reg = {}
+    max_fp_count = 0
+    
+    for result in all_results:
+        l1_reg = result['l1_reg_strength']
+        fp_counts = []
+        
+        # Extract fixed point counts per task
+        if result['all_fixed_points'] and len(result['all_fixed_points']) > 0:
+            for task_fixed_points in result['all_fixed_points']:
+                num_fps = len(task_fixed_points) if task_fixed_points else 0
+                fp_counts.append(num_fps)
+                max_fp_count = max(max_fp_count, num_fps)
+        else:
+            # If no fixed points data, assume 0 fixed points for all tasks
+            fp_counts = [0] * num_tasks
+        
+        fp_counts_per_l1_reg[l1_reg] = fp_counts
+    
+    # If no fixed points found, create a simple message plot
+    if max_fp_count == 0:
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.text(0.5, 0.5, 'No fixed points found\nacross any L1 regularization levels', 
+               ha='center', va='center', transform=ax.transAxes, fontsize=14)
+        ax.set_title('Fixed Points per Task Distribution Table')
+        plt.tight_layout()
+        
+        l1_reg_str = '_'.join([f'{l1:.1e}'.replace('.', 'p').replace('-', 'm').replace('+', 'p') for l1 in l1_reg_values])
+        save_figure(fig, f'fixed_points_per_task_table_l1_reg_{l1_reg_str}')
+        plt.close(fig)
+        return
+    
+    # Create the table: rows = number of fixed points per task, cols = L1 regularization levels
+    table_data = np.zeros((max_fp_count + 1, len(l1_reg_values)), dtype=int)
+    
+    for l1_reg_idx, l1_reg in enumerate(l1_reg_values):
+        fp_counts = fp_counts_per_l1_reg[l1_reg]
+        
+        # Count how many tasks have each number of fixed points
+        for num_fps in range(max_fp_count + 1):
+            count = fp_counts.count(num_fps)
+            table_data[num_fps, l1_reg_idx] = count
+    
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(max(8, len(l1_reg_values) * 1.5), max(6, max_fp_count * 0.8)))
+    
+    # Create heatmap
+    im = ax.imshow(table_data, cmap='YlOrRd', aspect='auto')
+    
+    # Set ticks and labels
+    ax.set_xticks(np.arange(len(l1_reg_values)))
+    ax.set_yticks(np.arange(max_fp_count + 1))
+    ax.set_xticklabels([f'{l1:.1e}' for l1 in l1_reg_values], rotation=45)
+    ax.set_yticklabels([f'{i}' for i in range(max_fp_count + 1)])
+    
+    # Labels and title
+    ax.set_xlabel('L1 Regularization Level')
+    ax.set_ylabel('Number of Fixed Points per Task')
+    ax.set_title('Distribution of Fixed Points per Task Across L1 Regularization Levels')
+    
+    # Add text annotations
+    for i in range(max_fp_count + 1):
+        for j in range(len(l1_reg_values)):
+            text = ax.text(j, i, f'{table_data[i, j]}',
+                         ha="center", va="center", color="black" if table_data[i, j] < table_data.max()/2 else "white",
+                         fontweight='bold')
+    
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label('Number of Tasks')
+    
+    plt.tight_layout()
+    
+    # Save with L1-specific filename
+    l1_reg_str = '_'.join([f'{l1:.1e}'.replace('.', 'p').replace('-', 'm').replace('+', 'p') for l1 in l1_reg_values])
+    save_figure(fig, f'fixed_points_per_task_table_l1_reg_{l1_reg_str}')
+    plt.close(fig)
+    
+    # Print summary statistics
+    print(f"\n{'='*60}")
+    print("FIXED POINTS PER TASK DISTRIBUTION SUMMARY")
+    print(f"{'='*60}")
+    for l1_reg_idx, l1_reg in enumerate(l1_reg_values):
+        fp_counts = fp_counts_per_l1_reg[l1_reg]
+        total_tasks = len(fp_counts)
+        if total_tasks > 0:
+            avg_fps = np.mean(fp_counts)
+            std_fps = np.std(fp_counts)
+            min_fps = np.min(fp_counts)
+            max_fps = np.max(fp_counts)
+            print(f"L1 reg {l1_reg:.1e}: {total_tasks} tasks, "
+                  f"avg {avg_fps:.1f}±{std_fps:.1f} FPs/task, "
+                  f"range [{min_fps}-{max_fps}] FPs/task")
+        else:
+            print(f"L1 reg {l1_reg:.1e}: No task data available")
+    print(f"{'='*60}")
+
+
+
+
+# =============================================================================
+# =============================================================================
+# AGGREGATE PLOTTING FUNCTIONS (CROSS-L1-REGULARIZATION)
+# =============================================================================
+# =============================================================================
+def plot_training_loss_evolution_comparison(all_results, l1_reg_values):
+    """
+    Create visualization showing training loss evolution for all L1 regularization levels.
+    This function reuses the individual plotting logic to avoid code duplication.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        l1_reg_values: list of L1 regularization values tested
+    """
+    n_l1_reg = len(l1_reg_values)
+    
+    # Calculate subplot layout - prefer wider layouts
+    if n_l1_reg <= 3:
+        nrows, ncols = 1, n_l1_reg
+    elif n_l1_reg <= 6:
+        nrows, ncols = 2, 3
+    else:
+        nrows, ncols = 3, (n_l1_reg + 2) // 3
+    
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 5*nrows))
+    if n_l1_reg == 1:
+        axes = [axes]
+    elif nrows == 1:
+        axes = axes  # Already a 1D array for single row
+    else:
+        axes = axes.flatten()  # Flatten for easy indexing
+    
+    # Use the individual plotting function for each L1 regularization level
+    for l1_reg_idx, result in enumerate(all_results):
+        ax = axes[l1_reg_idx]
+        
+        # Call the individual plotting function with the provided axis
+        plot_training_loss_evolution(
+            training_loss_data=result['training_loss_data'],
+            l1_reg_strength=result['l1_reg_strength'],
+            ax=ax,
+            for_comparison=True
+        )
+    
+    # Hide unused subplots if any
+    for idx in range(n_l1_reg, len(axes)):
+        axes[idx].set_visible(False)
+    
+    # Add overall title and formatting
+    plt.suptitle('Training Loss Evolution Across L1 Regularization Levels', fontsize=16)
+    plt.tight_layout()
+    
+    # Create L1-specific filename
+    l1_reg_str = '_'.join([f'{l1:.1e}'.replace('.', 'p').replace('-', 'm').replace('+', 'p') for l1 in l1_reg_values])
+    save_figure(fig, f'training_loss_evolution_l1_reg_{l1_reg_str}')
+    # plt.show()  # Commented out to prevent interactive display
+    plt.close(fig)
+
+
+def plot_trajectories_vs_targets_comparison(all_results, l1_reg_values, test_index):
+    """
+    Create visualization showing trajectory vs target for specific test index across all L1 regularization levels.
+    This function reuses the individual plotting logic to avoid code duplication.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        l1_reg_values: list of L1 regularization values tested
+        test_index: specific test index to plot
+    """
+    n_l1_reg = len(l1_reg_values)
+    
+    # Calculate subplot layout - prefer wider layouts
+    if n_l1_reg <= 3:
+        nrows, ncols = 1, n_l1_reg
+    elif n_l1_reg <= 6:
+        nrows, ncols = 2, 3
+    else:
+        nrows, ncols = 3, (n_l1_reg + 2) // 3
+    
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 5*nrows))
+    if n_l1_reg == 1:
+        axes = [axes]
+    elif nrows == 1:
+        axes = axes  # Already a 1D array for single row
+    else:
+        axes = axes.flatten()  # Flatten for easy indexing
+    
+    # Get task information for title
+    j = test_index
+    omega = omegas[j]
+    u_off = static_inputs[j]
+    
+    # Common initial state for all L1 regularization levels
+    x0_test = jnp.zeros((N,))
+    
+    # Use the individual plotting function for each L1 regularization level
+    for l1_reg_idx, result in enumerate(all_results):
+        ax = axes[l1_reg_idx]
+        l1_reg = result['l1_reg_strength']
+        trained_params = result['trained_params']
+        final_loss = result['final_loss']
+        
+        try:
+            # Call the individual plotting function with the provided axis
+            error = plot_single_trajectory_vs_target(
+                params=trained_params,
+                task_index=j,
+                x0_test=x0_test,
+                ax=ax,
+                for_comparison=True
+            )
+            
+            # Add additional information to the title for comparison context
+            current_title = ax.get_title()
+            ax.set_title(f'L1 reg = {l1_reg:.1e}\n{current_title.split(": ")[1]}\nFinal loss: {final_loss:.2e}')
+            
+        except Exception as e:
+            ax.text(0.5, 0.5, f'Simulation failed\n{str(e)[:30]}...', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'L1 reg = {l1_reg:.1e}')
+    
+    # Hide unused subplots if any
+    for idx in range(n_l1_reg, len(axes)):
+        axes[idx].set_visible(False)
+    
+    # Add overall title and formatting
+    plt.suptitle(f'Trajectory vs Target Across L1 Regularization Levels\nTask {j}: ω = {omega:.3f} rad/s, u_offset = {u_off:.3f}', fontsize=16)
+    plt.tight_layout()
+    
+    # Create L1-specific filename
+    l1_reg_str = '_'.join([f'{l1:.1e}'.replace('.', 'p').replace('-', 'm').replace('+', 'p') for l1 in l1_reg_values])
+    save_figure(fig, f'trajectory_vs_target_task_{j}_l1_reg_{l1_reg_str}')
+    plt.close(fig)
+
+
+def plot_frequency_comparison_across_l1_reg(all_results, l1_reg_values):
+    """
+    Create visualization showing frequency comparison plots across all L1 regularization levels.
+    This function reuses the individual plotting logic to avoid code duplication.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        l1_reg_values: list of L1 regularization values tested
+    """
+    n_l1_reg = len(l1_reg_values)
+    
+    # Calculate subplot layout - prefer wider layouts
+    if n_l1_reg <= 3:
+        nrows, ncols = 1, n_l1_reg
+    elif n_l1_reg <= 6:
+        nrows, ncols = 2, 3
+    else:
+        nrows, ncols = 3, (n_l1_reg + 2) // 3
+    
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 5*nrows))
+    if n_l1_reg == 1:
+        axes = [axes]
+    elif nrows == 1:
+        axes = axes  # Already a 1D array for single row
+    else:
+        axes = axes.flatten()  # Flatten for easy indexing
+    
+    # Use the individual plotting function for each L1 regularization level
+    for l1_reg_idx, result in enumerate(all_results):
+        ax = axes[l1_reg_idx]
+        l1_reg = result['l1_reg_strength']
+        all_unstable_eig_freq = result['all_unstable_eig_freq']
+        final_loss = result['final_loss']
+        
+        if not all_unstable_eig_freq or len(all_unstable_eig_freq) == 0:
+            ax.text(0.5, 0.5, 'No unstable\neigenvalue data', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'L1 reg = {l1_reg:.1e}')
+            continue
+        
+        try:
+            # Call the individual plotting function with the provided axis
+            plot_frequency_comparison(
+                all_unstable_eig_freq=all_unstable_eig_freq,
+                omegas=omegas,
+                ax=ax,
+                l1_reg_value=l1_reg,
+                for_comparison=True
+            )
+            
+            # Add final loss information to the title
+            current_title = ax.get_title()
+            if current_title and not current_title.startswith('L1 reg'):
+                ax.set_title(f'L1 reg = {l1_reg:.1e}\nFinal loss: {final_loss:.2e}')
+            elif 'L1 reg' in current_title and 'Final loss' not in current_title:
+                ax.set_title(f'{current_title}\nFinal loss: {final_loss:.2e}')
+            
+        except Exception as e:
+            ax.text(0.5, 0.5, f'Plot failed\n{str(e)[:30]}...', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'L1 reg = {l1_reg:.1e}')
+    
+    # Hide unused subplots if any
+    for idx in range(n_l1_reg, len(axes)):
+        axes[idx].set_visible(False)
+    
+    # Add overall title and formatting
+    plt.suptitle('Frequency Comparison Across L1 Regularization Levels', fontsize=16)
+    plt.tight_layout()
+    
+    # Create L1-specific filename
+    l1_reg_str = '_'.join([f'{l1:.1e}'.replace('.', 'p').replace('-', 'm').replace('+', 'p') for l1 in l1_reg_values])
+    save_figure(fig, f'frequency_comparison_l1_reg_{l1_reg_str}')
+    plt.close(fig)
+
+
+def plot_pca_explained_variance_comparison(all_results, l1_reg_values, skip_steps, apply_tanh):
+    """
+    Create visualization showing PCA explained variance ratio across all L1 regularization levels.
+    This function reuses the individual plotting logic to avoid code duplication.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        l1_reg_values: list of L1 regularization values tested
+        skip_steps: skip steps parameter for PCA
+        apply_tanh: tanh application parameter for PCA
+    """
+    n_l1_reg = len(l1_reg_values)
+    
+    # Calculate subplot layout - prefer wider layouts
+    if n_l1_reg <= 3:
+        nrows, ncols = 1, n_l1_reg
+    elif n_l1_reg <= 6:
+        nrows, ncols = 2, 3
+    else:
+        nrows, ncols = 3, (n_l1_reg + 2) // 3
+    
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 5*nrows))
+    if n_l1_reg == 1:
+        axes = [axes]
+    elif nrows == 1:
+        axes = axes  # Already a 1D array for single row
+    else:
+        axes = axes.flatten()  # Flatten for easy indexing
+    
+    pca_key = f"skip_{skip_steps}_tanh_{apply_tanh}"
+    
+    # Use the individual plotting function for each L1 regularization level
+    for l1_reg_idx, result in enumerate(all_results):
+        ax = axes[l1_reg_idx]
+        l1_reg = result['l1_reg_strength']
+        pca_results = result['pca_results']
+        final_loss = result['final_loss']
+        
+        if pca_key not in pca_results:
+            ax.text(0.5, 0.5, f'No PCA data for\nskip={skip_steps}, tanh={apply_tanh}', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'L1 reg = {l1_reg:.1e}')
+            continue
+        
+        pca_data = pca_results[pca_key]
+        pca_object = pca_data['pca']
+        
+        try:
+            # Call the individual plotting function with the provided axis
+            plot_explained_variance_ratio(
+                pca=pca_object,
+                skip_initial_steps=skip_steps,
+                apply_tanh=apply_tanh,
+                ax=ax,
+                sparsity_value=l1_reg,
+                for_comparison=True
+            )
+            
+        except Exception as e:
+            ax.text(0.5, 0.5, f'Plot failed\n{str(e)[:30]}...', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'L1 reg = {l1_reg:.1e}')
+    
+    # Hide unused subplots if any
+    for idx in range(n_l1_reg, len(axes)):
+        axes[idx].set_visible(False)
+    
+    # Add overall title and formatting
+    plt.suptitle(f'PCA Explained Variance Ratio Across L1 Regularization Levels\n(skip_steps={skip_steps}, apply_tanh={apply_tanh})', fontsize=16)
+    plt.tight_layout()
+    
+    # Create L1-specific filename
+    l1_reg_str = '_'.join([f'{l1:.1e}'.replace('.', 'p').replace('-', 'm').replace('+', 'p') for l1 in l1_reg_values])
+    save_figure(fig, f'pca_explained_variance_ratio_skip_{skip_steps}_tanh_{apply_tanh}_l1_reg_{l1_reg_str}')
+    plt.close(fig)
+
+
+def plot_pca_3d_comparison(all_results, l1_reg_values, skip_steps, apply_tanh, plot_type='fixed'):
+    """
+    Create 3D PCA plots across all L1 regularization levels.
+    This function reuses the individual plotting logic to avoid code duplication.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        l1_reg_values: list of L1 regularization values tested
+        skip_steps: skip steps parameter for PCA
+        apply_tanh: tanh application parameter for PCA
+        plot_type: 'fixed' for regular plot, 'subset' for subset plot
+    """
+    n_l1_reg = len(l1_reg_values)
+    
+    # Calculate subplot layout - prefer wider layouts
+    if n_l1_reg <= 3:
+        nrows, ncols = 1, n_l1_reg
+    elif n_l1_reg <= 6:
+        nrows, ncols = 2, 3
+    else:
+        nrows, ncols = 3, (n_l1_reg + 2) // 3
+    
+    fig = plt.figure(figsize=(6*ncols, 5*nrows))
+    
+    pca_key = f"skip_{skip_steps}_tanh_{apply_tanh}"
+    
+    # Use the individual plotting function for each L1 regularization level
+    for l1_reg_idx, result in enumerate(all_results):
+        l1_reg = result['l1_reg_strength']
+        pca_results = result['pca_results']
+        final_loss = result['final_loss']
+        
+        print(f"\nProcessing L1 reg {l1_reg:.1e} for PCA 3D comparison:")
+        print(f"  Available PCA result keys: {list(pca_results.keys()) if pca_results else 'None'}")
+        
+        ax = fig.add_subplot(nrows, ncols, l1_reg_idx + 1, projection='3d')
+        
+        if pca_key not in pca_results:
+            ax.text(0.5, 0.5, 0.5, f'No PCA data for\nskip={skip_steps}, tanh={apply_tanh}', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'L1 reg = {l1_reg:.1e}')
+            print(f"WARNING: No PCA data found for key '{pca_key}' in L1 reg {l1_reg:.1e}")
+            print(f"Available PCA keys: {list(pca_results.keys())}")
+            continue
+        
+        pca_data = pca_results[pca_key]
+        pca_object = pca_data.get('pca', None)
+        proj_trajs = pca_data.get('proj_trajs', [])
+        
+        # Debug information
+        print(f"DEBUG: L1 reg {l1_reg:.1e}, PCA key '{pca_key}':")
+        print(f"  - PCA object available: {pca_object is not None}")
+        print(f"  - Number of projected trajectories: {len(proj_trajs) if proj_trajs else 0}")
+        print(f"  - PCA data keys: {list(pca_data.keys())}")
+        
+        if pca_object is None:
+            ax.text(0.5, 0.5, 0.5, f'No PCA object for\nskip={skip_steps}, tanh={apply_tanh}', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'L1 reg = {l1_reg:.1e}')
+            continue
+        
+        # Get fixed points from main results, not from PCA data
+        all_fixed_points = result.get('all_fixed_points', [])
+        proj_fixed_points = pca_data.get('proj_fixed', np.array([]))
+        
+        print(f"  - Fixed points from result: {len(all_fixed_points) if all_fixed_points else 0} tasks")
+        print(f"  - Projected fixed points shape: {proj_fixed_points.shape if proj_fixed_points.size > 0 else 'Empty'}")
+        if all_fixed_points:
+            total_fps = sum(len(task_fps) for task_fps in all_fixed_points if task_fps is not None)
+            print(f"  - Total fixed points across all tasks: {total_fps}")
+        
+        if not proj_trajs or len(proj_trajs) == 0:
+            ax.text(0.5, 0.5, 0.5, 'No projection\ndata available', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'L1 reg = {l1_reg:.1e}')
+            print(f"WARNING: No projected trajectories found for L1 reg {l1_reg:.1e}")
+            continue
+        
+        print(f"  - First trajectory shape: {proj_trajs[0].shape if len(proj_trajs) > 0 else 'N/A'}")
+        print(f"  - All trajectory shapes: {[traj.shape for traj in proj_trajs[:3]]}...")  # Show first 3
+        
+        # Define which trajectories to plot based on plot_type
+        if plot_type == 'subset':
+            # Use TEST_INDICES if available, otherwise first few tasks
+            try:
+                task_indices = TEST_INDICES[:min(len(TEST_INDICES), len(proj_trajs))]
+                # Filter trajectories to plot only the subset
+                subset_proj_trajs = [proj_trajs[i] for i in task_indices if i < len(proj_trajs)]
+            except (NameError, AttributeError):
+                task_indices = list(range(min(3, len(proj_trajs))))
+                subset_proj_trajs = proj_trajs[:min(3, len(proj_trajs))]
+            
+            # Also filter fixed points if they exist per task
+            if all_fixed_points and len(all_fixed_points) > 0:
+                subset_all_fixed_points = [all_fixed_points[i] if i < len(all_fixed_points) else [] for i in task_indices]
+            else:
+                subset_all_fixed_points = all_fixed_points
+        else:
+            subset_proj_trajs = proj_trajs
+            subset_all_fixed_points = all_fixed_points
+        
+        try:
+            # Call the individual plotting function with the provided axis
+            plot_pca_trajectories_and_points(
+                pca=pca_object,
+                proj_trajs=subset_proj_trajs,
+                point_type="fixed",
+                all_points=subset_all_fixed_points,
+                proj_points=proj_fixed_points,
+                params=result.get('trained_params', {}),
+                skip_initial_steps=skip_steps,
+                apply_tanh=apply_tanh,
+                filename_prefix="",
+                ax=ax,
+                sparsity_value=l1_reg,
+                for_comparison=True
+            )
+            
+        except Exception as e:
+            ax.text(0.5, 0.5, 0.5, f'Plot failed\n{str(e)[:30]}...', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'L1 reg = {l1_reg:.1e}')
+    
+    plot_name = 'pca_plot_fixed' if plot_type == 'fixed' else 'subset_of_indices_pca_plot_fixed'
+    plt.suptitle(f'3D PCA Plots Across L1 Regularization Levels ({plot_name})\n(skip_steps={skip_steps}, apply_tanh={apply_tanh})', fontsize=16)
+    plt.tight_layout()
+    
+    # Create L1-specific filename
+    l1_reg_str = '_'.join([f'{l1:.1e}'.replace('.', 'p').replace('-', 'm').replace('+', 'p') for l1 in l1_reg_values])
+    save_figure(fig, f'{plot_name}_skip_{skip_steps}_tanh_{apply_tanh}_l1_reg_{l1_reg_str}')
+    plt.close(fig)
+
+
+def create_all_aggregate_plots(all_results, l1_reg_values):
+    """
+    Create all aggregate plots across L1 regularization levels.
+    
+    Arguments:
+        all_results: list of results dictionaries
+        l1_reg_values: list of L1 regularization values tested
+    """
+    print("\n" + "="*60)
+    print("CREATING AGGREGATE PLOTS ACROSS L1 REGULARIZATION LEVELS")
+    print("="*60)
+    
+    # 1. Training loss evolution comparison
+    print("Creating training loss evolution comparison...")
+    plot_training_loss_evolution_comparison(all_results, l1_reg_values)
+    
+    # 2. Trajectory vs target comparisons for each test index
+    print("Creating trajectory vs target comparisons...")
+    for test_idx in TEST_INDICES:
+        print(f"  Processing test index {test_idx}...")
+        plot_trajectories_vs_targets_comparison(all_results, l1_reg_values, test_idx)
+    
+    # 3. Frequency comparison across L1 regularization
+    print("Creating frequency comparison across L1 regularization...")
+    plot_frequency_comparison_across_l1_reg(all_results, l1_reg_values)
+    
+    # 4. PCA plots for each combination of skip steps and tanh activations
+    print("Creating PCA comparison plots...")
+    for skip_steps in PCA_SKIP_OPTIONS:
+        for apply_tanh in PCA_TANH_OPTIONS:
+            print(f"  Processing skip_steps={skip_steps}, apply_tanh={apply_tanh}...")
+            
+            # PCA explained variance ratio
+            plot_pca_explained_variance_comparison(all_results, l1_reg_values, skip_steps, apply_tanh)
+            
+            # PCA 3D plots
+            plot_pca_3d_comparison(all_results, l1_reg_values, skip_steps, apply_tanh, 'fixed')
+            plot_pca_3d_comparison(all_results, l1_reg_values, skip_steps, apply_tanh, 'subset')
+    
+    print("Completed all aggregate plots!")
     
 
 
+
 # =============================================================================
 # =============================================================================
-# MAIN EXECUTION
+# MAIN LOOP FUNCTION
 # =============================================================================
 # =============================================================================
 def main():
@@ -1365,9 +2293,6 @@ def main():
         
         print(f"\nCompleted L1 regularization {l1_reg}: final loss = {results['final_loss']:.6e}")
         
-        # Save individual L1 regularization results
-        save_variable_with_l1_reg(results, f"complete_results_l1_reg_{l1_reg}", l1_reg, s=0.0)
-    
 
     # ========================================
     # CREATE COMPARATIVE EIGENVALUE EVOLUTION VISUALIZATION
@@ -1391,8 +2316,17 @@ def main():
     print("CREATING COMPREHENSIVE SUMMARY VISUALIZATIONS")
     print(f"{'='*60}")
     
-    # plot_loss_evolution_comparison(all_results, l1_reg_values)  # Function not implemented
     create_l1_reg_summary_plots(all_results, l1_reg_values)
+
+
+    # ========================================
+    # CREATE FIXED POINTS PER TASK DISTRIBUTION TABLE
+    # ========================================
+    print(f"\n{'='*60}")
+    print("CREATING FIXED POINTS PER TASK DISTRIBUTION TABLE")
+    print(f"{'='*60}")
+    
+    create_fixed_points_per_task_table(all_results, l1_reg_values)
     
 
     # ========================================
@@ -1403,6 +2337,16 @@ def main():
     print(f"{'='*60}")
     
     create_unstable_eigenvalue_table(all_results, l1_reg_values)
+
+
+    # ========================================
+    # CREATE ALL AGGREGATE PLOTS ACROSS L1 REGULARIZATION LEVELS
+    # ========================================
+    print(f"\n{'='*60}")
+    print("CREATING AGGREGATE PLOTS ACROSS L1 REGULARIZATION LEVELS")
+    print(f"{'='*60}")
+    
+    create_all_aggregate_plots(all_results, l1_reg_values)
     
 
     # ========================================
