@@ -679,7 +679,7 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, loss_fn, num_step
     
     # EIGENVALUE SAMPLING CASE
     # Initialize tracking variables
-    best_loss = jnp.inf
+    best_loss = float('inf')
     best_params = params
     eigenvalue_history = []
     loss_history = []
@@ -721,8 +721,10 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, loss_fn, num_step
             return best_params, best_loss, current_params, current_opt_state, eigenvalue_history, loss_history
         
         # Update global best if chunk improved
-        if chunk_best_loss < best_loss:
-            best_loss = chunk_best_loss
+        chunk_best_loss_val = float(chunk_best_loss)
+        best_loss_val = float(best_loss)
+        if chunk_best_loss_val < best_loss_val:
+            best_loss = chunk_best_loss_val
             best_params = chunk_best_params
         
         # Sample eigenvalues and loss at end of chunk
@@ -753,8 +755,10 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, loss_fn, num_step
             return best_params, best_loss, current_params, current_opt_state, eigenvalue_history, loss_history
         
         # Update global best if final chunk improved
-        if final_best_loss < best_loss:
-            best_loss = final_best_loss
+        final_best_loss_val = float(final_best_loss)
+        best_loss_val = float(best_loss)
+        if final_best_loss_val < best_loss_val:
+            best_loss = final_best_loss_val
             best_params = final_best_params
     
     print(f"[{tag}] Optimization completed. Final best loss: {best_loss:.6e}")
@@ -1332,6 +1336,7 @@ def plot_connectivity_eigenvalue_evolution(all_results, l1_reg_values, cmap):
     # Create L1-specific filename
     l1_reg_str = '_'.join([f'{l1:.1e}'.replace('.', 'p').replace('-', 'm').replace('+', 'p') for l1 in l1_reg_values])
     save_figure(fig, f'connectivity_eigenvalue_evolution_l1_reg_{l1_reg_str}')
+    plt.close(fig)
     # plt.show()  # Commented out to prevent interactive display
 
 
@@ -1531,6 +1536,7 @@ def create_l1_reg_summary_plots(all_results, l1_reg_values):
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"l1_reg_summary_plots_{timestamp}"
     save_figure(fig, filename)
+    plt.close(fig)
     # plt.show()  # Commented out to prevent interactive display
 
 

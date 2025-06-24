@@ -622,7 +622,7 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, loss_fn, num_step
     
     # EIGENVALUE SAMPLING CASE
     # Initialize tracking variables
-    best_loss = jnp.inf
+    best_loss = float('inf')  # Ensure it's a proper Python float
     best_params = params
     eigenvalue_history = []
     loss_history = []
@@ -655,8 +655,11 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, loss_fn, num_step
         )
         
         # Update global best if chunk improved
-        if chunk_best_loss < best_loss:
-            best_loss = chunk_best_loss
+        # Convert to float to ensure proper comparison (handle JAX array scalars)
+        chunk_best_loss_val = float(chunk_best_loss)
+        best_loss_val = float(best_loss)
+        if chunk_best_loss_val < best_loss_val:
+            best_loss = chunk_best_loss_val
             best_params = chunk_best_params
         
         # Sample eigenvalues and loss at end of chunk
@@ -678,8 +681,11 @@ def modified_scan_with_eigenvalues(params, opt_state, step_fn, loss_fn, num_step
         )
         
         # Update global best if final chunk improved
-        if final_best_loss < best_loss:
-            best_loss = final_best_loss
+        # Convert to float to ensure proper comparison (handle JAX array scalars)
+        final_best_loss_val = float(final_best_loss)
+        best_loss_val = float(best_loss)
+        if final_best_loss_val < best_loss_val:
+            best_loss = final_best_loss_val
             best_params = final_best_params
     
     print(f"[{tag}] Optimization completed. Final best loss: {best_loss:.6e}")
@@ -1266,6 +1272,7 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
     # Create sparsity-specific filename
     sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
     save_figure(fig, f'connectivity_eigenvalue_evolution_sparsities_{sparsity_str}')
+    plt.close(fig)  # Close figure to free memory
     # plt.show()  # Commented out to prevent interactive display
 
 
@@ -1461,6 +1468,7 @@ def create_sparsity_summary_plots(all_results, sparsity_values):
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"sparsity_summary_plots_{timestamp}"
     save_figure(fig, filename)
+    plt.close(fig)  # Close figure to free memory
     # plt.show()  # Commented out to prevent interactive display
 
 
@@ -1733,8 +1741,7 @@ def plot_training_loss_evolution_comparison(all_results, sparsity_values):
     # Create sparsity-specific filename
     sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
     save_figure(fig, f'training_loss_evolution_sparsities_{sparsity_str}')
-    plt.close(fig)
-    plt.close(fig)
+    plt.close(fig)  # Close figure to free memory
 
 
 def plot_trajectories_vs_targets_comparison(all_results, sparsity_values, test_index):
