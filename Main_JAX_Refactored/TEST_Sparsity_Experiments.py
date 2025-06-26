@@ -5,6 +5,43 @@ This script trains RNNs at different sparsity levels and visualizes how the eige
 of the Jacobian matrix at fixed points evolve during the optimization process.
 
 
+all_results: dict containing (one per sparsity level - keys are sparsity_value):
+- results: dict containing:
+    - 'sparsity'
+    - 'trained_params'
+    - 'final_loss'
+    - 'eigenvalue_data': dict containing the following keys:
+        - 'adam': list of (iteration, eigenvalue_data) tuples for Adam phase
+        - 'lbfgs': list of (iteration, eigenvalue_data) tuples for L-BFGS phase
+        - eigenvalue_data dict contains:
+            - 'jacobian': dict mapping frequency indices to eigenvalue arrays (if computed)
+            - 'connectivity': array of connectivity matrix eigenvalues (if computed)
+    - 'training_loss_data': dict containing the following keys:
+        - 'adam'
+        - 'lbfgs'
+        - 'final'
+    - 'state_traj_states'
+    - 'state_fixed_point_inits'
+    - 'all_fixed_points'
+    - 'all_jacobians'
+    - 'all_unstable_eig_freqs'
+    - 'all_slow_points' (if SLOW_POINT_SEARCH is True)
+    - 'all_slow_jacobians' (if SLOW_POINT_SEARCH is True)
+    - 'all_slow_unstable_eig_freqs' (if SLOW_POINT_SEARCH is True)
+    - 'pca_results': dict containing PCA analysis results (one per combinations of skip and tanh options - keys are f"skip_{skip_steps}_tanh_{apply_tanh}"):
+        - 'pca': PCA object
+        - 'proj_trajs': projected trajectories
+        - 'all_trajectories_combined': all trajectories combined (before PCA)
+        - 'skip_initial_steps': number of initial steps skipped
+        - 'apply_tanh': whether tanh transformation was applied
+        - 'pca_components': PCA components
+        - 'pca_explained_variance_ratio': explained variance ratio for each component
+        - 'proj_fixed': projected fixed points
+        - 'proj_slow': projected slow points (if SLOW_POINT_SEARCH is True)
+
+
+
+
 OUTPUT VARIABLES SAVED (per sparsity level):
 Eigenvalue evolution data during training:
 - 'eigenvalue_data_sparsity_{sparsity_value}' (dict containing):
@@ -146,7 +183,7 @@ Trajectory comparison plots:
 
 Frequency comparison plots:
 - 'frequency_comparison_sparsities_{sparsity_str}' plots:
-        Frequency comparison plots across all sparsity levels
+        Frequency comparison (beteween target task frequency and maximum norm of imaginary part of unstable eigenvalues for that task) plots across all sparsity levels
         From 'plot_frequency_comparison_across_sparsity' function
 
 PCA comparison plots:
@@ -1013,7 +1050,7 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
 # TRAINING LOSS PLOTTING FUNCTION
 # =============================================================================
 # =============================================================================
-def plot_training_loss_evolution(training_loss_data, sparsity_value, ax=None, for_comparison=False):
+def plot_training_loss_evolution(training_loss_data, sparsity_value, ax=None, for_comparison=False, ylim=None):
     """
     Plot training loss evolution during optimization for a single sparsity level.
     
@@ -1022,6 +1059,7 @@ def plot_training_loss_evolution(training_loss_data, sparsity_value, ax=None, fo
         sparsity_value: sparsity level for this experiment
         ax: optional matplotlib axis to plot on. If None, creates new figure
         for_comparison: if True, adjusts styling for comparison plots (smaller markers, shorter labels)
+        ylim: optional tuple (ymin, ymax) to set consistent y-axis limits across comparison plots
     """
     # Create new figure only if ax is not provided
     if ax is None:
@@ -1101,6 +1139,10 @@ def plot_training_loss_evolution(training_loss_data, sparsity_value, ax=None, fo
     ax.grid(True, alpha=0.3)
     ax.legend()
     
+    # Set consistent y-axis limits if provided
+    if ylim is not None:
+        ax.set_ylim(ylim)
+    
     # Save only for standalone plots
     if standalone_plot:
         plt.tight_layout()
@@ -1167,7 +1209,7 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
     """
     n_sparsity = len(sparsity_values)
     
-    # Calculate subplot layout - prefer wider layouts
+    # Calculate subplot layout - prefer wider layouts (same as other aggregate plots)
     if n_sparsity <= 3:
         nrows, ncols = 1, n_sparsity
     elif n_sparsity <= 6:
@@ -1175,7 +1217,7 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
     else:
         nrows, ncols = 3, (n_sparsity + 2) // 3
     
-    fig, axes = plt.subplots(nrows, ncols, figsize=(5*ncols, 5*nrows))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 5*nrows))
     if n_sparsity == 1:
         axes = [axes]
     elif nrows == 1:
@@ -1442,7 +1484,8 @@ def create_sparsity_summary_plots(all_results, sparsity_values):
     
     # Plot 3: Spectral radius vs sparsity
     axes[1, 0].plot(sparsity_values, spectral_radii, 'go-', linewidth=2, markersize=8)
-    axes[1, 0].axhline(y=1.0, color='k', linestyle='--', alpha=0.5, label='Unit circle')
+    # Add horizontal reference line at y=1.0 (unit circle)
+    axes[1, 0].axhline(y=1.0, color='black', linestyle='--', alpha=0.5, label='Unit circle')
     axes[1, 0].set_xlabel('Sparsity')
     axes[1, 0].set_ylabel('Spectral Radius')
     axes[1, 0].set_title('Spectral Radius vs Sparsity')
@@ -1718,16 +1761,47 @@ def plot_training_loss_evolution_comparison(all_results, sparsity_values):
     else:
         axes = axes.flatten()  # Flatten for easy indexing
     
+    # Calculate global y-axis limits for consistent scaling
+    all_loss_values = []
+    for result in all_results:
+        training_loss_data = result['training_loss_data']
+        
+        # Collect all loss values from both training phases
+        for iteration, loss in training_loss_data['adam']:
+            all_loss_values.append(loss)
+        for iteration, loss in training_loss_data['lbfgs']:
+            all_loss_values.append(loss)
+        
+        # Also include final loss
+        if 'final' in training_loss_data:
+            all_loss_values.append(training_loss_data['final'])
+    
+    # Determine y-axis limits with some padding
+    if all_loss_values:
+        min_loss = min(all_loss_values)
+        max_loss = max(all_loss_values)
+        
+        # Add padding in log space
+        log_min = np.log10(min_loss)
+        log_max = np.log10(max_loss)
+        log_range = log_max - log_min
+        padding = 0.1 * log_range if log_range > 0 else 0.5
+        
+        ylim = (10**(log_min - padding), 10**(log_max + padding))
+    else:
+        ylim = None
+    
     # Use the individual plotting function for each sparsity level
     for sparsity_idx, result in enumerate(all_results):
         ax = axes[sparsity_idx]
         
-        # Call the individual plotting function with the provided axis
+        # Call the individual plotting function with the provided axis and consistent y-limits
         plot_training_loss_evolution(
             training_loss_data=result['training_loss_data'],
             sparsity_value=result['sparsity'],
             ax=ax,
-            for_comparison=True
+            for_comparison=True,
+            ylim=ylim
         )
     
     # Hide unused subplots if any
