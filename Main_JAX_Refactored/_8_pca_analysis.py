@@ -112,7 +112,7 @@ def project_points_to_pca(pca, all_points):
 # ================================================================================
 # PLOTTING FUNCTIONS
 # ================================================================================
-def plot_explained_variance_ratio(pca, skip_initial_steps=0, apply_tanh=False, filename_prefix="", ax=None, sparsity_value=None, for_comparison=False):
+def plot_explained_variance_ratio(pca, skip_initial_steps=0, apply_tanh=False, filename_prefix="", ax=None, sparsity_value=None, for_comparison=False, l1_reg_value=None):
     """
     Plot and save a bar chart of the explained variance ratio for each principal component.
     
@@ -124,6 +124,7 @@ def plot_explained_variance_ratio(pca, skip_initial_steps=0, apply_tanh=False, f
         ax: optional matplotlib axis to plot on. If None, creates new figure
         sparsity_value: sparsity value for title and filename (used when ax=None or for_comparison=True)
         for_comparison: if True, adjusts styling for comparison plots
+        l1_reg_value: if not None, use this L1 regularization value instead of sparsity for titles and filenames
     """
     # Create new figure only if ax is not provided
     if ax is None:
@@ -150,21 +151,25 @@ def plot_explained_variance_ratio(pca, skip_initial_steps=0, apply_tanh=False, f
     title_skip_info = f" (skipping first {skip_initial_steps} steps)" if skip_initial_steps > 0 else ""
     title_tanh_info = " (tanh transformed)" if apply_tanh else ""
     
-    # Determine sparsity to use in title
-    if for_comparison and sparsity_value is not None:
-        title_sparsity = sparsity_value
+    # Determine parameter values and labels for title and filename
+    if l1_reg_value is not None:
+        # Use L1 regularization value
+        param_label = "L1 reg"
+        param_format = f"{l1_reg_value:.1e}" if l1_reg_value != 0 else "0"
+        param_value = l1_reg_value
     elif sparsity_value is not None:
-        title_sparsity = sparsity_value
+        # Use sparsity value
+        param_label = "Sparsity"
+        param_format = f"{sparsity_value:.2f}"
+        param_value = sparsity_value
     else:
-        title_sparsity = s
+        # Use global sparsity value
+        param_label = "Sparsity"
+        param_format = f"{s:.2f}"
+        param_value = s
     
-    # Set title based on context
-    if standalone_plot:
-        ax.set_title(f'PCA Explained Variance Ratio{title_skip_info}{title_tanh_info} (Sparsity={title_sparsity:.2f})', fontsize=14, fontweight='bold')
-    elif for_comparison:
-        ax.set_title(f'PCA Explained Variance Ratio{title_skip_info}{title_tanh_info} (Sparsity={title_sparsity:.2f})', fontsize=14, fontweight='bold')
-    else:
-        ax.set_title(f'PCA Explained Variance Ratio{title_skip_info}{title_tanh_info} (Sparsity={title_sparsity:.2f})', fontsize=14, fontweight='bold')
+    # Set title
+    ax.set_title(f'PCA Explained Variance Ratio{title_skip_info}{title_tanh_info} ({param_label}={param_format})', fontsize=14, fontweight='bold')
     
     ax.set_xlabel('Principal Component', fontsize=12)
     ax.set_ylabel('Proportion of Total Variance', fontsize=12)
@@ -195,9 +200,9 @@ def plot_explained_variance_ratio(pca, skip_initial_steps=0, apply_tanh=False, f
         plt.tight_layout()
         
         # Save the figure
-        sparsity_str = f"{title_sparsity:.2f}".replace('.', 'p')
+        param_str = param_format.replace('.', 'p').replace('+', 'p').replace('-', 'm')
         tanh_suffix = "_tanh" if apply_tanh else ""
-        figure_name = f"{filename_prefix}pca_explained_variance_ratio_skip_{skip_initial_steps}{tanh_suffix}_sparsity_{sparsity_str}"
+        figure_name = f"{filename_prefix}pca_explained_variance_ratio_skip_{skip_initial_steps}{tanh_suffix}_{param_label.lower().replace(' ', '_')}_{param_str}"
         save_figure(fig, figure_name)
         
         plt.close()
@@ -205,7 +210,7 @@ def plot_explained_variance_ratio(pca, skip_initial_steps=0, apply_tanh=False, f
         print(f"Explained variance ratio bar chart saved")
 
 
-def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False, filename_prefix="", ax=None, sparsity_value=None, for_comparison=False):
+def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False, filename_prefix="", ax=None, sparsity_value=None, for_comparison=False, l1_reg_value=None):
     """
     Unified function to plot PCA trajectories with either fixed points or slow points.
     
@@ -222,6 +227,7 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
         ax           : optional matplotlib 3D axis to plot on. If None, creates new figure
         sparsity_value : sparsity value for title and filename (used when ax=None or for_comparison=True)
         for_comparison : if True, adjusts styling for comparison plots
+        l1_reg_value : if not None, use this L1 regularization value instead of sparsity for titles and filenames
     """
     
     # Validate point_type parameter
@@ -268,48 +274,47 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
         ax.scatter(proj_points[:, 0], proj_points[:, 1], proj_points[:, 2], 
                   color='green', s=point_size, alpha=0.8, label=point_name)
 
-    # For each point, plot all unstable modes as red lines (only for standalone plots to avoid clutter)
-    if standalone_plot or not for_comparison:
-        point_idx = 0
-        unstable_mode_counts = {}  # Dictionary to track number of unstable modes per point
-        
-        for j, task_points in enumerate(all_points):
-            for x_star in task_points:
-                # Compute the Jacobian and find the eigenvalues at the point
-                J_eff = np.array(compute_jacobian(x_star, J_trained))
-                eigenvals, eigenvecs = eig(J_eff)
-                # Find all the unstable eigenvalues for the given point
-                unstable_idx = np.where(np.real(eigenvals) > 0)[0]
-                num_unstable = len(unstable_idx)
-                
-                # Track unstable mode counts
-                if num_unstable in unstable_mode_counts:
-                    unstable_mode_counts[num_unstable] += 1
-                else:
-                    unstable_mode_counts[num_unstable] = 1
-                
-                if len(unstable_idx) > 0:
-                    # For each unstable eigenvalue, plot the corresponding eigenvector direction
-                    for idx in unstable_idx:
-                        # Take the real part for the plotting direction
-                        v = np.real(eigenvecs[:, idx])
-                        scale = 1.0
-                        # Project the unstable eigenvector direction into PCA space
-                        v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_points[point_idx]
-                        # Plot a line centred on the point in PCA space
-                        line = np.vstack([
-                            proj_points[point_idx] - v_proj,
-                            proj_points[point_idx] + v_proj
-                        ])
-                        ax.plot(line[:, 0], line[:, 1], line[:, 2], color='red', linewidth=2, alpha=0.5)
-                point_idx += 1
-        
-        # Print summary of unstable modes (only for standalone plots)
-        if standalone_plot:
-            print(f"\nUnstable modes summary for {point_name}:")
-            for num_modes in sorted(unstable_mode_counts.keys()):
-                count = unstable_mode_counts[num_modes]
-                print(f"Number of fixed points with {num_modes} unstable modes: {count}")
+    # For each point, plot all unstable modes as red lines
+    point_idx = 0
+    unstable_mode_counts = {}  # Dictionary to track number of unstable modes per point
+    
+    for j, task_points in enumerate(all_points):
+        for x_star in task_points:
+            # Compute the Jacobian and find the eigenvalues at the point
+            J_eff = np.array(compute_jacobian(x_star, J_trained))
+            eigenvals, eigenvecs = eig(J_eff)
+            # Find all the unstable eigenvalues for the given point
+            unstable_idx = np.where(np.real(eigenvals) > 0)[0]
+            num_unstable = len(unstable_idx)
+            
+            # Track unstable mode counts
+            if num_unstable in unstable_mode_counts:
+                unstable_mode_counts[num_unstable] += 1
+            else:
+                unstable_mode_counts[num_unstable] = 1
+            
+            if len(unstable_idx) > 0:
+                # For each unstable eigenvalue, plot the corresponding eigenvector direction
+                for idx in unstable_idx:
+                    # Take the real part for the plotting direction
+                    v = np.real(eigenvecs[:, idx])
+                    scale = 1.0
+                    # Project the unstable eigenvector direction into PCA space
+                    v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_points[point_idx]
+                    # Plot a line centred on the point in PCA space
+                    line = np.vstack([
+                        proj_points[point_idx] - v_proj,
+                        proj_points[point_idx] + v_proj
+                    ])
+                    ax.plot(line[:, 0], line[:, 1], line[:, 2], color='red', linewidth=2, alpha=0.5)
+            point_idx += 1
+    
+    # Print summary of unstable modes (only for standalone plots)
+    if standalone_plot:
+        print(f"\nUnstable modes summary for {point_name}:")
+        for num_modes in sorted(unstable_mode_counts.keys()):
+            count = unstable_mode_counts[num_modes]
+            print(f"Number of fixed points with {num_modes} unstable modes: {count}")
 
     # Calculate the overall data range for equal scaling
     all_data = np.concatenate([np.concatenate(proj_trajs, axis=0)])
@@ -323,15 +328,24 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
     title_skip_info = f" (skipping first {skip_initial_steps} steps)" if skip_initial_steps > 0 else ""
     title_tanh_info = " (tanh transformed)" if apply_tanh else ""
     
-    # Determine sparsity to use in title
-    if for_comparison and sparsity_value is not None:
-        title_sparsity = sparsity_value
+    # Determine parameter values and labels for title and filename
+    if l1_reg_value is not None:
+        # Use L1 regularization value
+        param_label = "L1 reg"
+        param_format = f"{l1_reg_value:.1e}" if l1_reg_value != 0 else "0"
+        param_value = l1_reg_value
     elif sparsity_value is not None:
-        title_sparsity = sparsity_value
+        # Use sparsity value
+        param_label = "Sparsity"
+        param_format = f"{sparsity_value:.2f}"
+        param_value = sparsity_value
     else:
-        title_sparsity = s
+        # Use global sparsity value
+        param_label = "Sparsity"
+        param_format = f"{s:.2f}"
+        param_value = s
     
-    ax.set_title(f'PCA of Network Trajectories and {point_name}{title_skip_info}{title_tanh_info} (Sparsity={title_sparsity:.2f})')
+    ax.set_title(f'PCA of Network Trajectories and {point_name}{title_skip_info}{title_tanh_info} ({param_label}={param_format})')
     ax.set_xlabel('PC1')
     ax.set_ylabel('PC2')
     ax.set_zlabel('PC3')
@@ -349,15 +363,15 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
     # Save only for standalone plots
     if standalone_plot:
         # Save the figure
-        sparsity_str = f"{title_sparsity:.2f}".replace('.', 'p')
+        param_str = param_format.replace('.', 'p').replace('+', 'p').replace('-', 'm')
         tanh_suffix = "_tanh" if apply_tanh else ""
-        figure_name = f"{filename_prefix}pca_plot_{point_type}_skip_{skip_initial_steps}{tanh_suffix}_sparsity_{sparsity_str}"
+        figure_name = f"{filename_prefix}pca_plot_{point_type}_skip_{skip_initial_steps}{tanh_suffix}_{param_label.lower().replace(' ', '_')}_{param_str}"
         save_figure(fig, figure_name)
 
         plt.close()
 
 
-def plot_interactive_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False, filename_prefix="", sparsity_value=None):
+def plot_interactive_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False, filename_prefix="", sparsity_value=None, l1_reg_value=None):
     """
     Create an interactive 3D plot using Plotly that can be rotated and saved as HTML.
     
@@ -372,6 +386,7 @@ def plot_interactive_pca_trajectories_and_points(pca, proj_trajs, point_type="fi
         apply_tanh   : whether tanh transformation was applied (for title/filename)
         filename_prefix : prefix to add to the filename (default: "")
         sparsity_value : sparsity value for title and filename (optional)
+        l1_reg_value : if not None, use this L1 regularization value instead of sparsity for titles and filenames
     """
     # Validate point_type parameter
     if point_type not in ["fixed", "slow"]:
@@ -496,11 +511,25 @@ def plot_interactive_pca_trajectories_and_points(pca, proj_trajs, point_type="fi
     title_skip_info = f" (skipping first {skip_initial_steps} steps)" if skip_initial_steps > 0 else ""
     title_tanh_info = " (tanh transformed)" if apply_tanh else ""
     
-    # Determine sparsity to use in title (same logic as static plot)
-    title_sparsity = sparsity_value if sparsity_value is not None else s
+    # Determine parameter values and labels for title and filename
+    if l1_reg_value is not None:
+        # Use L1 regularization value
+        param_label = "L1 reg"
+        param_format = f"{l1_reg_value:.1e}" if l1_reg_value != 0 else "0"
+        param_value = l1_reg_value
+    elif sparsity_value is not None:
+        # Use sparsity value
+        param_label = "Sparsity"
+        param_format = f"{sparsity_value:.2f}"
+        param_value = sparsity_value
+    else:
+        # Use global sparsity value
+        param_label = "Sparsity"
+        param_format = f"{s:.2f}"
+        param_value = s
     
     fig.update_layout(
-        title=f'Interactive PCA of Network Trajectories and {point_name}{title_skip_info}{title_tanh_info} (Sparsity={title_sparsity:.2f})',
+        title=f'Interactive PCA of Network Trajectories and {point_name}{title_skip_info}{title_tanh_info} ({param_label}={param_format})',
         scene=dict(
             xaxis_title='PC1',
             yaxis_title='PC2',
@@ -518,9 +547,9 @@ def plot_interactive_pca_trajectories_and_points(pca, proj_trajs, point_type="fi
     )
     
     # Save as interactive HTML file
-    sparsity_str = f"{title_sparsity:.2f}".replace('.', 'p')
+    param_str = param_format.replace('.', 'p').replace('+', 'p').replace('-', 'm')
     tanh_suffix = "_tanh" if apply_tanh else ""
-    html_filename = f"{filename_prefix}interactive_pca_plot_{point_type}_skip_{skip_initial_steps}{tanh_suffix}_sparsity_{sparsity_str}.html"
+    html_filename = f"{filename_prefix}interactive_pca_plot_{point_type}_skip_{skip_initial_steps}{tanh_suffix}_{param_label.lower().replace(' ', '_')}_{param_str}.html"
     
     # Use the same output directory as static plots
     output_dir = get_output_dir()

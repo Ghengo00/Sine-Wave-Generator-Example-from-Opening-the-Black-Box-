@@ -275,7 +275,7 @@ def plot_unstable_eigenvalues(unstable_freqs, j):
     plt.close()
 
 
-def plot_frequency_comparison(all_unstable_eig_freq, omegas, ax=None, sparsity_value=None, for_comparison=False):
+def plot_frequency_comparison(all_unstable_eig_freq, omegas, ax=None, sparsity_value=None, for_comparison=False, l1_reg_value=None):
     """
     Plot a comparison of target frequencies and maximum unstable mode frequencies (imaginary components) for all tasks.
 
@@ -287,6 +287,7 @@ def plot_frequency_comparison(all_unstable_eig_freq, omegas, ax=None, sparsity_v
         ax: optional matplotlib axis to plot on. If None, creates new figure
         sparsity_value: sparsity value for title and filename (used when ax=None)
         for_comparison: if True, adjusts styling for comparison plots
+        l1_reg_value: if not None, use this L1 regularization value instead of sparsity for titles and filenames
     """
     # Create new figure only if ax is not provided
     if ax is None:
@@ -348,23 +349,32 @@ def plot_frequency_comparison(all_unstable_eig_freq, omegas, ax=None, sparsity_v
     # Set title based on context
     if standalone_plot:
         title = f'Comparison of Target Frequencies and Maximum Unstable Mode Frequencies'
-        if sparsity_value is not None:
+        if l1_reg_value is not None:
+            title += f' (L1 reg={l1_reg_value:.1e})' if l1_reg_value != 0 else ' (L1 reg=0)'
+        elif sparsity_value is not None:
             title += f' (Sparsity={sparsity_value:.2f})'
         elif not for_comparison:
             title += f' (Sparsity={s:.2f})'
         ax.set_title(title)
     elif for_comparison:
         # For comparison plots, use a more compact title
-        sparsity_display = sparsity_value if sparsity_value is not None else s
-        ax.set_title(f'Sparsity s = {sparsity_display:.2f}')
+        if l1_reg_value is not None:
+            title_value = f'L1 reg = {l1_reg_value:.1e}' if l1_reg_value != 0 else 'L1 reg = 0'
+        else:
+            title_value = f'Sparsity s = {sparsity_value if sparsity_value is not None else s:.2f}'
+        ax.set_title(title_value)
     
     ax.legend()
     ax.grid(True, alpha=0.3)
     
     # Save only for standalone plots
     if standalone_plot:
-        sparsity_str = f"{sparsity_value if sparsity_value is not None else s:.2f}".replace('.', 'p')
-        save_figure(fig, f"Frequency_Comparison_Sparsity_{sparsity_str}")
+        if l1_reg_value is not None:
+            param_str = f'{l1_reg_value:.1e}'.replace('.', 'p').replace('-', 'm').replace('+', 'p')
+            save_figure(fig, f"Frequency_Comparison_L1_reg_{param_str}")
+        else:
+            sparsity_str = f"{sparsity_value if sparsity_value is not None else s:.2f}".replace('.', 'p')
+            save_figure(fig, f"Frequency_Comparison_Sparsity_{sparsity_str}")
         plt.show()
         plt.close()
 
