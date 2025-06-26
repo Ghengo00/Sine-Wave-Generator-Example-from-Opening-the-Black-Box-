@@ -12,6 +12,44 @@ DIFFERENCES FROM TEST_Sparsity_Experiments.py:
 5. All other functionality (eigenvalue tracking, analysis, visualization) is identical
 
 
+all_results: dict containing (one per sparsity level - keys are sparsity_value):
+- results: dict containing:
+    - 'sparsity'
+    - 'l1_reg_strength'
+    - 'trained_params'
+    - 'final_loss'
+    - 'eigenvalue_data': dict containing the following keys:
+        - 'adam': list of (iteration, eigenvalue_data) tuples for Adam phase
+        - 'lbfgs': list of (iteration, eigenvalue_data) tuples for L-BFGS phase
+        - eigenvalue_data dict contains:
+            - 'jacobian': dict mapping frequency indices to eigenvalue arrays (if computed)
+            - 'connectivity': array of connectivity matrix eigenvalues (if computed)
+    - 'training_loss_data': dict containing the following keys:
+        - 'adam'
+        - 'lbfgs'
+        - 'final'
+    - 'state_traj_states'
+    - 'state_fixed_point_inits'
+    - 'all_fixed_points'
+    - 'all_jacobians'
+    - 'all_unstable_eig_freqs'
+    - 'all_slow_points' (if SLOW_POINT_SEARCH is True)
+    - 'all_slow_jacobians' (if SLOW_POINT_SEARCH is True)
+    - 'all_slow_unstable_eig_freqs' (if SLOW_POINT_SEARCH is True)
+    - 'pca_results': dict containing PCA analysis results (one per combinations of skip and tanh options - keys are f"skip_{skip_steps}_tanh_{apply_tanh}"):
+        - 'pca': PCA object
+        - 'proj_trajs': projected trajectories
+        - 'all_trajectories_combined': all trajectories combined (before PCA)
+        - 'skip_initial_steps': number of initial steps skipped
+        - 'apply_tanh': whether tanh transformation was applied
+        - 'pca_components': PCA components
+        - 'pca_explained_variance_ratio': explained variance ratio for each component
+        - 'proj_fixed': projected fixed points
+        - 'proj_slow': projected slow points (if SLOW_POINT_SEARCH is True)
+
+
+
+
 OUTPUT VARIABLES SAVED (per L1 regularization strength):
 Eigenvalue evolution data during training:
 - 'eigenvalue_data_l1_reg_{l1_reg_strength}' (dict containing):
@@ -1092,7 +1130,7 @@ def train_with_full_analysis(params, mask, key, compute_jacobian_eigenvals, comp
 # TRAINING LOSS PLOTTING FUNCTIONS
 # =============================================================================
 # =============================================================================
-def plot_training_loss_evolution(training_loss_data, l1_reg_strength, ax=None, for_comparison=False):
+def plot_training_loss_evolution(training_loss_data, l1_reg_strength, ax=None, for_comparison=False, ylim=None):
     """
     Plot training loss evolution during optimization for a single L1 regularization level.
     
@@ -1101,6 +1139,7 @@ def plot_training_loss_evolution(training_loss_data, l1_reg_strength, ax=None, f
         l1_reg_strength: L1 regularization strength for this experiment
         ax: optional matplotlib axis to plot on. If None, creates new figure
         for_comparison: if True, adjusts styling for comparison plots (smaller markers, shorter labels)
+        ylim: optional tuple (ymin, ymax) to set consistent y-axis limits across comparison plots
     """
     # Create new figure only if ax is not provided
     if ax is None:
@@ -1180,6 +1219,10 @@ def plot_training_loss_evolution(training_loss_data, l1_reg_strength, ax=None, f
     ax.grid(True, alpha=0.3)
     ax.legend()
     
+    # Set consistent y-axis limits if provided
+    if ylim is not None:
+        ax.set_ylim(ylim)
+    
     # Save only for standalone plots
     if standalone_plot:
         plt.tight_layout()
@@ -1247,9 +1290,22 @@ def plot_connectivity_eigenvalue_evolution(all_results, l1_reg_values, cmap):
     Plot connectivity matrix eigenvalue evolution for all L1 regularization levels.
     """
     n_l1_reg = len(l1_reg_values)
-    fig, axes = plt.subplots(1, n_l1_reg, figsize=(5*n_l1_reg, 5))
+    
+    # Calculate subplot layout - prefer wider layouts (same as other aggregate plots)
+    if n_l1_reg <= 3:
+        nrows, ncols = 1, n_l1_reg
+    elif n_l1_reg <= 6:
+        nrows, ncols = 2, 3
+    else:
+        nrows, ncols = 3, (n_l1_reg + 2) // 3
+    
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 5*nrows))
     if n_l1_reg == 1:
         axes = [axes]
+    elif nrows == 1:
+        axes = axes  # Already a 1D array for single row
+    else:
+        axes = axes.flatten()  # Flatten for easy indexing
     
     # Store scatter plot for colorbar
     scatter_plot = None
@@ -1320,6 +1376,10 @@ def plot_connectivity_eigenvalue_evolution(all_results, l1_reg_values, cmap):
         ax.set_title(f'L1 reg = {l1_reg:.1e}\nFinal loss: {final_loss:.2e}')
         ax.grid(True, alpha=0.3)
         ax.set_aspect('equal')
+    
+    # Hide unused subplots if any
+    for idx in range(n_l1_reg, len(axes)):
+        axes[idx].set_visible(False)
     
     # Add colorbar to the right of all subplots
     if scatter_plot is not None:
@@ -1489,26 +1549,55 @@ def create_l1_reg_summary_plots(all_results, l1_reg_values):
     # Create summary plots
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
     
+    # Handle zero values for logarithmic plots
+    # Replace zeros with small positive values for log plots
+    l1_reg_values_plot = np.array(l1_reg_values)
+    zero_mask = l1_reg_values_plot == 0
+    l1_reg_values_plot[zero_mask] = 1e-10  # Very small value for log plots
+    
     # Plot 1: Final loss vs L1 regularization
-    axes[0, 0].plot(l1_reg_values, final_losses, 'bo-', linewidth=2, markersize=8)
+    axes[0, 0].plot(l1_reg_values_plot, final_losses, 'bo-', linewidth=2, markersize=8)
+    # Mark zero values with different marker
+    if np.any(zero_mask):
+        zero_indices = np.where(zero_mask)[0]
+        axes[0, 0].scatter([l1_reg_values_plot[i] for i in zero_indices], 
+                          [final_losses[i] for i in zero_indices], 
+                          color='blue', marker='s', s=100, label='L1 reg = 0', zorder=5)
     axes[0, 0].set_xlabel('L1 Regularization')
     axes[0, 0].set_ylabel('Final Loss')
     axes[0, 0].set_title('Training Loss vs L1 Regularization')
     axes[0, 0].set_xscale('log')
     axes[0, 0].set_yscale('log')
     axes[0, 0].grid(True, alpha=0.3)
+    if np.any(zero_mask):
+        axes[0, 0].legend()
     
     # Plot 2: Number of fixed points vs L1 regularization
-    axes[0, 1].plot(l1_reg_values, num_fixed_points, 'ro-', linewidth=2, markersize=8)
+    axes[0, 1].plot(l1_reg_values_plot, num_fixed_points, 'ro-', linewidth=2, markersize=8)
+    # Mark zero values with different marker
+    if np.any(zero_mask):
+        zero_indices = np.where(zero_mask)[0]
+        axes[0, 1].scatter([l1_reg_values_plot[i] for i in zero_indices], 
+                          [num_fixed_points[i] for i in zero_indices], 
+                          color='red', marker='s', s=100, label='L1 reg = 0', zorder=5)
     axes[0, 1].set_xlabel('L1 Regularization')
     axes[0, 1].set_ylabel('Number of Fixed Points')
     axes[0, 1].set_title('Fixed Points vs L1 Regularization')
     axes[0, 1].set_xscale('log')
     axes[0, 1].grid(True, alpha=0.3)
+    if np.any(zero_mask):
+        axes[0, 1].legend()
     
     # Plot 3: Spectral radius vs L1 regularization
-    axes[1, 0].plot(l1_reg_values, spectral_radii, 'go-', linewidth=2, markersize=8)
-    axes[1, 0].axhline(y=1.0, color='k', linestyle='--', alpha=0.5, label='Unit circle')
+    axes[1, 0].plot(l1_reg_values_plot, spectral_radii, 'go-', linewidth=2, markersize=8)
+    # Mark zero values with different marker
+    if np.any(zero_mask):
+        zero_indices = np.where(zero_mask)[0]
+        axes[1, 0].scatter([l1_reg_values_plot[i] for i in zero_indices], 
+                          [spectral_radii[i] for i in zero_indices], 
+                          color='green', marker='s', s=100, label='L1 reg = 0', zorder=5)
+    # Add horizontal reference line at y=1.0 (unit circle)
+    axes[1, 0].axhline(y=1.0, color='black', linestyle='--', alpha=0.5, label='Unit circle')
     axes[1, 0].set_xlabel('L1 Regularization')
     axes[1, 0].set_ylabel('Spectral Radius')
     axes[1, 0].set_title('Spectral Radius vs L1 Regularization')
@@ -1518,12 +1607,20 @@ def create_l1_reg_summary_plots(all_results, l1_reg_values):
     
     # Plot 4: Slow points vs L1 regularization (if applicable)
     if any(n > 0 for n in num_slow_points):
-        axes[1, 1].plot(l1_reg_values, num_slow_points, 'mo-', linewidth=2, markersize=8)
+        axes[1, 1].plot(l1_reg_values_plot, num_slow_points, 'mo-', linewidth=2, markersize=8)
+        # Mark zero values with different marker
+        if np.any(zero_mask):
+            zero_indices = np.where(zero_mask)[0]
+            axes[1, 1].scatter([l1_reg_values_plot[i] for i in zero_indices], 
+                              [num_slow_points[i] for i in zero_indices], 
+                              color='magenta', marker='s', s=100, label='L1 reg = 0', zorder=5)
         axes[1, 1].set_xlabel('L1 Regularization')
         axes[1, 1].set_ylabel('Number of Slow Points')
         axes[1, 1].set_title('Slow Points vs L1 Regularization')
         axes[1, 1].set_xscale('log')
         axes[1, 1].grid(True, alpha=0.3)
+        if np.any(zero_mask):
+            axes[1, 1].legend()
     else:
         axes[1, 1].text(0.5, 0.5, 'No slow point analysis\nperformed', 
                        ha='center', va='center', transform=axes[1, 1].transAxes)
@@ -1786,16 +1883,47 @@ def plot_training_loss_evolution_comparison(all_results, l1_reg_values):
     else:
         axes = axes.flatten()  # Flatten for easy indexing
     
+    # Calculate global y-axis limits for consistent scaling
+    all_loss_values = []
+    for result in all_results:
+        training_loss_data = result['training_loss_data']
+        
+        # Collect all loss values from both training phases
+        for iteration, loss in training_loss_data['adam']:
+            all_loss_values.append(loss)
+        for iteration, loss in training_loss_data['lbfgs']:
+            all_loss_values.append(loss)
+        
+        # Also include final loss
+        if 'final' in training_loss_data:
+            all_loss_values.append(training_loss_data['final'])
+    
+    # Determine y-axis limits with some padding
+    if all_loss_values:
+        min_loss = min(all_loss_values)
+        max_loss = max(all_loss_values)
+        
+        # Add padding in log space
+        log_min = np.log10(min_loss)
+        log_max = np.log10(max_loss)
+        log_range = log_max - log_min
+        padding = 0.1 * log_range if log_range > 0 else 0.5
+        
+        ylim = (10**(log_min - padding), 10**(log_max + padding))
+    else:
+        ylim = None
+    
     # Use the individual plotting function for each L1 regularization level
     for l1_reg_idx, result in enumerate(all_results):
         ax = axes[l1_reg_idx]
         
-        # Call the individual plotting function with the provided axis
+        # Call the individual plotting function with the provided axis and consistent y-limits
         plot_training_loss_evolution(
             training_loss_data=result['training_loss_data'],
             l1_reg_strength=result['l1_reg_strength'],
             ax=ax,
-            for_comparison=True
+            for_comparison=True,
+            ylim=ylim
         )
     
     # Hide unused subplots if any
@@ -1935,8 +2063,9 @@ def plot_frequency_comparison_across_l1_reg(all_results, l1_reg_values):
                 all_unstable_eig_freq=all_unstable_eig_freq,
                 omegas=omegas,
                 ax=ax,
-                l1_reg_value=l1_reg,
-                for_comparison=True
+                sparsity_value=None,
+                for_comparison=True,
+                l1_reg_value=l1_reg
             )
             
             # Add final loss information to the title
@@ -2019,8 +2148,9 @@ def plot_pca_explained_variance_comparison(all_results, l1_reg_values, skip_step
                 skip_initial_steps=skip_steps,
                 apply_tanh=apply_tanh,
                 ax=ax,
-                sparsity_value=l1_reg,
-                for_comparison=True
+                sparsity_value=None,
+                for_comparison=True,
+                l1_reg_value=l1_reg
             )
             
         except Exception as e:
@@ -2156,8 +2286,9 @@ def plot_pca_3d_comparison(all_results, l1_reg_values, skip_steps, apply_tanh, p
                 apply_tanh=apply_tanh,
                 filename_prefix="",
                 ax=ax,
-                sparsity_value=l1_reg,
-                for_comparison=True
+                sparsity_value=None,
+                for_comparison=True,
+                l1_reg_value=l1_reg
             )
             
         except Exception as e:
