@@ -1,6 +1,6 @@
 import os
 import pickle
-from time import time
+from datetime import datetime
 
 import numpy as np
 from scipy.spatial import procrustes
@@ -11,14 +11,19 @@ import pandas as pd
 
 
 # Random seeds and file paths to use as baselines
-rand_seeds = []
-file_paths_for_baselines = []
+rand_seeds = [42, 15]
+file_paths_for_baselines = ["/Users/gianlucacarrozzo/Documents/University and Education/UCL/Machine Learning/MSc Project/Palmigiano Lab/Code/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250624_133230/Sparsity_0p00/state_sparsity_0.0_20250624_133209_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl",
+                            "/Users/gianlucacarrozzo/Documents/University and Education/UCL/Machine Learning/MSc Project/Palmigiano Lab/Code/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_Baseline_for_Procrustes_20250626_114113/Sparsity_0p00/state_sparsity_0.0_20250626_114103_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl"]
 
 # Sparsity levels and file paths to use in experiments
-sparsity_levels = []
-file_paths_to_trajs = []
+sparsity_levels = ["0.0", "0.2", "0.4", "0.6", "0.8"]
+file_paths_to_trajs = ["/Users/gianlucacarrozzo/Documents/University and Education/UCL/Machine Learning/MSc Project/Palmigiano Lab/Code/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250624_133230/Sparsity_0p00/state_sparsity_0.0_20250624_133209_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl",
+                       "/Users/gianlucacarrozzo/Documents/University and Education/UCL/Machine Learning/MSc Project/Palmigiano Lab/Code/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250624_133230/Sparsity_0p20/state_sparsity_0.2_20250624_133209_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.2_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl",
+                       "/Users/gianlucacarrozzo/Documents/University and Education/UCL/Machine Learning/MSc Project/Palmigiano Lab/Code/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250624_133230/Sparsity_0p40/state_sparsity_0.4_20250624_133209_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.4_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl",
+                       "/Users/gianlucacarrozzo/Documents/University and Education/UCL/Machine Learning/MSc Project/Palmigiano Lab/Code/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250624_133230/Sparsity_0p60/state_sparsity_0.6_20250624_133209_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.6_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl",
+                       "/Users/gianlucacarrozzo/Documents/University and Education/UCL/Machine Learning/MSc Project/Palmigiano Lab/Code/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250624_133230/Sparsity_0p80/state_sparsity_0.8_20250624_133209_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.8_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl"]
 
-timestamp = time.strftime("%Y%m%d_%H%M%S")
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 
@@ -249,13 +254,12 @@ def plot_table(results, sparsity_levels, value_key="disparity_flat"):
     # Create the heatmap
     fig, ax = plt.subplots(figsize=(10, 8))
     
-    # Determine colormap based on value type
-    if "R2" in value_key:
-        cmap = 'viridis'  # Higher R² is better, so use normal viridis
-        cbar_label = f'Procrustes {value_key.replace("_", " ").title()}'
+    # Use Blues colormap, but flip it for disparity metrics (lower is better)
+    if "disparity" in value_key:
+        cmap = 'Blues_r'  # Reverse Blues for disparity (lower values = darker blue)
     else:
-        cmap = 'viridis_r'  # Lower disparity is better, so use reverse viridis
-        cbar_label = f'Procrustes {value_key.replace("_", " ").title()}'
+        cmap = 'Blues'    # Normal Blues for R2 (higher values = darker blue)
+    cbar_label = f'Procrustes {value_key.replace("_", " ").title()}'
     
     # Create heatmap with annotations
     sns.heatmap(
@@ -294,17 +298,17 @@ def plot_table(results, sparsity_levels, value_key="disparity_flat"):
 if __name__ == "__main__":
     results = {}
 
-    disparity_flat_base, R2_flat_base, _, _ = perform_procrustes_with_tensor_flattening(read_trajectory_data(file_paths_for_baselines[0]),
-                                                                                        read_trajectory_data(file_paths_for_baselines[1]))
-    total_disparity_avg_base, R2_avg_base = perform_procrustes_with_averaging(read_trajectory_data(file_paths_for_baselines[0]),
-                                                                                        read_trajectory_data(file_paths_for_baselines[1]))
+    disparity_flat_base, R2_flat_base, _, _ = perform_procrustes_with_tensor_flattening(read_trajectory_data(file_paths_for_baselines[0])["traj_states"],
+                                                                                        read_trajectory_data(file_paths_for_baselines[1])["traj_states"])
+    total_disparity_avg_base, R2_avg_base = perform_procrustes_with_averaging(read_trajectory_data(file_paths_for_baselines[0])["traj_states"],
+                                                                                        read_trajectory_data(file_paths_for_baselines[1])["traj_states"])
 
     if len(sparsity_levels) == len(file_paths_to_trajs):
         for idx_x, sparsity_level_x in enumerate(sparsity_levels):
             for idx_y, sparsity_level_y in enumerate(sparsity_levels):
                 # Load trajectories for the current sparsity levels
-                traj_x = read_trajectory_data(file_paths_to_trajs[idx_x])
-                traj_y = read_trajectory_data(file_paths_to_trajs[idx_y])
+                traj_x = read_trajectory_data(file_paths_to_trajs[idx_x])["traj_states"]
+                traj_y = read_trajectory_data(file_paths_to_trajs[idx_y])["traj_states"]
 
                 # Perform Procrustes analysis with tensor flattening
                 disparity_flat, R2_flat, _, _ = perform_procrustes_with_tensor_flattening(traj_x, traj_y)
