@@ -1112,7 +1112,7 @@ def train_with_full_analysis(params, mask, key, compute_jacobian_eigenvals, comp
                     print(f"    - All trajectories combined shape: {pca_result['all_trajectories_combined'].shape}")
             
         # Save PCA results for this truncation level
-        save_variable_with_l1_reg(pca_results, f"pca_results_l1_reg_{l1_reg_strength}", l1_reg_strength, s=0.0)
+        # save_variable_with_l1_reg(pca_results, f"pca_results_l1_reg_{l1_reg_strength}", l1_reg_strength, s=0.0)
             
         print(f"Completed PCA analysis for all combinations. Total PCA keys stored: {list(pca_results.keys())}")
     

@@ -1595,6 +1595,8 @@ def main():
 
         # ----------------------------------------
         # TESTING PHASE (IN TESTING MODE)
+        test_freqs = analysis_freqs
+        
         # Run the test
         try:
             print("\nRunning frequency generalization test on imported model...")
