@@ -1032,7 +1032,7 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
                     print(f"    - PCA object available: {pca_result['pca'] is not None}")
         
         # Save PCA results
-        save_variable_with_sparsity(pca_results, f"pca_results_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
+        # save_variable_with_sparsity(pca_results, f"pca_results_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
         
         print(f"Completed PCA analysis for all combinations. Total PCA keys stored: {list(pca_results.keys())}")
     
