@@ -109,7 +109,7 @@ def create_training_functions(adam_opt, lbfgs_opt, mask, loss_fn=None):
         updates, new_state = lbfgs_opt.update(
             grads, opt_state, params,
             value=loss, grad=grads,
-            value_fn=lambda p: batched_loss(p)
+            value_fn=loss_fn
         )
 
         # 3) Apply updates to your parameters

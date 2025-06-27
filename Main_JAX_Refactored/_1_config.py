@@ -18,9 +18,9 @@ JAX_SEED = 42
 # =============================================================================
 # NETWORK ARCHITECTURE
 # =============================================================================
-N = 50         # number of neurons (STANDARD VALUE IS 200)
+N = 200         # number of neurons (STANDARD VALUE IS 200)
 I = 1           # input dimension (scalar input)
-num_tasks = 21  # number of different sine-wave tasks (STANDARD VALUE IS 51)
+num_tasks = 51  # number of different sine-wave tasks (STANDARD VALUE IS 51)
 
 # Sparsity parameter
 s = 0.0         # sparsity of the recurrent connections
@@ -44,7 +44,7 @@ static_inputs = jnp.linspace(0, num_tasks - 1, num_tasks, dtype=jnp.float32) / n
 # =============================================================================
 dt = 0.02        # integration time step (seconds)
 T_drive = 8.0    # driving phase duration (seconds)
-T_train = 24.0   # training phase duration (seconds)
+T_train = 64.0   # training phase duration (seconds)
 
 # Computed time parameters
 num_steps_drive = int(T_drive / dt)
@@ -58,8 +58,8 @@ time_full = jnp.concatenate([time_drive, T_drive + time_train])
 # TRAINING PARAMETERS
 # =============================================================================
 # Optimization parameters
-NUM_EPOCHS_ADAM = 100
-NUM_EPOCHS_LBFGS = 200
+NUM_EPOCHS_ADAM = 1000
+NUM_EPOCHS_LBFGS = 2000
 LOSS_THRESHOLD = 1e-4
 
 # Adam optimizer parameters

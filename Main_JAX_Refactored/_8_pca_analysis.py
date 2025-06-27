@@ -210,7 +210,7 @@ def plot_explained_variance_ratio(pca, skip_initial_steps=0, apply_tanh=False, f
         print(f"Explained variance ratio bar chart saved")
 
 
-def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False, filename_prefix="", ax=None, sparsity_value=None, for_comparison=False, l1_reg_value=None):
+def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False, filename_prefix="", ax=None, sparsity_value=None, for_comparison=False, l1_reg_value=None, proj_trajs_by_region=None):
     """
     Unified function to plot PCA trajectories with either fixed points or slow points.
     
@@ -228,6 +228,7 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
         sparsity_value : sparsity value for title and filename (used when ax=None or for_comparison=True)
         for_comparison : if True, adjusts styling for comparison plots
         l1_reg_value : if not None, use this L1 regularization value instead of sparsity for titles and filenames
+        proj_trajs_by_region : dict with keys as region names and values as lists of trajectories for that region
     """
     
     # Validate point_type parameter
@@ -248,24 +249,85 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
         fig = ax.get_figure()
         standalone_plot = False
 
-    # Plot the projected trajectories with color gradient from light to dark blue
-    for traj_idx, traj in enumerate(proj_trajs):
-        # Create a color gradient along the trajectory
-        num_points = len(traj)
-        if num_points > 1:
-            # Create segments for the line plot with varying colors
-            for i in range(num_points - 1):
-                # Calculate color intensity based on time step (0 = light, 1 = dark)
-                color_intensity = i / (num_points - 1)
-                # Create blue color with varying intensity (start with lighter blue and transition to darker blue)
-                blue_color = (0.7 - 0.5 * color_intensity, 0.7 - 0.5 * color_intensity, 1.0)
+    # Plot the projected trajectories with color gradient
+    if proj_trajs_by_region is not None:
+        # Plot trajectories by region with different base colors
+        region_colors = {
+            'lower_extrapolation': (0.5, 0.0, 0.5),   # Purple
+            'lower_training': (0.0, 0.0, 1.0),        # Blue
+            'gap': (1.0, 0.65, 0.0),                  # Orange
+            'upper_training': (1.0, 0.0, 0.0),        # Red  
+            'higher_extrapolation': (0.0, 0.5, 0.0)   # Green
+        }
+        
+        # Track which regions actually have trajectories for legend
+        plotted_regions = []
+        
+        for region, trajs in proj_trajs_by_region.items():
+            if len(trajs) > 0:  # Only plot and add to legend if region has trajectories
+                base_color = region_colors.get(region, (0.0, 0.0, 1.0))  # Default to blue
+                plotted_regions.append((region, base_color))
                 
-                # Plot each segment with increased transparency
-                ax.plot(traj[i:i+2, 0], traj[i:i+2, 1], traj[i:i+2, 2], 
-                       color=blue_color, alpha=0.3, linewidth=1.5)
-        else:
-            # Fallback for single point trajectories
-            ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], color='blue', alpha=0.2)
+                for traj_idx, traj in enumerate(trajs):
+                    # Create a color gradient along the trajectory
+                    num_points = len(traj)
+                    if num_points > 1:
+                        # Create segments for the line plot with varying colors
+                        for i in range(num_points - 1):
+                            # Calculate color intensity based on time step (0 = light, 1 = dark)
+                            color_intensity = i / (num_points - 1)
+                            # Create color with varying intensity (start with lighter and transition to darker)
+                            region_color = (
+                                base_color[0] * (0.3 + 0.7 * color_intensity),
+                                base_color[1] * (0.3 + 0.7 * color_intensity),
+                                base_color[2] * (0.3 + 0.7 * color_intensity)
+                            )
+                            
+                            # Plot each segment with increased transparency
+                            ax.plot(traj[i:i+2, 0], traj[i:i+2, 1], traj[i:i+2, 2], 
+                                   color=region_color, alpha=0.3, linewidth=1.5)
+                    else:
+                        # Fallback for single point trajectories
+                        ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], color=base_color, alpha=0.2)
+        
+        # Add region legend elements for plotting later
+        region_legend_elements = []
+        region_label_map = {
+            'lower_extrapolation': 'Lower Extrapolation',
+            'lower_training': 'Lower Training', 
+            'gap': 'Gap Region',
+            'upper_training': 'Upper Training',
+            'higher_extrapolation': 'Higher Extrapolation'
+        }
+        
+        for region, color in plotted_regions:
+            # Create a line element for the legend with the region's base color
+            from matplotlib.lines import Line2D
+            region_legend_elements.append(
+                Line2D([0], [0], color=color, lw=2, label=region_label_map.get(region, region))
+            )
+    else:
+        # Initialize empty for when not using regions
+        region_legend_elements = []
+        
+        # Original behavior: Plot all trajectories with blue gradient
+        for traj_idx, traj in enumerate(proj_trajs):
+            # Create a color gradient along the trajectory
+            num_points = len(traj)
+            if num_points > 1:
+                # Create segments for the line plot with varying colors
+                for i in range(num_points - 1):
+                    # Calculate color intensity based on time step (0 = light, 1 = dark)
+                    color_intensity = i / (num_points - 1)
+                    # Create blue color with varying intensity (start with lighter blue and transition to darker blue)
+                    blue_color = (0.7 - 0.5 * color_intensity, 0.7 - 0.5 * color_intensity, 1.0)
+                    
+                    # Plot each segment with increased transparency
+                    ax.plot(traj[i:i+2, 0], traj[i:i+2, 1], traj[i:i+2, 2], 
+                           color=blue_color, alpha=0.3, linewidth=1.5)
+            else:
+                # Fallback for single point trajectories
+                ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], color='blue', alpha=0.2)
 
     # Plot the projected points as green scatter points
     if proj_points.size > 0:
@@ -356,9 +418,24 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
     ax.set_ylim([-max_range, max_range])
     ax.set_zlim([-max_range, max_range])
     
-    # Add legend if there are points
+    # Add legend - combine fixed points legend with region legend
+    legend_elements = []
+    
+    # Add fixed points to legend if they exist
     if proj_points.size > 0:
-        ax.legend()
+        legend_elements.append(plt.Line2D([0], [0], marker='o', color='green', 
+                                         linestyle='None', markersize=8, 
+                                         alpha=0.8, label=point_name))
+    
+    # Add region legend elements if they exist
+    if region_legend_elements:
+        legend_elements.extend(region_legend_elements)
+    
+    # Create the legend if there are elements to show
+    if legend_elements:
+        # Position legend outside the plot area to avoid overlap
+        ax.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1.1, 0.5), 
+                 fontsize=9)
 
     # Save only for standalone plots
     if standalone_plot:
