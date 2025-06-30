@@ -1,0 +1,529 @@
+================================================================================
+FIXED POINT ANALYSIS SUMMARY
+================================================================================
+
+1. DISTRIBUTION OF FREQUENCIES BY NUMBER OF FIXED POINTS:
+------------------------------------------------------------
+   103 frequencies have 1 fixed point(s)
+   6 frequencies have 2 fixed point(s)
+   2 frequencies have 3 fixed point(s)
+
+2. DISTRIBUTION OF FREQUENCIES BY NUMBER OF FIXED POINTS BY REGION:
+------------------------------------------------------------
+   Lower Extrapolation:
+      12 frequencies have 1 fixed point(s)
+      2 frequencies have 3 fixed point(s)
+   Lower Training:
+      25 frequencies have 1 fixed point(s)
+   Gap Region:
+      12 frequencies have 1 fixed point(s)
+      6 frequencies have 2 fixed point(s)
+   Upper Training:
+      24 frequencies have 1 fixed point(s)
+   Higher Extrapolation:
+      30 frequencies have 1 fixed point(s)
+
+3. DISTRIBUTION OF FIXED POINTS BY NUMBER OF UNSTABLE EIGENVALUES:
+------------------------------------------------------------
+   16 fixed point(s) have 0 unstable eigenvalue(s)
+   8 fixed point(s) have 1 unstable eigenvalue(s)
+   97 fixed point(s) have 2 unstable eigenvalue(s)
+
+   Total fixed points found: 121
+
+4. DISTRIBUTION OF FIXED POINTS BY NUMBER OF UNSTABLE EIGENVALUES BY REGION:
+------------------------------------------------------------
+   Lower Extrapolation (Total: 18 fixed points):
+      8 fixed point(s) have 0 unstable eigenvalue(s)
+      2 fixed point(s) have 1 unstable eigenvalue(s)
+      8 fixed point(s) have 2 unstable eigenvalue(s)
+   Lower Training (Total: 25 fixed points):
+      25 fixed point(s) have 2 unstable eigenvalue(s)
+   Gap Region (Total: 24 fixed points):
+      6 fixed point(s) have 1 unstable eigenvalue(s)
+      18 fixed point(s) have 2 unstable eigenvalue(s)
+   Upper Training (Total: 24 fixed points):
+      24 fixed point(s) have 2 unstable eigenvalue(s)
+   Higher Extrapolation (Total: 30 fixed points):
+      8 fixed point(s) have 0 unstable eigenvalue(s)
+      22 fixed point(s) have 2 unstable eigenvalue(s)
+
+5. DISTRIBUTION OF FREQUENCIES BY NUMBER OF UNSTABLE EIGENVALUES:
+------------------------------------------------------------
+   12 frequency(ies) have 0 total unstable eigenvalue(s)
+   2 frequency(ies) have 1 total unstable eigenvalue(s)
+   91 frequency(ies) have 2 total unstable eigenvalue(s)
+   6 frequency(ies) have 3 total unstable eigenvalue(s)
+
+6. DISTRIBUTION OF FREQUENCIES BY NUMBER OF UNSTABLE EIGENVALUES BY REGION:
+------------------------------------------------------------
+   Lower Extrapolation (Total: 14 frequencies):
+      4 frequency(ies) have 0 total unstable eigenvalue(s)
+      2 frequency(ies) have 1 total unstable eigenvalue(s)
+      8 frequency(ies) have 2 total unstable eigenvalue(s)
+   Lower Training (Total: 25 frequencies):
+      25 frequency(ies) have 2 total unstable eigenvalue(s)
+   Gap Region (Total: 18 frequencies):
+      12 frequency(ies) have 2 total unstable eigenvalue(s)
+      6 frequency(ies) have 3 total unstable eigenvalue(s)
+   Upper Training (Total: 24 frequencies):
+      24 frequency(ies) have 2 total unstable eigenvalue(s)
+   Higher Extrapolation (Total: 30 frequencies):
+      8 frequency(ies) have 0 total unstable eigenvalue(s)
+      22 frequency(ies) have 2 total unstable eigenvalue(s)
+
+7. FREQUENCY-BY-FREQUENCY DETAILED SUMMARY:
+------------------------------------------------------------
+Frequency 0.0100 rad/s (Lower Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 0 unstable eigenvalue(s)
+
+Frequency 0.0164 rad/s (Lower Extrapolation):
+   Number of fixed points: 3
+   Fixed point 1: 1 unstable eigenvalue(s)
+   Fixed point 2: 0 unstable eigenvalue(s)
+   Fixed point 3: 0 unstable eigenvalue(s)
+
+Frequency 0.0229 rad/s (Lower Extrapolation):
+   Number of fixed points: 3
+   Fixed point 1: 0 unstable eigenvalue(s)
+   Fixed point 2: 1 unstable eigenvalue(s)
+   Fixed point 3: 0 unstable eigenvalue(s)
+
+Frequency 0.0293 rad/s (Lower Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 0 unstable eigenvalue(s)
+
+Frequency 0.0357 rad/s (Lower Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 0 unstable eigenvalue(s)
+
+Frequency 0.0421 rad/s (Lower Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 0 unstable eigenvalue(s)
+
+Frequency 0.0486 rad/s (Lower Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.0550 rad/s (Lower Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.0614 rad/s (Lower Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.0679 rad/s (Lower Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.0743 rad/s (Lower Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.0807 rad/s (Lower Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.0871 rad/s (Lower Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.0936 rad/s (Lower Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1000 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1000 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1100 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1167 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1200 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1300 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1333 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1400 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1500 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1500 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1600 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1667 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1700 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1800 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1833 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.1900 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.2000 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.2000 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.2100 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.2167 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.2200 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.2300 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.2333 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.2400 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.2500 rad/s (Lower Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.2605 rad/s (Gap Region):
+   Number of fixed points: 2
+   Fixed point 1: 2 unstable eigenvalue(s)
+   Fixed point 2: 1 unstable eigenvalue(s)
+
+Frequency 0.2711 rad/s (Gap Region):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.2816 rad/s (Gap Region):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.2921 rad/s (Gap Region):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.3026 rad/s (Gap Region):
+   Number of fixed points: 2
+   Fixed point 1: 2 unstable eigenvalue(s)
+   Fixed point 2: 1 unstable eigenvalue(s)
+
+Frequency 0.3132 rad/s (Gap Region):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.3237 rad/s (Gap Region):
+   Number of fixed points: 2
+   Fixed point 1: 2 unstable eigenvalue(s)
+   Fixed point 2: 1 unstable eigenvalue(s)
+
+Frequency 0.3342 rad/s (Gap Region):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.3447 rad/s (Gap Region):
+   Number of fixed points: 2
+   Fixed point 1: 2 unstable eigenvalue(s)
+   Fixed point 2: 1 unstable eigenvalue(s)
+
+Frequency 0.3553 rad/s (Gap Region):
+   Number of fixed points: 2
+   Fixed point 1: 2 unstable eigenvalue(s)
+   Fixed point 2: 1 unstable eigenvalue(s)
+
+Frequency 0.3658 rad/s (Gap Region):
+   Number of fixed points: 2
+   Fixed point 1: 2 unstable eigenvalue(s)
+   Fixed point 2: 1 unstable eigenvalue(s)
+
+Frequency 0.3763 rad/s (Gap Region):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.3868 rad/s (Gap Region):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.3974 rad/s (Gap Region):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.4079 rad/s (Gap Region):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.4184 rad/s (Gap Region):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.4289 rad/s (Gap Region):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.4395 rad/s (Gap Region):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.4500 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.4500 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.4600 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.4667 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.4700 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.4800 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.4833 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.4900 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5000 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5100 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5167 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5200 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5300 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5333 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5400 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5500 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5500 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5600 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5667 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5700 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5800 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5833 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.5900 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.6000 rad/s (Upper Training):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.6000 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.6207 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.6414 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.6621 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.6828 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.7034 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.7241 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.7448 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.7655 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.7862 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.8069 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.8276 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.8483 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.8690 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.8897 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.9103 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.9310 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.9517 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.9724 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 0.9931 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 1.0138 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 1.0345 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 2 unstable eigenvalue(s)
+
+Frequency 1.0552 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 0 unstable eigenvalue(s)
+
+Frequency 1.0759 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 0 unstable eigenvalue(s)
+
+Frequency 1.0966 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 0 unstable eigenvalue(s)
+
+Frequency 1.1172 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 0 unstable eigenvalue(s)
+
+Frequency 1.1379 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 0 unstable eigenvalue(s)
+
+Frequency 1.1586 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 0 unstable eigenvalue(s)
+
+Frequency 1.1793 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 0 unstable eigenvalue(s)
+
+Frequency 1.2000 rad/s (Higher Extrapolation):
+   Number of fixed points: 1
+   Fixed point 1: 0 unstable eigenvalue(s)

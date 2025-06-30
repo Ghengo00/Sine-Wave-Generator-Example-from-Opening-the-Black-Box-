@@ -77,14 +77,14 @@ SCALE_INIT_PRECOND = True   # scale initial inverse Hessian to identity
 # Fixed point search parameters
 NUM_ATTEMPTS = 50
 TOL = 1e-2
-MAXITER = 100
+MAXITER = 1000
 GAUSSIAN_STD = 0.5         # standard deviation for Gaussian noise in perturbed initial conditions
 
 # Slow point search parameters
 SLOW_POINT_SEARCH = False  # whether to search for slow points
 NUM_ATTEMPTS_SLOW = 50
 TOL_SLOW = 1e-2
-MAXITER_SLOW = 100
+MAXITER_SLOW = 1000
 GAUSSIAN_STD_SLOW = 1.0    # standard deviation for Gaussian noise in perturbed initial conditions for slow points
 SLOW_POINT_CUT_OFF = 1e-1  # threshold for slow points to be accepted
 

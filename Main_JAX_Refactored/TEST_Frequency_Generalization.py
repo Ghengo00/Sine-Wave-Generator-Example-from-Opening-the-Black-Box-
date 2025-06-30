@@ -40,24 +40,24 @@ OUTPUTS:
             - Saved with name "Unstable_Eigen_Frequencies_{EXECUTION_MODE}_{timestamp}.pkl"
         - frequency_labels: list of frequencies used for fixed point and PCA analysis
             - Saved with name "Analysis_Frequencies_{EXECUTION_MODE}_{timestamp}.pkl"
-        - pca_results: dict containing PCA analysis results
-            - Saved with name "PCA_Results_{EXECUTION_MODE}_{timestamp}.pkl"
-            - Contains the following keys:
-                - 'pca'
-                - 'proj_trajs'
-                - 'proj_trajs_by_region': trajectories categorized by frequency region
-                    - 'lower_extrapolation': trajectories from frequencies below training range
-                    - 'lower_training': trajectories from lower training range (0.1-0.25)
-                    - 'gap': trajectories from gap region (0.25-0.45)
-                    - 'upper_training': trajectories from upper training range (0.45-0.6)
-                    - 'higher_extrapolation': trajectories from frequencies above training range
-                - 'frequency_labels': list of frequencies corresponding to trajectories
-                - 'all_trajectories_combined'
-                - 'skip_initial_steps'
-                - 'apply_tanh'
-                - 'pca_components'
-                - 'pca_explained_variance_ratio'
-                - 'proj_fixed'
+        # - **CURRENTLY NOT BEING SAVED** pca_results: dict containing PCA analysis results
+        #     - Saved with name "PCA_Results_{EXECUTION_MODE}_{timestamp}.pkl"
+        #     - Contains the following keys:
+        #         - 'pca'
+        #         - 'proj_trajs'
+        #         - 'proj_trajs_by_region': trajectories categorized by frequency region
+        #             - 'lower_extrapolation': trajectories from frequencies below training range
+        #             - 'lower_training': trajectories from lower training range (0.1-0.25)
+        #             - 'gap': trajectories from gap region (0.25-0.45)
+        #             - 'upper_training': trajectories from upper training range (0.45-0.6)
+        #             - 'higher_extrapolation': trajectories from frequencies above training range
+        #         - 'frequency_labels': list of frequencies corresponding to trajectories
+        #         - 'all_trajectories_combined'
+        #         - 'skip_initial_steps'
+        #         - 'apply_tanh'
+        #         - 'pca_components'
+        #         - 'pca_explained_variance_ratio'
+        #         - 'proj_fixed'
         - summary_data: dict summarizing the results of the gap training and testing
             - Saved with name "Frequency_Generalization_Summary_{EXECUTION_MODE}_{timestamp}.pkl"
             - Contains the following keys:
@@ -88,7 +88,7 @@ OUTPUTS:
     PLOTS:
         - Plot of output trajectories vs target trajectories for each frequency
             - Saved with name
-            - From function plot_frequency_comparison()
+            - From function plot_frequency_comparison_gap()
         - Plot of explained variance ratio for PCA analysis
             - Saved with name
             - From function plot_explained_variance_ratio()
@@ -111,12 +111,14 @@ import os
 import sys
 import pickle
 import time
+from tqdm import tqdm
 from datetime import datetime
 
 import numpy as np
 import jax
 import jax.numpy as jnp
 from jax import vmap, jit
+from scipy.optimize import root, least_squares
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend to save (not display) figures
 import matplotlib.pyplot as plt
@@ -130,8 +132,8 @@ from _2_utils import Timer, get_output_dir, set_custom_output_dir
 from _3_data_generation import get_drive_input, get_train_input
 from _4_rnn_model import simulate_trajectory, init_params, create_loss_function
 from _5_training import train_model
-from _6_analysis import find_points, analyze_points
-from _7_visualization import plot_trajectories_vs_targets, plot_frequency_comparison
+from _6_analysis import compute_F, analyze_points
+from _7_visualization import plot_trajectories_vs_targets
 from _8_pca_analysis import perform_pca_analysis, project_points_to_pca, plot_explained_variance_ratio, plot_pca_trajectories_and_points
 
 
@@ -542,6 +544,118 @@ def run_gap_training():
 # ANALYSIS FUNCTIONS
 # ============================================================
 # ============================================================
+def find_points_gap(
+    x0_guess, u_const, J_trained, B_trained, b_x_trained,
+    mode: str,
+    num_attempts=None, tol=None, maxiter=None, alt_inits=None, gaussian_std=None):
+    """
+    Unified finder for fixed points and slow points.
+
+    Notable arguments:
+        mode        : 'fixed' for fixed point search or 'slow' for slow point search
+        num_attempts: number of attempts to find a point
+        tol         : tolerance for two fixed/slow points to be considered distinct
+        maxiter     : maximum iterations for the solver
+        alt_inits   : alternative initial conditions from training trajectories
+        gaussian_std: standard deviation for Gaussian noise in perturbed initial conditions
+
+    Returns:
+        points      : list of found fixed or slow points, each point is a NumPy array of shape (N,)
+    """
+    mode = mode.lower()
+    
+    if mode == 'fixed':
+        # Use the provided parameters or fixed point search defaults
+        num_attempts = num_attempts if num_attempts is not None else NUM_ATTEMPTS
+        tol = tol if tol is not None else TOL
+        maxiter = maxiter if maxiter is not None else MAXITER
+        gaussian_std = gaussian_std if gaussian_std is not None else GAUSSIAN_STD
+        
+        # Define multiple solver strategies for fixed points
+        def make_solver(method, maxiter_val, xtol=1e-6):
+            if method == 'lm':
+                return lambda x: root(lambda x: np.array(compute_F(x, u_const, J_trained, B_trained, b_x_trained)),
+                                      x, method=method, options={'xtol': xtol})
+            elif method == 'hybr':
+                return lambda x: root(lambda x: np.array(compute_F(x, u_const, J_trained, B_trained, b_x_trained)),
+                                      x, method=method, options={'maxfev': maxiter_val, 'xtol': xtol})
+            else:  # broyden1 and others
+                return lambda x: root(lambda x: np.array(compute_F(x, u_const, J_trained, B_trained, b_x_trained)),
+                                      x, method=method, options={'maxfev': maxiter_val})
+        
+        # Try multiple solver configurations
+        solvers = [
+            make_solver('hybr', maxiter),         # Powell's hybrid method
+        ]
+        
+        success_cond = lambda sol: sol.success
+        extract = lambda sol: sol.x
+
+    elif mode == 'slow':
+        # Use the provided parameters or slow point search defaults
+        num_attempts = num_attempts if num_attempts is not None else NUM_ATTEMPTS_SLOW
+        tol = tol if tol is not None else TOL_SLOW
+        maxiter = maxiter if maxiter is not None else MAXITER_SLOW
+        gaussian_std = gaussian_std if gaussian_std is not None else GAUSSIAN_STD_SLOW
+        # Define the least squares solver for slow points
+        solver = lambda x: least_squares(lambda x: np.array(compute_F(x, u_const, J_trained, B_trained, b_x_trained)),
+                                         x, method='lm', max_nfev=maxiter)
+        success_cond = lambda sol: sol.success and np.linalg.norm(sol.fun) < SLOW_POINT_CUT_OFF
+        extract = lambda sol: sol.x
+    
+    else:
+        raise ValueError("Argument 'mode' must be either 'fixed' or 'slow'.")
+
+    points = []
+
+    # Debug: Check the initial guess quality
+    F_initial = compute_F(x0_guess, u_const, J_trained, B_trained, b_x_trained)
+    F_initial_norm = np.linalg.norm(F_initial)
+    if F_initial_norm > 50:  # Only warn if very far
+        print(f"DEBUG: Initial guess is very far from a {mode} point (||F|| = {F_initial_norm:.2e})")
+
+    def _attempt(x_init):
+        # For fixed points, try multiple solvers
+        if mode == 'fixed':
+            for i, solver in enumerate(solvers):
+                try:
+                    sol = solver(x_init)
+                    if success_cond(sol):
+                        return extract(sol)
+                except Exception as e:
+                    continue  # Try next solver
+        else:
+            # For slow points, use the original single solver approach
+            try:
+                sol = solver(x_init)
+                if success_cond(sol):
+                    return extract(sol)
+            except Exception as e:
+                pass  # Silently fail for now
+        return None
+
+    # (I) Original guess
+    pt = _attempt(x0_guess)
+    if pt is not None:
+        points.append(pt)
+
+    # (II) Gaussian perturbations of the original guess
+    for _ in tqdm(range(num_attempts - 1), desc=f"Finding {mode} points (perturbations)"):
+        pert = x0_guess + np.random.normal(0, gaussian_std, size=x0_guess.shape)
+        pt = _attempt(pert)
+        if pt is not None and all(np.linalg.norm(pt - p) >= tol for p in points):
+            points.append(pt)
+
+    # # (III) Alternative initial conditions from training trajectories
+    # if alt_inits is not None:
+    #     for cand in tqdm(alt_inits, desc=f"Finding {mode} points (initial conditions from training)"):
+    #         pt = _attempt(cand)
+    #         if pt is not None and all(np.linalg.norm(pt - p) >= tol for p in points):
+    #             points.append(pt)
+
+    return points
+
+
 def find_and_analyze_points_gap(state_traj_states, state_fixed_point_inits, params, frequencies, point_type="fixed"):
     """
     Unified function to find and analyze either fixed points or slow points for all frequencies.
@@ -602,6 +716,10 @@ def find_and_analyze_points_gap(state_traj_states, state_fixed_point_inits, para
         u_const = calculate_static_input(frequencies[j])
         x0_guess = state_fixed_point_inits[j]
         
+        # Debug: Print key values for the first few frequencies
+        if j < 3:
+            print(f"   DEBUG Frequency {j+1}: ω={frequencies[j]:.4f}, u_const={u_const:.4f}, x0_guess_norm={np.linalg.norm(x0_guess):.4f}")
+        
         # Build fallback initializations from training trajectories
         # Use all available trajectory states for fallback initializations
         max_fallback_attempts = min(len(state_traj_states), num_attempts)
@@ -617,7 +735,7 @@ def find_and_analyze_points_gap(state_traj_states, state_fixed_point_inits, para
             fallback_inits = []
         
         # Find the points
-        task_points = find_points(
+        task_points = find_points_gap(
             x0_guess, u_const, J_trained, B_trained, b_x_trained,
             mode=point_type,
             num_attempts=num_attempts, 
@@ -627,6 +745,10 @@ def find_and_analyze_points_gap(state_traj_states, state_fixed_point_inits, para
             gaussian_std=gaussian_std
         )
         all_points.append(task_points)
+        
+        # Debug: Print how many points were found for the first few frequencies
+        if j < 3:
+            print(f"   DEBUG Frequency {j+1}: Found {len(task_points)} fixed points")
         
         # Analyze the points to compute Jacobians and unstable eigenvalues
         task_jacobians, task_unstable_freqs = analyze_points(task_points, J_trained)
@@ -821,16 +943,39 @@ def create_error_vs_frequency_plot_with_gaps(test_frequencies, mse_values):
     # Plot the error vs frequency
     plt.plot(test_frequencies, mse_values, 'bo-', linewidth=2, markersize=6, label='Test Performance')
     
-    # Shade the training frequency ranges (non-gap regions)
-    for freq_min, freq_max in TRAINING_FREQ_RANGES:
-        plt.axvspan(freq_min, freq_max, alpha=0.2, color='green', 
-                   label=f'Training Range' if freq_min == TRAINING_FREQ_RANGES[0][0] else "")
+    # Define region colors (same as create_comprehensive_trajectory_subplots)
+    region_colors = {
+        'lower_extrap': None,           # No shading for lower extrapolation
+        'lower_training': '#E6F7E6',   # Very light green  
+        'gap': '#FFE6CC',              # Very light orange
+        'upper_training': '#E6F7E6',   # Very light green (same as lower training)
+        'higher_extrap': None          # No shading for higher extrapolation
+    }
+    
+    # Find the frequency range for plotting
+    freq_min = min(test_frequencies)
+    freq_max = max(test_frequencies)
+    
+    # Shade the lower training region
+    lower_train_start = max(TRAINING_FREQ_RANGES[0][0], freq_min)
+    lower_train_end = min(TRAINING_FREQ_RANGES[0][1], freq_max)
+    if lower_train_start < lower_train_end and region_colors['lower_training']:
+        plt.axvspan(lower_train_start, lower_train_end, alpha=0.4, 
+                   color=region_colors['lower_training'], label='Lower Training Range')
     
     # Shade the gap region
-    gap_start = TRAINING_FREQ_RANGES[0][1]  # 0.25
-    gap_end = TRAINING_FREQ_RANGES[1][0]    # 0.45
-    plt.axvspan(gap_start, gap_end, alpha=0.3, color='red', 
-               label=f'Gap ({gap_start:.2f}-{gap_end:.2f} rad/s)')
+    gap_start = max(TRAINING_FREQ_RANGES[0][1], freq_min)  # 0.25
+    gap_end = min(TRAINING_FREQ_RANGES[1][0], freq_max)    # 0.45
+    if gap_start < gap_end and region_colors['gap']:
+        plt.axvspan(gap_start, gap_end, alpha=0.5, color=region_colors['gap'], 
+                   label=f'Gap ({TRAINING_FREQ_RANGES[0][1]:.2f}-{TRAINING_FREQ_RANGES[1][0]:.2f} rad/s)')
+    
+    # Shade the upper training region
+    upper_train_start = max(TRAINING_FREQ_RANGES[1][0], freq_min)
+    upper_train_end = min(TRAINING_FREQ_RANGES[1][1], freq_max)
+    if upper_train_start < upper_train_end and region_colors['upper_training']:
+        plt.axvspan(upper_train_start, upper_train_end, alpha=0.4, 
+                   color=region_colors['upper_training'], label='Upper Training Range')
     
     plt.xlabel('Frequency (rad/s)')
     plt.ylabel('Mean Squared Error (MSE)')
@@ -1099,6 +1244,19 @@ def save_fixed_point_analysis_summary(all_fixed_points, all_unstable_eig_freq, f
         frequency_labels: list of frequencies corresponding to each analysis
         base_filename: base name for the output text file
     """
+    # Helper function to determine frequency region
+    def get_frequency_region(freq):
+        if freq < TRAINING_FREQ_RANGES[0][0]:
+            return "Lower Extrapolation"
+        elif TRAINING_FREQ_RANGES[0][0] <= freq <= TRAINING_FREQ_RANGES[0][1]:
+            return "Lower Training"
+        elif TRAINING_FREQ_RANGES[0][1] < freq < TRAINING_FREQ_RANGES[1][0]:
+            return "Gap Region"
+        elif TRAINING_FREQ_RANGES[1][0] <= freq <= TRAINING_FREQ_RANGES[1][1]:
+            return "Upper Training"
+        else:
+            return "Higher Extrapolation"
+    
     # Create summary content
     summary_lines = []
     summary_lines.append("=" * 80)
@@ -1120,6 +1278,30 @@ def save_fixed_point_analysis_summary(all_fixed_points, all_unstable_eig_freq, f
         summary_lines.append(f"   {fp_count_distribution[num_fps]} frequencies have {num_fps} fixed point(s)")
     summary_lines.append("")
     
+    # NEW SECTION: Count frequencies by number of fixed points BY REGION
+    fp_count_by_region = {}
+    for i, freq_fixed_points in enumerate(all_fixed_points):
+        freq = frequency_labels[i]
+        region = get_frequency_region(freq)
+        num_fps = len(freq_fixed_points)
+        
+        if region not in fp_count_by_region:
+            fp_count_by_region[region] = {}
+        if num_fps not in fp_count_by_region[region]:
+            fp_count_by_region[region][num_fps] = 0
+        fp_count_by_region[region][num_fps] += 1
+    
+    summary_lines.append("2. DISTRIBUTION OF FREQUENCIES BY NUMBER OF FIXED POINTS BY REGION:")
+    summary_lines.append("-" * 60)
+    for region in ["Lower Extrapolation", "Lower Training", "Gap Region", "Upper Training", "Higher Extrapolation"]:
+        if region in fp_count_by_region:
+            summary_lines.append(f"   {region}:")
+            for num_fps in sorted(fp_count_by_region[region].keys()):
+                summary_lines.append(f"      {fp_count_by_region[region][num_fps]} frequencies have {num_fps} fixed point(s)")
+        else:
+            summary_lines.append(f"   {region}: No frequencies in this region")
+    summary_lines.append("")
+    
     # Count fixed points by number of unstable eigenvalues
     unstable_eig_distribution = {}
     total_fixed_points = 0
@@ -1132,7 +1314,7 @@ def save_fixed_point_analysis_summary(all_fixed_points, all_unstable_eig_freq, f
                 unstable_eig_distribution[num_unstable] = 0
             unstable_eig_distribution[num_unstable] += 1
     
-    summary_lines.append("2. DISTRIBUTION OF FIXED POINTS BY NUMBER OF UNSTABLE EIGENVALUES:")
+    summary_lines.append("3. DISTRIBUTION OF FIXED POINTS BY NUMBER OF UNSTABLE EIGENVALUES:")
     summary_lines.append("-" * 60)
     for num_unstable in sorted(unstable_eig_distribution.keys()):
         summary_lines.append(f"   {unstable_eig_distribution[num_unstable]} fixed point(s) have {num_unstable} unstable eigenvalue(s)")
@@ -1140,8 +1322,79 @@ def save_fixed_point_analysis_summary(all_fixed_points, all_unstable_eig_freq, f
     summary_lines.append(f"   Total fixed points found: {total_fixed_points}")
     summary_lines.append("")
     
+    # NEW SECTION: Count fixed points by number of unstable eigenvalues BY REGION
+    unstable_eig_by_region = {}
+    
+    for i, freq_unstable_eigs in enumerate(all_unstable_eig_freq):
+        freq = frequency_labels[i]
+        region = get_frequency_region(freq)
+        
+        if region not in unstable_eig_by_region:
+            unstable_eig_by_region[region] = {}
+            
+        for fp_unstable_eigs in freq_unstable_eigs:
+            num_unstable = len(fp_unstable_eigs)
+            if num_unstable not in unstable_eig_by_region[region]:
+                unstable_eig_by_region[region][num_unstable] = 0
+            unstable_eig_by_region[region][num_unstable] += 1
+    
+    summary_lines.append("4. DISTRIBUTION OF FIXED POINTS BY NUMBER OF UNSTABLE EIGENVALUES BY REGION:")
+    summary_lines.append("-" * 60)
+    for region in ["Lower Extrapolation", "Lower Training", "Gap Region", "Upper Training", "Higher Extrapolation"]:
+        if region in unstable_eig_by_region:
+            total_fps_in_region = sum(unstable_eig_by_region[region].values())
+            summary_lines.append(f"   {region} (Total: {total_fps_in_region} fixed points):")
+            for num_unstable in sorted(unstable_eig_by_region[region].keys()):
+                summary_lines.append(f"      {unstable_eig_by_region[region][num_unstable]} fixed point(s) have {num_unstable} unstable eigenvalue(s)")
+        else:
+            summary_lines.append(f"   {region}: No fixed points in this region")
+    summary_lines.append("")
+    
+    # NEW SECTION: Distribution of frequencies by number of unstable eigenvalues
+    freq_unstable_distribution = {}
+    for i, freq_unstable_eigs in enumerate(all_unstable_eig_freq):
+        # Count total unstable eigenvalues for this frequency across all its fixed points
+        total_unstable_for_freq = sum(len(fp_unstable_eigs) for fp_unstable_eigs in freq_unstable_eigs)
+        
+        if total_unstable_for_freq not in freq_unstable_distribution:
+            freq_unstable_distribution[total_unstable_for_freq] = 0
+        freq_unstable_distribution[total_unstable_for_freq] += 1
+    
+    summary_lines.append("5. DISTRIBUTION OF FREQUENCIES BY NUMBER OF UNSTABLE EIGENVALUES:")
+    summary_lines.append("-" * 60)
+    for num_unstable in sorted(freq_unstable_distribution.keys()):
+        summary_lines.append(f"   {freq_unstable_distribution[num_unstable]} frequency(ies) have {num_unstable} total unstable eigenvalue(s)")
+    summary_lines.append("")
+    
+    # NEW SECTION: Distribution of frequencies by number of unstable eigenvalues BY REGION
+    freq_unstable_by_region = {}
+    for i, freq_unstable_eigs in enumerate(all_unstable_eig_freq):
+        freq = frequency_labels[i]
+        region = get_frequency_region(freq)
+        
+        # Count total unstable eigenvalues for this frequency across all its fixed points
+        total_unstable_for_freq = sum(len(fp_unstable_eigs) for fp_unstable_eigs in freq_unstable_eigs)
+        
+        if region not in freq_unstable_by_region:
+            freq_unstable_by_region[region] = {}
+        if total_unstable_for_freq not in freq_unstable_by_region[region]:
+            freq_unstable_by_region[region][total_unstable_for_freq] = 0
+        freq_unstable_by_region[region][total_unstable_for_freq] += 1
+    
+    summary_lines.append("6. DISTRIBUTION OF FREQUENCIES BY NUMBER OF UNSTABLE EIGENVALUES BY REGION:")
+    summary_lines.append("-" * 60)
+    for region in ["Lower Extrapolation", "Lower Training", "Gap Region", "Upper Training", "Higher Extrapolation"]:
+        if region in freq_unstable_by_region:
+            total_freqs_in_region = sum(freq_unstable_by_region[region].values())
+            summary_lines.append(f"   {region} (Total: {total_freqs_in_region} frequencies):")
+            for num_unstable in sorted(freq_unstable_by_region[region].keys()):
+                summary_lines.append(f"      {freq_unstable_by_region[region][num_unstable]} frequency(ies) have {num_unstable} total unstable eigenvalue(s)")
+        else:
+            summary_lines.append(f"   {region}: No frequencies in this region")
+    summary_lines.append("")
+    
     # Frequency-by-frequency detailed summary
-    summary_lines.append("3. FREQUENCY-BY-FREQUENCY DETAILED SUMMARY:")
+    summary_lines.append("7. FREQUENCY-BY-FREQUENCY DETAILED SUMMARY:")
     summary_lines.append("-" * 60)
     
     for i, freq in enumerate(frequency_labels):
@@ -1149,16 +1402,7 @@ def save_fixed_point_analysis_summary(all_fixed_points, all_unstable_eig_freq, f
         freq_unstable_eigs = all_unstable_eig_freq[i]
         
         # Determine frequency region
-        if freq < TRAINING_FREQ_RANGES[0][0]:
-            region = "Lower Extrapolation"
-        elif TRAINING_FREQ_RANGES[0][0] <= freq <= TRAINING_FREQ_RANGES[0][1]:
-            region = "Lower Training"
-        elif TRAINING_FREQ_RANGES[0][1] < freq < TRAINING_FREQ_RANGES[1][0]:
-            region = "Gap Region"
-        elif TRAINING_FREQ_RANGES[1][0] <= freq <= TRAINING_FREQ_RANGES[1][1]:
-            region = "Upper Training"
-        else:
-            region = "Higher Extrapolation"
+        region = get_frequency_region(freq)
         
         summary_lines.append(f"Frequency {freq:.4f} rad/s ({region}):")
         summary_lines.append(f"   Number of fixed points: {len(freq_fixed_points)}")
@@ -1176,7 +1420,6 @@ def save_fixed_point_analysis_summary(all_fixed_points, all_unstable_eig_freq, f
     # Create output directory path
     script_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.dirname(script_dir)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = os.path.join(parent_dir, 'Outputs', f'Frequency_Generalization_{EXECUTION_MODE}_{timestamp}')
     
     # Ensure output directory exists
@@ -1188,6 +1431,134 @@ def save_fixed_point_analysis_summary(all_fixed_points, all_unstable_eig_freq, f
     
     with open(filepath, 'w') as f:
         f.write(summary_text)
+
+
+
+def plot_frequency_comparison_gap(all_unstable_eig_freq, test_frequencies):
+    """
+    Plot a comparison of target frequencies and maximum unstable mode frequencies (imaginary components) 
+    for all frequencies in the frequency generalization experiment.
+
+    Arguments:
+        all_unstable_eig_freq: list of lists of lists, where the outer list is over frequencies,
+            the middle list is over fixed points,
+            and the inner list contains unstable eigenvalues for each fixed point
+        test_frequencies: array of test frequencies from the frequency generalization experiment
+    """
+    # ----------------------------------------
+    # SET-UP
+    fig = plt.figure(figsize=(12, 8))
+    ax = plt.gca()
+
+    # Define region colors (same as create_comprehensive_trajectory_subplots)
+    region_colors = {
+        'lower_extrap': '#FFE6E6',      # Very light red
+        'lower_training': '#E6F7E6',    # Very light green
+        'gap': '#FFE6CC',               # Very light orange
+        'upper_training': '#E6F7E6',    # Very light green (same as lower training)
+        'higher_extrap': '#E6E6FF'      # Very light blue
+    }
+    
+    # Function to determine region for a frequency
+    def get_frequency_region(freq):
+        if freq < TRAINING_FREQ_RANGES[0][0]:
+            return 'lower_extrap'
+        elif TRAINING_FREQ_RANGES[0][0] <= freq <= TRAINING_FREQ_RANGES[0][1]:
+            return 'lower_training'
+        elif TRAINING_FREQ_RANGES[0][1] < freq < TRAINING_FREQ_RANGES[1][0]:
+            return 'gap'
+        elif TRAINING_FREQ_RANGES[1][0] <= freq <= TRAINING_FREQ_RANGES[1][1]:
+            return 'upper_training'
+        else:
+            return 'higher_extrap'
+
+    # Function to determine index range for frequency ranges
+    def freq_to_index_range(freq_start, freq_end):
+        # Find approximate index ranges for frequency ranges
+        start_idx = None
+        end_idx = None
+        for i, freq in enumerate(test_frequencies):
+            if start_idx is None and freq >= freq_start:
+                start_idx = i
+            if freq <= freq_end:
+                end_idx = i
+        return start_idx, end_idx
+
+    # Initialize lists to store data for plotting
+    freq_indices = []
+    target_frequencies = []
+    unstable_frequencies = []
+
+    # ----------------------------------------
+    # ORGANISE DATA
+    # Collect data for all frequencies
+    for j, task_freqs in enumerate(all_unstable_eig_freq):
+        target_freq = test_frequencies[j]
+        # Find the maximum imaginary component across all fixed points in this frequency
+        max_imag = 0
+        for fp_freqs in task_freqs:
+            if fp_freqs:
+                current_max = max(abs(np.imag(ev)) for ev in fp_freqs)
+                max_imag = max(max_imag, current_max)
+        
+        if max_imag > 0:    # only consider frequencies with unstable frequencies
+            freq_indices.append(j)
+            target_frequencies.append(target_freq)
+            unstable_frequencies.append(max_imag)
+    
+    if len(target_frequencies) == 0:
+        # Handle case with no data
+        ax.text(0.5, 0.5, 'No unstable eigenvalue data', ha='center', va='center', transform=ax.transAxes)
+        ax.set_title('Comparison of Target Frequencies and Maximum Unstable Mode Frequencies')
+        plt.tight_layout()
+        save_plot_to_png(fig, "Frequency_Comparison_Gap")
+        plt.close()
+        return
+    
+    # ----------------------------------------
+    # CREATE PLOT
+    # Create scatter plot with same colors for all dots
+    scatter_size = 100
+    
+    # Plot target frequencies (black points)
+    ax.scatter(freq_indices, target_frequencies, color='black', label='Target Frequency', s=scatter_size, zorder=3)
+    
+    # Plot unstable frequencies (red points - keep original color)
+    ax.scatter(freq_indices, unstable_frequencies, color='red', label='Max Unstable Mode Frequency', 
+              s=scatter_size, alpha=1.0, zorder=3)
+
+    # Add background shading for different regions
+    freq_min = min(test_frequencies)
+    freq_max = max(test_frequencies)
+    
+    # Shade the lower training region
+    if TRAINING_FREQ_RANGES[0][0] <= freq_max and TRAINING_FREQ_RANGES[0][1] >= freq_min:
+        start_idx, end_idx = freq_to_index_range(TRAINING_FREQ_RANGES[0][0], TRAINING_FREQ_RANGES[0][1])
+        if start_idx is not None and end_idx is not None:
+            ax.axvspan(start_idx, end_idx, alpha=0.4, color=region_colors['lower_training'], zorder=1)
+    
+    # Shade the gap region
+    if TRAINING_FREQ_RANGES[0][1] <= freq_max and TRAINING_FREQ_RANGES[1][0] >= freq_min:
+        start_idx, end_idx = freq_to_index_range(TRAINING_FREQ_RANGES[0][1], TRAINING_FREQ_RANGES[1][0])
+        if start_idx is not None and end_idx is not None:
+            ax.axvspan(start_idx, end_idx, alpha=0.5, color=region_colors['gap'], zorder=1)
+    
+    # Shade the upper training region
+    if TRAINING_FREQ_RANGES[1][0] <= freq_max and TRAINING_FREQ_RANGES[1][1] >= freq_min:
+        start_idx, end_idx = freq_to_index_range(TRAINING_FREQ_RANGES[1][0], TRAINING_FREQ_RANGES[1][1])
+        if start_idx is not None and end_idx is not None:
+            ax.axvspan(start_idx, end_idx, alpha=0.4, color=region_colors['upper_training'], zorder=1)
+
+    # Add decorations
+    ax.set_xlabel('Frequency Index')
+    ax.set_ylabel('Frequency (rad/s)')
+    ax.set_title('Comparison of Target Frequencies and Maximum Unstable Mode Frequencies\n(Frequency Generalization Experiment)')
+    ax.legend()
+    ax.grid(True, alpha=0.3, zorder=2)
+    
+    # Save the plot
+    save_plot_to_png(fig, "Frequency_Comparison_Gap")
+    plt.close()
 
 
 
@@ -1228,7 +1599,15 @@ def main():
             
             # Generate trajectory states for comprehensive frequency set
             fixed_point_inits, traj_states, frequency_labels = generate_trajectory_states_for_frequencies(analysis_freqs, trained_params)
-            
+            # DEBUG - Check that the trajectories are being generated correctly
+            for i, traj in enumerate(traj_states):
+                print(f"Shape of trajectory {i+1}: {traj.shape} (steps={traj.shape[0]}, N={traj.shape[1]})")
+            # Save traj_states and fixed_point_inits
+            trajs_and_inits = {"trajectory_states": traj_states,
+                                "fixed_point_inits": fixed_point_inits,
+                                "frequency_labels": frequency_labels}
+            save_file_to_pkl(trajs_and_inits, "Trajectory_States_and_Fixed_Point_Inits")
+
             # Run fixed point analysis on the trained model
             all_fixed_points, all_jacobians, all_unstable_eig_freq \
                 = find_and_analyze_points_gap(state_traj_states=traj_states, state_fixed_point_inits=fixed_point_inits,
@@ -1254,8 +1633,8 @@ def main():
             custom_output_dir = os.path.join(parent_dir, 'Outputs', f'Frequency_Generalization_{EXECUTION_MODE}_{timestamp}')
             set_custom_output_dir(custom_output_dir)
             
-            plot_frequency_comparison(all_unstable_eig_freq=all_unstable_eig_freq,
-                                      omegas=jnp.array(frequency_labels))
+            plot_frequency_comparison_gap(all_unstable_eig_freq=all_unstable_eig_freq,
+                                      test_frequencies=jnp.array(frequency_labels))
             
 
             # ----------------------------------------
@@ -1299,22 +1678,22 @@ def main():
                 else:  # Higher extrapolation
                     proj_trajs_by_region["higher_extrapolation"].append(proj_trajs[i])
             
-            pca_results = {"pca":                  pca,                        # Add the PCA object itself
-                "proj_trajs":                      proj_trajs,
-                "proj_trajs_by_region":            proj_trajs_by_region,       # Trajectories categorized by region
-                "frequency_labels":                frequency_labels,           # Frequencies corresponding to trajectories
-                "all_trajectories_combined":       all_trajectories_combined,  # Add combined trajectory matrix
-                "skip_initial_steps":              PCA_SKIP_INITIAL_STEPS,
-                "apply_tanh":                      PCA_APPLY_TANH,
-                "pca_components":                  pca.components_,
-                "pca_explained_variance_ratio":    pca.explained_variance_ratio_}
+            # pca_results = {"pca":                  pca,                        # Add the PCA object itself
+            #     "proj_trajs":                      proj_trajs,
+            #     "proj_trajs_by_region":            proj_trajs_by_region,       # Trajectories categorized by region
+            #     "frequency_labels":                frequency_labels,           # Frequencies corresponding to trajectories
+            #     "all_trajectories_combined":       all_trajectories_combined,  # Add combined trajectory matrix
+            #     "skip_initial_steps":              PCA_SKIP_INITIAL_STEPS,
+            #     "apply_tanh":                      PCA_APPLY_TANH,
+            #     "pca_components":                  pca.components_,
+            #     "pca_explained_variance_ratio":    pca.explained_variance_ratio_}
             
             # --------------------
             # PCA PLOTS (FULL)
             # Project and plot fixed points if available
             if all_fixed_points is not None:
                 proj_fixed = project_points_to_pca(pca, all_fixed_points)
-                pca_results["proj_fixed"] = proj_fixed
+                # pca_results["proj_fixed"] = proj_fixed
                 
                 # Set custom output directory to match this script's output folder
                 set_custom_output_dir(custom_output_dir)
@@ -1326,7 +1705,9 @@ def main():
                                                  params=trained_params,
                                                  skip_initial_steps=PCA_SKIP_INITIAL_STEPS,
                                                  apply_tanh=PCA_APPLY_TANH,
-                                                 proj_trajs_by_region=proj_trajs_by_region)
+                                                 proj_trajs_by_region=proj_trajs_by_region,
+                                                 show_points=False,
+                                                 show_unstable_modes=False)
             
             # --------------------
             # PCA PLOTS (SUBSET)
@@ -1380,11 +1761,13 @@ def main():
                                                  skip_initial_steps=PCA_SKIP_INITIAL_STEPS,
                                                  apply_tanh=PCA_APPLY_TANH,
                                                  filename_prefix="subset_of_indices_",
-                                                 proj_trajs_by_region=subset_proj_trajs_by_region)
+                                                 proj_trajs_by_region=subset_proj_trajs_by_region,
+                                                 show_points=False,
+                                                 show_unstable_modes=False)
             
             # --------------------
             # SAVE PCA RESULTS DICTIONARY
-            save_file_to_pkl(pca_results, "PCA_Results")
+            # save_file_to_pkl(pca_results, "PCA_Results")
 
 
             # ----------------------------------------
@@ -1435,7 +1818,15 @@ def main():
         
         # Generate trajectory states for comprehensive frequency set
         fixed_point_inits, traj_states, frequency_labels = generate_trajectory_states_for_frequencies(analysis_freqs, imported_params)
-        
+        # DEBUG - Check that the trajectories are being generated correctly
+        for i, traj in enumerate(traj_states):
+            print(f"Shape of trajectory {i+1}: {traj.shape} (steps={traj.shape[0]}, N={traj.shape[1]})")
+        # Save traj_states and fixed_point_inits
+        trajs_and_inits = {"trajectory_states": traj_states,
+                            "fixed_point_inits": fixed_point_inits,
+                            "frequency_labels": frequency_labels}
+        save_file_to_pkl(trajs_and_inits, "Trajectory_States_and_Fixed_Point_Inits")
+
         # Run fixed point analysis on the trained model
         all_fixed_points, all_jacobians, all_unstable_eig_freq \
             = find_and_analyze_points_gap(state_traj_states=traj_states, state_fixed_point_inits=fixed_point_inits,
@@ -1461,8 +1852,8 @@ def main():
         custom_output_dir = os.path.join(parent_dir, 'Outputs', f'Frequency_Generalization_{EXECUTION_MODE}_{timestamp}')
         set_custom_output_dir(custom_output_dir)
         
-        plot_frequency_comparison(all_unstable_eig_freq=all_unstable_eig_freq,
-                                    omegas=jnp.array(frequency_labels))
+        plot_frequency_comparison_gap(all_unstable_eig_freq=all_unstable_eig_freq,
+                                    test_frequencies=jnp.array(frequency_labels))
         
 
         # ----------------------------------------
@@ -1506,22 +1897,22 @@ def main():
             else:  # Higher extrapolation
                 proj_trajs_by_region["higher_extrapolation"].append(proj_trajs[i])
         
-        pca_results = {"pca":                  pca,                        # Add the PCA object itself
-            "proj_trajs":                      proj_trajs,
-            "proj_trajs_by_region":            proj_trajs_by_region,       # Trajectories categorized by region
-            "frequency_labels":                frequency_labels,           # Frequencies corresponding to trajectories
-            "all_trajectories_combined":       all_trajectories_combined,  # Add combined trajectory matrix
-            "skip_initial_steps":              PCA_SKIP_INITIAL_STEPS,
-            "apply_tanh":                      PCA_APPLY_TANH,
-            "pca_components":                  pca.components_,
-            "pca_explained_variance_ratio":    pca.explained_variance_ratio_}
+        # pca_results = {"pca":                  pca,                        # Add the PCA object itself
+        #     "proj_trajs":                      proj_trajs,
+        #     "proj_trajs_by_region":            proj_trajs_by_region,       # Trajectories categorized by region
+        #     "frequency_labels":                frequency_labels,           # Frequencies corresponding to trajectories
+        #     "all_trajectories_combined":       all_trajectories_combined,  # Add combined trajectory matrix
+        #     "skip_initial_steps":              PCA_SKIP_INITIAL_STEPS,
+        #     "apply_tanh":                      PCA_APPLY_TANH,
+        #     "pca_components":                  pca.components_,
+        #     "pca_explained_variance_ratio":    pca.explained_variance_ratio_}
         
         # --------------------
         # PCA PLOTS (FULL)
         # Project and plot fixed points if available
         if all_fixed_points is not None:
             proj_fixed = project_points_to_pca(pca, all_fixed_points)
-            pca_results["proj_fixed"] = proj_fixed
+            # pca_results["proj_fixed"] = proj_fixed
             
             # Set custom output directory to match this script's output folder
             set_custom_output_dir(custom_output_dir)
@@ -1533,7 +1924,9 @@ def main():
                                                 params=imported_params,
                                                 skip_initial_steps=PCA_SKIP_INITIAL_STEPS,
                                                 apply_tanh=PCA_APPLY_TANH,
-                                                proj_trajs_by_region=proj_trajs_by_region)
+                                                proj_trajs_by_region=proj_trajs_by_region,
+                                                show_points=False,
+                                                show_unstable_modes=False)
         
         # --------------------
         # PCA PLOTS (SUBSET)
@@ -1587,11 +1980,13 @@ def main():
                                                 skip_initial_steps=PCA_SKIP_INITIAL_STEPS,
                                                 apply_tanh=PCA_APPLY_TANH,
                                                 filename_prefix="subset_of_indices_",
-                                                proj_trajs_by_region=subset_proj_trajs_by_region)
+                                                proj_trajs_by_region=subset_proj_trajs_by_region,
+                                                show_points=False,
+                                                show_unstable_modes=False)
         
         # --------------------
         # SAVE PCA RESULTS DICTIONARY
-        save_file_to_pkl(pca_results, "PCA_Results")
+        # save_file_to_pkl(pca_results, "PCA_Results")
 
         # ----------------------------------------
         # TESTING PHASE (IN TESTING MODE)

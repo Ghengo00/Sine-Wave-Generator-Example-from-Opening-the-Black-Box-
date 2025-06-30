@@ -210,7 +210,7 @@ def plot_explained_variance_ratio(pca, skip_initial_steps=0, apply_tanh=False, f
         print(f"Explained variance ratio bar chart saved")
 
 
-def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False, filename_prefix="", ax=None, sparsity_value=None, for_comparison=False, l1_reg_value=None, proj_trajs_by_region=None):
+def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False, filename_prefix="", ax=None, sparsity_value=None, for_comparison=False, l1_reg_value=None, proj_trajs_by_region=None, show_points=True, show_unstable_modes=True):
     """
     Unified function to plot PCA trajectories with either fixed points or slow points.
     
@@ -229,6 +229,8 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
         for_comparison : if True, adjusts styling for comparison plots
         l1_reg_value : if not None, use this L1 regularization value instead of sparsity for titles and filenames
         proj_trajs_by_region : dict with keys as region names and values as lists of trajectories for that region
+        show_points  : if True, plot fixed/slow points (default: True for backwards compatibility)
+        show_unstable_modes : if True, plot unstable mode directions (default: True for backwards compatibility)
     """
     
     # Validate point_type parameter
@@ -330,53 +332,58 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
                 ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], color='blue', alpha=0.2)
 
     # Plot the projected points as green scatter points
-    if proj_points.size > 0:
+    if show_points and proj_points.size > 0:
         # Adjust scatter point size for comparison plots
         point_size = 15 if not for_comparison else 15
         ax.scatter(proj_points[:, 0], proj_points[:, 1], proj_points[:, 2], 
                   color='green', s=point_size, alpha=0.8, label=point_name)
 
     # For each point, plot all unstable modes as red lines
-    point_idx = 0
-    unstable_mode_counts = {}  # Dictionary to track number of unstable modes per point
-    
-    for j, task_points in enumerate(all_points):
-        for x_star in task_points:
-            # Compute the Jacobian and find the eigenvalues at the point
-            J_eff = np.array(compute_jacobian(x_star, J_trained))
-            eigenvals, eigenvecs = eig(J_eff)
-            # Find all the unstable eigenvalues for the given point
-            unstable_idx = np.where(np.real(eigenvals) > 0)[0]
-            num_unstable = len(unstable_idx)
-            
-            # Track unstable mode counts
-            if num_unstable in unstable_mode_counts:
-                unstable_mode_counts[num_unstable] += 1
-            else:
-                unstable_mode_counts[num_unstable] = 1
-            
-            if len(unstable_idx) > 0:
-                # For each unstable eigenvalue, plot the corresponding eigenvector direction
-                for idx in unstable_idx:
-                    # Take the real part for the plotting direction
-                    v = np.real(eigenvecs[:, idx])
-                    scale = 1.0
-                    # Project the unstable eigenvector direction into PCA space
-                    v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_points[point_idx]
-                    # Plot a line centred on the point in PCA space
-                    line = np.vstack([
-                        proj_points[point_idx] - v_proj,
-                        proj_points[point_idx] + v_proj
-                    ])
-                    ax.plot(line[:, 0], line[:, 1], line[:, 2], color='red', linewidth=2, alpha=0.5)
-            point_idx += 1
-    
-    # Print summary of unstable modes (only for standalone plots)
-    if standalone_plot:
-        print(f"\nUnstable modes summary for {point_name}:")
-        for num_modes in sorted(unstable_mode_counts.keys()):
-            count = unstable_mode_counts[num_modes]
-            print(f"Number of fixed points with {num_modes} unstable modes: {count}")
+    if show_unstable_modes and all_points is not None and params is not None:
+        point_idx = 0
+        unstable_mode_counts = {}  # Dictionary to track number of unstable modes per point
+        
+        for j, task_points in enumerate(all_points):
+            for x_star in task_points:
+                # Compute the Jacobian and find the eigenvalues at the point
+                J_eff = np.array(compute_jacobian(x_star, J_trained))
+                eigenvals, eigenvecs = eig(J_eff)
+                # Find all the unstable eigenvalues for the given point
+                unstable_idx = np.where(np.real(eigenvals) > 0)[0]
+                num_unstable = len(unstable_idx)
+                
+                # Track unstable mode counts
+                if num_unstable in unstable_mode_counts:
+                    unstable_mode_counts[num_unstable] += 1
+                else:
+                    unstable_mode_counts[num_unstable] = 1
+                
+                if len(unstable_idx) > 0:
+                    # For each unstable eigenvalue, plot the corresponding eigenvector direction
+                    for idx in unstable_idx:
+                        # Take the real part for the plotting direction
+                        v = np.real(eigenvecs[:, idx])
+                        scale = 1.0
+                        # Project the unstable eigenvector direction into PCA space
+                        v_proj = pca.transform((x_star + scale * v).reshape(1, -1))[0] - proj_points[point_idx]
+                        # Plot a line centred on the point in PCA space
+                        line = np.vstack([
+                            proj_points[point_idx] - v_proj,
+                            proj_points[point_idx] + v_proj
+                        ])
+                        ax.plot(line[:, 0], line[:, 1], line[:, 2], color='red', linewidth=2, alpha=0.5)
+                point_idx += 1
+        
+        # Print summary of unstable modes (only for standalone plots)
+        if standalone_plot:
+            print(f"\nUnstable modes summary for {point_name}:")
+            for num_modes in sorted(unstable_mode_counts.keys()):
+                count = unstable_mode_counts[num_modes]
+                print(f"Number of fixed points with {num_modes} unstable modes: {count}")
+    elif show_unstable_modes and not show_points:
+        # If we want to show unstable modes but not points, we still need to create the counts dictionary
+        # but we won't plot anything since we need both points and modes to be meaningful
+        pass
 
     # Calculate the overall data range for equal scaling
     all_data = np.concatenate([np.concatenate(proj_trajs, axis=0)])
@@ -421,8 +428,8 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
     # Add legend - combine fixed points legend with region legend
     legend_elements = []
     
-    # Add fixed points to legend if they exist
-    if proj_points.size > 0:
+    # Add fixed points to legend if they exist and are being shown
+    if show_points and proj_points.size > 0:
         legend_elements.append(plt.Line2D([0], [0], marker='o', color='green', 
                                          linestyle='None', markersize=8, 
                                          alpha=0.8, label=point_name))
@@ -448,7 +455,7 @@ def plot_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_po
         plt.close()
 
 
-def plot_interactive_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False, filename_prefix="", sparsity_value=None, l1_reg_value=None):
+def plot_interactive_pca_trajectories_and_points(pca, proj_trajs, point_type="fixed", all_points=None, proj_points=None, params=None, skip_initial_steps=0, apply_tanh=False, filename_prefix="", sparsity_value=None, l1_reg_value=None, show_points=True, show_unstable_modes=True):
     """
     Create an interactive 3D plot using Plotly that can be rotated and saved as HTML.
     
@@ -464,6 +471,8 @@ def plot_interactive_pca_trajectories_and_points(pca, proj_trajs, point_type="fi
         filename_prefix : prefix to add to the filename (default: "")
         sparsity_value : sparsity value for title and filename (optional)
         l1_reg_value : if not None, use this L1 regularization value instead of sparsity for titles and filenames
+        show_points  : if True, plot fixed/slow points (default: True for backwards compatibility)
+        show_unstable_modes : if True, plot unstable mode directions (default: True for backwards compatibility)
     """
     # Validate point_type parameter
     if point_type not in ["fixed", "slow"]:
@@ -511,7 +520,7 @@ def plot_interactive_pca_trajectories_and_points(pca, proj_trajs, point_type="fi
             ))
     
     # Add points
-    if proj_points.size > 0:
+    if show_points and proj_points.size > 0:
         fig.add_trace(go.Scatter3d(
             x=proj_points[:, 0], y=proj_points[:, 1], z=proj_points[:, 2],
             mode='markers',
@@ -520,7 +529,7 @@ def plot_interactive_pca_trajectories_and_points(pca, proj_trajs, point_type="fi
         ))
     
     # Add unstable modes as lines
-    if all_points is not None and params is not None:
+    if show_unstable_modes and all_points is not None and params is not None:
         J_trained = np.array(params["J"])
         point_idx = 0
         unstable_lines_x, unstable_lines_y, unstable_lines_z = [], [], []
@@ -578,7 +587,7 @@ def plot_interactive_pca_trajectories_and_points(pca, proj_trajs, point_type="fi
     
     # Calculate the overall data range for equal scaling
     all_data = np.concatenate([np.concatenate(proj_trajs, axis=0)])
-    if proj_points.size > 0:
+    if show_points and proj_points.size > 0:
         all_data = np.concatenate([all_data, proj_points], axis=0)
     
     # Find the maximum absolute value across all dimensions
