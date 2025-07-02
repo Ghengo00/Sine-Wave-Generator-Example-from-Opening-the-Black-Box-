@@ -162,12 +162,31 @@ RUN_TESTING_AFTER_TRAINING   = True      # If True, will run testing after gap t
 # Current timestamp for output folder naming
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+# Random key
+key                          = random.PRNGKey(JAX_SEED)
+
 
 # ============================================================
-# TRAINING MODE SETTINGS
+# SETTINGS TO BE CONTROLLED BY TEST_FREQUENCY_GENERALIZATION_WITH_SPARSITY_AND_RANK.py
 
 # Set the sparsity
 S                       = 0.0                           # Sparsity level for the J matrix (0.0 to 1.0)
+
+# Choose whether or not to explicitly control the rank of the connectivity matrix J
+CONTROL_RANK            = False                         # If True, will control the rank of J during initialization
+# Set the rank
+R                       = 50                            # Rank of the J matrix (1 to N, where N is the number of neurons)
+# Enusre the rank does not exceed the dimension
+if R > N:
+    R = N
+# Covariance matrix for controlled rank initialization
+cov_general             = (jax.random.normal(key, (2*R, 2*R))) \
+    @ (jax.random.normal(key, (2*R, 2*R))).T \
+    + 1e-6 * jnp.eye(2*R)                               # Symmetric positive-definite covariance matrix for generating low-rank matrices, shape (2R, 2R)
+
+
+# ============================================================
+# TRAINING MODE SETTINGS
 
 # Gap training configuration
 TRAINING_FREQ_RANGES    = [(0.1, 0.25), (0.45, 0.6)]    # Training frequency ranges (excluding 0.25-0.45)
@@ -471,6 +490,71 @@ def init_params_gap(key, sparsity):
     return mask, {"J": J, "B": B, "b_x": b_x, "w": w, "b_z": b_z}
 
 
+def init_params_gap_control_rank(key, sparsity, R, N, cov):
+    """
+    Initialize RNN parameters with controlled rank.
+    
+    Arguments:
+        key: JAX random key
+        sparsity: sparsity level for the J matrix (0.0 to 1.0)
+        rank: desired rank of the J matrix (1 to N)
+        
+    Returns:
+        mask: sparsity mask for connections
+        params: dictionary containing J, B, b_x, w, b_z
+    """
+    k_mask, k1, k2, k3, k4, k5 = random.split(key, 6)
+
+    # ----------------------------------------
+    # CREATE MASK
+    mask = random.bernoulli(k_mask, p=1.0 - sparsity, shape=(N, N)).astype(jnp.float32)
+
+    # ----------------------------------------
+    # CREATE UNSPARSIFIED J, WITH RANK R
+    subkey, key = random.split(key)
+
+    # Check that cov is a valid covariance matrix
+    if cov.shape != (2 * R, 2 * R):
+        raise ValueError(f"cov should be of shape (2R, 2R), but got {cov.shape}.")
+    if not jnp.allclose(cov, cov.T):
+        raise ValueError("cov should be symmetric, but it is not.")
+    if not jnp.all(jnp.linalg.eigvalsh(cov) > 0):
+        raise ValueError("cov should be positive definite, but it is not.")
+    
+    # Sample N independent draws from N(0, cov)
+    # using the Cholesky decomposition of cov
+    Z       = random.normal(subkey, shape=(N, 2 * R))        # shape (N, 2R), each element is inependently N(0, 1)
+    L       = jnp.linalg.cholesky(cov)                       # L is a lower triangular matrix such that cov = L L^T (the Cholesky decomposition)
+    samples = Z @ L.T                                        # shape (N, 2R), where each row (length 2R) is a sample from N(0, cov)
+
+    # Split samples into matrices of the left and right vectors
+    R_int = int(R)  # Ensure R is a Python integer for array slicing
+    U  = samples[:, :R_int].T        # shape (R, N), each column is a vector u_r
+    V  = samples[:, R_int:].T        # shape (R, N), each column is a vector v_r
+
+    # Recover P as sum of outer products: P[ij] = sum_r u_r[i] * v_r[j]
+    J_unscaled_unmasked = jnp.sum(U[:, :, None] * V[:, None, :], axis=0)
+
+    # ----------------------------------------
+    # SPARSIFY J AND SCALE IT
+    J_unscaled = J_unscaled_unmasked * mask
+    # By Girko's law, we know that, in the limit N -> infinity, the eigenvalues of J will converge to a uniform distribution
+    # within a disk centred at the origin of radius sqrt(Var * N) = sqrt((1 / N) * N) = 1.
+    # After masking, the elements remain independently distributed with mean zero,
+    # but their variance becomes Var_m = (1 - s) / N, meaning the spectral radius becomes sqrt(1 - s).
+    # Thus, to maintain the same spectral radius as the full matrix, we scale J by 1 / sqrt(1 - s).
+    J = J_unscaled / jnp.sqrt(1 - sparsity)
+
+    # ----------------------------------------
+    # CREATE OTHER PARAMETERS
+    B = random.normal(k2, (N, I)) / jnp.sqrt(N)
+    b_x = jnp.zeros((N,))
+    w = random.normal(k4, (N,)) / jnp.sqrt(N)
+    b_z = jnp.array(0.0, dtype=jnp.float32)
+    
+    return mask, {"J": J, "B": B, "b_x": b_x, "w": w, "b_z": b_z}
+
+
 @jit
 def solve_gap_task(params, gap_task_index):
     """
@@ -531,7 +615,10 @@ def run_gap_training():
     # Initialize model parameters
     key             = random.PRNGKey(JAX_SEED)
     _, subkey       = random.split(key)
-    mask, params    = init_params_gap(subkey, S)
+    if CONTROL_RANK == False:
+        mask, params    = init_params_gap(subkey, S)
+    else:
+        mask, params    = init_params_gap_control_rank(subkey, S, R, N, cov_general)
     
     # Create custom loss function for gap training
     # Using the optimized version that follows _4_rnn_model.py patterns exactly
