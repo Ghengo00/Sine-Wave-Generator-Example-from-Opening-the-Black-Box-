@@ -40,6 +40,12 @@ OUTPUTS:
             - Saved with name "Unstable_Eigen_Frequencies_{EXECUTION_MODE}_{timestamp}.pkl"
         - frequency_labels: list of frequencies used for fixed point and PCA analysis
             - Saved with name "Analysis_Frequencies_{EXECUTION_MODE}_{timestamp}.pkl"
+        - trajs_and_inits: dict
+            - Saved with name "Trajectory_States_and_Fixed_Point_Inits_{EXECUTION_MODE}_{timestamp}.pkl"
+            - Contains the following keys:
+                - 'trajectory_states': list of trajectory states from training, one for each frequency
+                - 'fixed_point_inits': list of initial states for fixed point search, one for each frequency
+                'frequency_labels': list of frequencies corresponding to trajectory states
         # - **CURRENTLY NOT BEING SAVED** pca_results: dict containing PCA analysis results
         #     - Saved with name "PCA_Results_{EXECUTION_MODE}_{timestamp}.pkl"
         #     - Contains the following keys:
@@ -117,6 +123,7 @@ from datetime import datetime
 import numpy as np
 import jax
 import jax.numpy as jnp
+from jax import random
 from jax import vmap, jit
 from scipy.optimize import root, least_squares
 import matplotlib
@@ -130,7 +137,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from _1_config import *
 from _2_utils import Timer, get_output_dir, set_custom_output_dir
 from _3_data_generation import get_drive_input, get_train_input
-from _4_rnn_model import simulate_trajectory, init_params, create_loss_function
+from _4_rnn_model import simulate_trajectory, create_loss_function
 from _5_training import train_model
 from _6_analysis import compute_F, analyze_points
 from _7_visualization import plot_trajectories_vs_targets
@@ -149,7 +156,7 @@ from _8_pca_analysis import perform_pca_analysis, project_points_to_pca, plot_ex
 # EXECUTION MODE SETTINGS
 
 # Set the execution mode
-EXECUTION_MODE               = "test"   # Options: "train" or "test"
+EXECUTION_MODE               = "train"   # Options: "train" or "test"
 RUN_TESTING_AFTER_TRAINING   = True      # If True, will run testing after gap training completes
 
 # Current timestamp for output folder naming
@@ -158,6 +165,9 @@ timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # ============================================================
 # TRAINING MODE SETTINGS
+
+# Set the sparsity
+S                       = 0.0                           # Sparsity level for the J matrix (0.0 to 1.0)
 
 # Gap training configuration
 TRAINING_FREQ_RANGES    = [(0.1, 0.25), (0.45, 0.6)]    # Training frequency ranges (excluding 0.25-0.45)
@@ -430,6 +440,37 @@ def get_gap_train_target(gap_task_index):
 # GAP TRAINING FUNCTIONS
 # ============================================================
 # ============================================================
+def init_params_gap(key, sparsity):
+    """
+    Initialize RNN parameters with proper scaling.
+    
+    Arguments:
+        key: JAX random key
+        sparsity: sparsity level for the J matrix (0.0 to 1.0)
+        
+    Returns:
+        mask: sparsity mask for connections
+        params: dictionary containing J, B, b_x, w, b_z
+    """
+    k_mask, k1, k2, k3, k4, k5 = random.split(key, 6)
+
+    mask = random.bernoulli(k_mask, p=1.0 - sparsity, shape=(N, N)).astype(jnp.float32)
+    J_unscaled = random.normal(k1, (N, N)) / jnp.sqrt(N) * mask
+    # By Girko's law, we know that, in the limit N -> infinity, the eigenvalues of J will converge to a uniform distribution
+    # within a disk centred at the origin of radius sqrt(Var * N) = sqrt((1 / N) * N) = 1.
+    # After masking, the elements remain independently distributed with mean zero,
+    # but their variance becomes Var_m = (1 - s) / N, meaning the spectral radius becomes sqrt(1 - s).
+    # Thus, to maintain the same spectral radius as the full matrix, we scale J by 1 / sqrt(1 - s).
+    J = J_unscaled / jnp.sqrt(1 - sparsity)
+
+    B = random.normal(k2, (N, I)) / jnp.sqrt(N)
+    b_x = jnp.zeros((N,))
+    w = random.normal(k4, (N,)) / jnp.sqrt(N)
+    b_z = jnp.array(0.0, dtype=jnp.float32)
+    
+    return mask, {"J": J, "B": B, "b_x": b_x, "w": w, "b_z": b_z}
+
+
 @jit
 def solve_gap_task(params, gap_task_index):
     """
@@ -488,9 +529,9 @@ def gap_batched_loss(params):
 def run_gap_training():
     """Run gap training with the specified frequency ranges."""
     # Initialize model parameters
-    key             = jax.random.PRNGKey(JAX_SEED)
-    _, subkey       = jax.random.split(key)
-    mask, params    = init_params(subkey)
+    key             = random.PRNGKey(JAX_SEED)
+    _, subkey       = random.split(key)
+    mask, params    = init_params_gap(subkey, S)
     
     # Create custom loss function for gap training
     # Using the optimized version that follows _4_rnn_model.py patterns exactly
@@ -1587,6 +1628,14 @@ def main():
             print(f"\nRunning gap training...")
             trained_params, train_final_loss = run_gap_training()
             print(f"\nGap training completed successfully!")
+
+            # Ensure that J has the expected sparsity (the proportion of zero elements is the same as S)
+            if trained_params['J'].size > 0:
+                actual_sparsity = (trained_params['J'].size - jnp.count_nonzero(trained_params['J'])) / trained_params['J'].size
+                if not jnp.isclose(actual_sparsity, S, rtol=1e-2):
+                    print(f"Warning: J sparsity ratio {actual_sparsity:.2f} does not match expected {S:.2f}")
+            else:
+                print("Warning: J is empty, cannot check sparsity ratio")
 
 
             # ----------------------------------------
