@@ -5,7 +5,11 @@ Contains all hyperparameters, network dimensions, and experimental settings.
 
 
 import numpy as np
+import jax
 import jax.numpy as jnp
+
+# Enable 64-bit precision in JAX
+jax.config.update("jax_enable_x64", True)
 
 
 # =============================================================================
@@ -33,10 +37,10 @@ L1_REG_STRENGTH = 0.0  # L1 regularization strength for connectivity matrix (def
 # TASK PARAMETERS
 # =============================================================================
 # Frequencies: equally spaced between 0.1 and 0.6 rad/s
-omegas = jnp.linspace(0.1, 0.6, num_tasks, dtype=jnp.float32)
+omegas = jnp.linspace(0.1, 0.6, num_tasks, dtype=jnp.float64)
 
 # Static input offset for each task: j/51 + 0.25, j=0,...,50
-static_inputs = jnp.linspace(0, num_tasks - 1, num_tasks, dtype=jnp.float32) / num_tasks + 0.25
+static_inputs = jnp.linspace(0, num_tasks - 1, num_tasks, dtype=jnp.float64) / num_tasks + 0.25
 
 
 # =============================================================================
@@ -49,8 +53,8 @@ T_train = 64.0   # training phase duration (seconds)
 # Computed time parameters
 num_steps_drive = int(T_drive / dt)
 num_steps_train = int(T_train / dt)
-time_drive = jnp.arange(0, T_drive, dt, dtype=jnp.float32)
-time_train = jnp.arange(0, T_train, dt, dtype=jnp.float32)
+time_drive = jnp.arange(0, T_drive, dt, dtype=jnp.float64)
+time_train = jnp.arange(0, T_train, dt, dtype=jnp.float64)
 time_full = jnp.concatenate([time_drive, T_drive + time_train])
 
 

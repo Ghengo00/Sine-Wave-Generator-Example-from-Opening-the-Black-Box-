@@ -3,7 +3,12 @@ Data generation functions.
 """
 
 
+import jax
 import jax.numpy as jnp
+
+# Enable 64-bit precision in JAX
+jax.config.update("jax_enable_x64", True)
+
 from _1_config import omegas, static_inputs, time_drive, time_train, num_steps_drive, num_steps_train, I
 
 
@@ -30,7 +35,7 @@ def get_train_input(task):
     Returns:
         train_input: training phase input, shape (num_steps_train, I)
     """
-    return jnp.full((num_steps_train, I), static_inputs[task], dtype=jnp.float32)  # shape (num_steps_train, I)
+    return jnp.full((num_steps_train, I), static_inputs[task], dtype=jnp.float64)  # shape (num_steps_train, I)
 
 
 def get_train_target(task):
@@ -66,7 +71,7 @@ def generate_all_inputs_and_targets():
     train_inputs = jnp.broadcast_to(
         static_inputs[:, None, None],                   # static_inputs[:, None, None] is (num_tasks, 1, I); this broadcasts to (num_tasks, num_steps_train, I)
         (len(omegas), num_steps_train, I)
-    ).astype(jnp.float32)
+    ).astype(jnp.float64)
 
     # Training phase targets: shape (num_tasks, num_steps_train)
     train_targets = jnp.sin(omegas[:, None] * time_train[None, :])  # omegas[:, None] is (num_tasks, 1); time_train[None, :] is (1, num_steps_train)

@@ -8,6 +8,10 @@ import jax.numpy as jnp
 from jax import random, jit, lax, vmap
 import numpy as np
 from functools import partial
+
+# Enable 64-bit precision in JAX
+jax.config.update("jax_enable_x64", True)
+
 from _1_config import N, I, dt, s, num_tasks, omegas, static_inputs, time_drive, time_train, num_steps_train
 from _3_data_generation import get_drive_input, get_train_input, get_train_target
 
@@ -28,7 +32,7 @@ def init_params(key):
     """
     k_mask, k1, k2, k3, k4, k5 = random.split(key, 6)
 
-    mask = random.bernoulli(k_mask, p=1.0 - s, shape=(N, N)).astype(jnp.float32)
+    mask = random.bernoulli(k_mask, p=1.0 - s, shape=(N, N)).astype(jnp.float64)
     J_unscaled = random.normal(k1, (N, N)) / jnp.sqrt(N) * mask
     # By Girko's law, we know that, in the limit N -> infinity, the eigenvalues of J will converge to a uniform distribution
     # within a disk centred at the origin of radius sqrt(Var * N) = sqrt((1 / N) * N) = 1.
@@ -40,7 +44,7 @@ def init_params(key):
     B = random.normal(k2, (N, I)) / jnp.sqrt(N)
     b_x = jnp.zeros((N,))
     w = random.normal(k4, (N,)) / jnp.sqrt(N)
-    b_z = jnp.array(0.0, dtype=jnp.float32)
+    b_z = jnp.array(0.0, dtype=jnp.float64)
     
     return mask, {"J": J, "B": B, "b_x": b_x, "w": w, "b_z": b_z}
 
@@ -130,7 +134,7 @@ def solve_task(params, task):
     """
     Run the drive and train phases all the way through for a single task.
     """
-    x0 = jnp.zeros((N,), dtype=jnp.float32)      # Initial state for the task
+    x0 = jnp.zeros((N,), dtype=jnp.float64)      # Initial state for the task
     
     # Drive phase
     d_u = get_drive_input(task)                   # shape (num_steps_drive, I)
@@ -165,7 +169,7 @@ def compute_driving_final_states(params):
         driving_final_states: array of shape (num_tasks, N) containing final states after driving phase
     """
     def single_task_driving(task):
-        x0 = jnp.zeros((N,), dtype=jnp.float32)
+        x0 = jnp.zeros((N,), dtype=jnp.float64)
         d_u = get_drive_input(task)
         xs_d, _ = simulate_trajectory(x0, d_u, params)
         
@@ -249,7 +253,7 @@ def run_single_task_diagnostics(params, omega, u_off):
         x_drive_final: the final state of the system after the drive phase, for the given parameters (jnp.ndarray, shape (N,))
     """
     # Set the initial hidden state
-    x0 = jnp.zeros((N,), dtype=jnp.float32)
+    x0 = jnp.zeros((N,), dtype=jnp.float64)
 
     # Build the driving‐phase input
     u_drive = jnp.sin(omega * time_drive).reshape(-1, 1) + u_off        # (num_steps_drive, I)
@@ -259,7 +263,8 @@ def run_single_task_diagnostics(params, omega, u_off):
     x_drive_final = xs_drive[-1]  # (N,)
 
     # Build the training‐phase input and target
-    u_train = jnp.full((num_steps_train, 1), u_off, dtype=jnp.float32)  # (num_steps_train, I)
+    # Training phase input (constant offset)
+    u_train = jnp.full((num_steps_train, 1), u_off, dtype=jnp.float64)  # (num_steps_train, I)
     target_train = jnp.sin(omega * time_train)                          # (num_steps_train,)
 
     # Train phase
@@ -509,7 +514,7 @@ def solve_task_low_rank(params, task):
     """
     Run the drive and train phases for a single task using low-rank connectivity.
     """
-    x0 = jnp.zeros((N,), dtype=jnp.float32)      # Initial state for the task
+    x0 = jnp.zeros((N,), dtype=jnp.float64)      # Initial state for the task
     
     # Drive phase
     d_u = get_drive_input(task)                   # shape (num_steps_drive, I)

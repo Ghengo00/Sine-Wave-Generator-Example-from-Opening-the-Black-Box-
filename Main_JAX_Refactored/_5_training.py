@@ -7,6 +7,10 @@ import jax
 import jax.numpy as jnp
 import optax
 from functools import partial
+
+# Enable 64-bit precision in JAX
+jax.config.update("jax_enable_x64", True)
+
 from _1_config import s, NUM_EPOCHS_ADAM, NUM_EPOCHS_LBFGS, LOSS_THRESHOLD, ADAM_LR, LEARNING_RATE, MEMORY_SIZE, SCALE_INIT_PRECOND
 from _4_rnn_model import batched_loss, batched_loss_low_rank
 

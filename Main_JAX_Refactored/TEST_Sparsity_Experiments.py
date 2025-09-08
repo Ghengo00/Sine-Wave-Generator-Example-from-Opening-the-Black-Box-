@@ -234,6 +234,8 @@ try:
     import jax
     import jax.numpy as jnp
     from jax import random
+    # Enable 64-bit precision in JAX
+    jax.config.update("jax_enable_x64", True)
 except Exception as e:  # pragma: no cover
     raise RuntimeError(f"Failed to import JAX packages: {e}. Ensure jax & jaxlib are installed in the active environment.")
 
@@ -493,14 +495,14 @@ def init_params_with_sparsity(key, sparsity_val):
     """
     k_mask, k1, k2, k3, k4, k5 = random.split(key, 6)
 
-    mask = random.bernoulli(k_mask, p=1.0 - sparsity_val, shape=(N, N)).astype(jnp.float32)
+    mask = random.bernoulli(k_mask, p=1.0 - sparsity_val, shape=(N, N)).astype(jnp.float64)
     J_unscaled = random.normal(k1, (N, N)) / jnp.sqrt(N) * mask
     J = J_unscaled / jnp.sqrt(1 - sparsity_val) if sparsity_val < 1.0 else J_unscaled
 
     B = random.normal(k2, (N, I)) / jnp.sqrt(N)
     b_x = jnp.zeros((N,))
     w = random.normal(k4, (N,)) / jnp.sqrt(N)
-    b_z = jnp.array(0.0, dtype=jnp.float32)
+    b_z = jnp.array(0.0, dtype=jnp.float64)
 
     return mask, {"J": J, "B": B, "b_x": b_x, "w": w, "b_z": b_z}
 

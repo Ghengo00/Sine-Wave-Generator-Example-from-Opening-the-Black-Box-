@@ -54,8 +54,8 @@ def plot_single_trajectory_vs_target(params, task_index, x0_test, ax=None, spars
     u_off = static_inputs[j]
 
     # Build input sequences
-    u_drive_np = (np.sin(omega * time_drive) + u_off).astype(np.float32).reshape(-1, 1)
-    u_train_np = np.full((num_steps_train, 1), u_off, dtype=np.float32)
+    u_drive_np = (np.sin(omega * time_drive) + u_off).astype(np.float64).reshape(-1, 1)
+    u_train_np = np.full((num_steps_train, 1), u_off, dtype=np.float64)
     # Build target signal
     target_train = np.sin(omega * time_train)
 
