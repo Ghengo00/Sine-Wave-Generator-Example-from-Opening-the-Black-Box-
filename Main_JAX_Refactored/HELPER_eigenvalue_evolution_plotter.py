@@ -328,7 +328,7 @@ def main():
         plot_eigenvalue_evolution(file_info['eigenvalue_data'], title_suffix, ax)
         
         # Save individual plot
-        output_filename = f"eigenvalue_complex_plane_{file_info['exp_type']}_{file_info['exp_value']:.3f}.png"
+        output_filename = f"eigenvalue_complex_plane_{file_info['exp_type']}_{file_info['exp_value']:.3f}.pdf"
         output_path = os.path.join(FOLDER_PATH, output_filename)
         plt.tight_layout()
         plt.savefig(output_path, dpi=DPI, bbox_inches='tight')

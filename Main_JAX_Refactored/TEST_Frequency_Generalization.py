@@ -156,7 +156,7 @@ from _8_pca_analysis import perform_pca_analysis, project_points_to_pca, plot_ex
 # EXECUTION MODE SETTINGS
 
 # Set the execution mode
-EXECUTION_MODE               = "train"   # Options: "train" or "test"
+EXECUTION_MODE               = "test"   # Options: "train" or "test"
 RUN_TESTING_AFTER_TRAINING   = True      # If True, will run testing after gap training completes
 
 # Current timestamp for output folder naming
@@ -226,7 +226,7 @@ NUM_SAMPLES_EXTRAPOLATION_LOWER    = 15
 # TESTING MODE SETTINGS - IF EXECUTION_MODE = "test" (so no gap training)
 
 # Default parameter path
-DEFAULT_PARAM_PATH = "/Users/gianlucacarrozzo/Documents/University and Education/UCL/Machine Learning/MSc Project/Palmigiano Lab/Code/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Frequency_Generalization_train_20250627_152729/Gap_Trained_Params_20250627_152729.pkl"
+DEFAULT_PARAM_PATH = "/nfs/ghome/live/gcarrozzo/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Frequency_Generalization_train_20250627_152729/Gap_Trained_Params_20250627_152729.pkl"
 
 # Function to import trajectory data from pickle files
 def read_trajectory_data(file_path):
@@ -326,8 +326,8 @@ def save_plot_to_png(plot_figure, base_name):
     # Create the directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
-    # Create the filename using the base name and including all the sparsity levels
-    filename = f"{base_name}_{timestamp}.png"
+    # Save all plots as PDF for Adobe Illustrator compatibility
+    filename = f"{base_name}_{timestamp}.pdf"
 
     # Full path for the output file
     file_path = os.path.join(output_dir, filename)
@@ -479,8 +479,8 @@ def init_params_gap(key, sparsity):
     # within a disk centred at the origin of radius sqrt(Var * N) = sqrt((1 / N) * N) = 1.
     # After masking, the elements remain independently distributed with mean zero,
     # but their variance becomes Var_m = (1 - s) / N, meaning the spectral radius becomes sqrt(1 - s).
-    # Thus, to maintain the same spectral radius as the full matrix, we scale J by 1 / sqrt(1 - s).
-    J = J_unscaled / jnp.sqrt(1 - sparsity)
+    # To compensate for the reduction in effective connectivity, we scale J by 1 / (1 - s).
+    J = J_unscaled / (1 - sparsity)
 
     B = random.normal(k2, (N, I)) / jnp.sqrt(N)
     b_x = jnp.zeros((N,))
@@ -542,8 +542,8 @@ def init_params_gap_control_rank(key, sparsity, R, N, cov):
     # within a disk centred at the origin of radius sqrt(Var * N) = sqrt((1 / N) * N) = 1.
     # After masking, the elements remain independently distributed with mean zero,
     # but their variance becomes Var_m = (1 - s) / N, meaning the spectral radius becomes sqrt(1 - s).
-    # Thus, to maintain the same spectral radius as the full matrix, we scale J by 1 / sqrt(1 - s).
-    J = J_unscaled / jnp.sqrt(1 - sparsity)
+    # To compensate for the reduction in effective connectivity, we scale J by 1 / (1 - s).
+    J = J_unscaled / (1 - sparsity)
 
     # ----------------------------------------
     # CREATE OTHER PARAMETERS
@@ -1073,17 +1073,24 @@ def create_error_vs_frequency_plot_with_gaps(test_frequencies, mse_values):
     
     # Define region colors (same as create_comprehensive_trajectory_subplots)
     region_colors = {
-        'lower_extrap': None,           # No shading for lower extrapolation
-        'lower_training': '#E6F7E6',   # Very light green  
-        'gap': '#FFE6CC',              # Very light orange
-        'upper_training': '#E6F7E6',   # Very light green (same as lower training)
-        'higher_extrap': None          # No shading for higher extrapolation
+        'lower_extrap': '#FFE6E6',      # Very light red
+        'lower_training': '#E6F7E6',    # Very light green
+        'gap': '#E6D9FF',               # Light purple
+        'upper_training': '#E6F7E6',    # Very light green (same as lower training)
+        'higher_extrap': '#E6E6FF'      # Very light blue
     }
     
     # Find the frequency range for plotting
     freq_min = min(test_frequencies)
     freq_max = max(test_frequencies)
     
+    # Shade the lower extrapolation region
+    lower_extrap_start = freq_min
+    lower_extrap_end = min(TRAINING_FREQ_RANGES[0][0], freq_max)
+    if lower_extrap_start < lower_extrap_end and region_colors['lower_extrap']:
+        plt.axvspan(lower_extrap_start, lower_extrap_end, alpha=0.4, 
+                   color=region_colors['lower_extrap'], label='Lower Extrapolation Range')
+
     # Shade the lower training region
     lower_train_start = max(TRAINING_FREQ_RANGES[0][0], freq_min)
     lower_train_end = min(TRAINING_FREQ_RANGES[0][1], freq_max)
@@ -1096,7 +1103,7 @@ def create_error_vs_frequency_plot_with_gaps(test_frequencies, mse_values):
     gap_end = min(TRAINING_FREQ_RANGES[1][0], freq_max)    # 0.45
     if gap_start < gap_end and region_colors['gap']:
         plt.axvspan(gap_start, gap_end, alpha=0.5, color=region_colors['gap'], 
-                   label=f'Gap ({TRAINING_FREQ_RANGES[0][1]:.2f}-{TRAINING_FREQ_RANGES[1][0]:.2f} rad/s)')
+                   label=f'Gap in Training Range')
     
     # Shade the upper training region
     upper_train_start = max(TRAINING_FREQ_RANGES[1][0], freq_min)
@@ -1104,30 +1111,39 @@ def create_error_vs_frequency_plot_with_gaps(test_frequencies, mse_values):
     if upper_train_start < upper_train_end and region_colors['upper_training']:
         plt.axvspan(upper_train_start, upper_train_end, alpha=0.4, 
                    color=region_colors['upper_training'], label='Upper Training Range')
+
+    # Shade the higher extrapolation region
+    higher_extrap_start = max(TRAINING_FREQ_RANGES[1][1], freq_min)
+    higher_extrap_end = freq_max
+    if higher_extrap_start < higher_extrap_end and region_colors['higher_extrap']:
+        plt.axvspan(higher_extrap_start, higher_extrap_end, alpha=0.4, 
+                   color=region_colors['higher_extrap'], label='Upper Extrapolation Range')
     
-    plt.xlabel('Frequency (rad/s)')
-    plt.ylabel('Mean Squared Error (MSE)')
-    plt.title('RNN Performance vs Test Frequency (Gap Training)')
-    plt.legend()
+    plt.xlabel('Frequency (rad/s)', fontsize=24)
+    plt.ylabel('Mean Squared Error (MSE)', fontsize=24)
+    # plt.title('RNN Performance vs Test Frequency (Gap Training)', fontsize=24)
+    plt.legend(fontsize=20, bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(True, alpha=0.3)
     plt.yscale('log')  # Use log scale for better visualization
+    plt.tick_params(labelsize=20)
     
     # Save the plot using simplified saving function
     save_plot_to_png(plt, "MSE_vs_Frequency_with_Gaps")
     plt.close()
 
 
-def create_comprehensive_trajectory_subplots(results, max_plots=MAX_PLOTS,
-                                             num_plots_middle=NUM_PLOTS_MIDDLE,
-                                             num_plots_training=NUM_PLOTS_TRAINING,
-                                             num_plots_extrapolation_higher=NUM_PLOTS_EXTRAPOLATION_HIGHER,
-                                             num_plots_extrapolation_lower=NUM_PLOTS_EXTRAPOLATION_LOWER):
+def create_comprehensive_trajectory_subplots(results, max_plots=25,
+                                             num_plots_middle=5,
+                                             num_plots_training=5,
+                                             num_plots_extrapolation_higher=5,
+                                             num_plots_extrapolation_lower=5):
     """
-    Create a comprehensive subplot visualization showing RNN outputs vs targets for multiple frequencies.
+    Create a 5x5 subplot visualization showing RNN outputs vs targets for 25 frequencies.
+    Each column represents a different frequency region, with frequencies increasing down each column.
     
     Arguments:
         results:    Dictionary of test results from test_frequency_generalization_with_params()
-        max_plots:  Maximum number of subplots to create (to avoid overcrowding)
+        max_plots:  Total number of subplots (25 for 5x5 grid)
     """
     # ----------------------------------------
     # SELECT FREQUENCIES TO PLOT
@@ -1139,81 +1155,70 @@ def create_comprehensive_trajectory_subplots(results, max_plots=MAX_PLOTS,
     
     all_freqs = sorted(successful_results.keys())
     
-    # If we have fewer frequencies than max_plots, use all of them
-    if len(all_freqs) <= max_plots:
-        test_freqs = all_freqs
-    else:
-        # Categorize frequencies by region
-        lower_extrap = []
-        lower_training = []
-        gap = []
-        upper_training = []
-        higher_extrap = []
-        
-        for freq in all_freqs:
-            if freq < TRAINING_FREQ_RANGES[0][0]:  # Lower extrapolation
-                lower_extrap.append(freq)
-            elif TRAINING_FREQ_RANGES[0][0] <= freq <= TRAINING_FREQ_RANGES[0][1]:  # Lower training range
-                lower_training.append(freq)
-            elif TRAINING_FREQ_RANGES[0][1] < freq < TRAINING_FREQ_RANGES[1][0]:  # Gap region
-                gap.append(freq)
-            elif TRAINING_FREQ_RANGES[1][0] <= freq <= TRAINING_FREQ_RANGES[1][1]:  # Upper training range
-                upper_training.append(freq)
-            else:  # Higher extrapolation
-                higher_extrap.append(freq)
-        
-        # Select frequencies with equal distribution within each region
-        def select_equally_distributed(freq_list, n_select):
-            """Select n_select frequencies equally distributed from freq_list"""
-            if len(freq_list) == 0:
-                return []
-            if len(freq_list) <= n_select:
-                return freq_list
-            
-            # Select indices that are equally distributed
-            indices = np.linspace(0, len(freq_list) - 1, n_select, dtype=int)
-            return [freq_list[i] for i in indices]
-        
-        # Select frequencies according to the specified priorities
-        selected_freqs = []
-        selected_freqs.extend(select_equally_distributed(lower_extrap, num_plots_extrapolation_lower))
-        selected_freqs.extend(select_equally_distributed(lower_training, num_plots_training))
-        selected_freqs.extend(select_equally_distributed(gap, num_plots_middle))
-        selected_freqs.extend(select_equally_distributed(upper_training, num_plots_training))
-        selected_freqs.extend(select_equally_distributed(higher_extrap, num_plots_extrapolation_higher))
-        
-        # Sort the selected frequencies and limit to max_plots
-        test_freqs = sorted(selected_freqs)[:max_plots]
+    # Categorize frequencies by region
+    lower_extrap = []
+    lower_training = []
+    gap = []
+    upper_training = []
+    higher_extrap = []
     
-
+    for freq in all_freqs:
+        if freq < TRAINING_FREQ_RANGES[0][0]:  # Lower extrapolation
+            lower_extrap.append(freq)
+        elif TRAINING_FREQ_RANGES[0][0] <= freq <= TRAINING_FREQ_RANGES[0][1]:  # Lower training range
+            lower_training.append(freq)
+        elif TRAINING_FREQ_RANGES[0][1] < freq < TRAINING_FREQ_RANGES[1][0]:  # Gap region
+            gap.append(freq)
+        elif TRAINING_FREQ_RANGES[1][0] <= freq <= TRAINING_FREQ_RANGES[1][1]:  # Upper training range
+            upper_training.append(freq)
+        else:  # Higher extrapolation
+            higher_extrap.append(freq)
+    
+    # Select frequencies with equal distribution within each region
+    def select_equally_distributed(freq_list, n_select):
+        """Select n_select frequencies equally distributed from freq_list"""
+        if len(freq_list) == 0:
+            return []
+        if len(freq_list) <= n_select:
+            return freq_list
+        
+        # Select indices that are equally distributed
+        indices = np.linspace(0, len(freq_list) - 1, n_select, dtype=int)
+        return [freq_list[i] for i in indices]
+    
+    # Select exactly 5 frequencies from each region
+    selected_lower_extrap = select_equally_distributed(lower_extrap, 5)
+    selected_lower_training = select_equally_distributed(lower_training, 5)
+    selected_gap = select_equally_distributed(gap, 5)
+    selected_upper_training = select_equally_distributed(upper_training, 5)
+    selected_higher_extrap = select_equally_distributed(higher_extrap, 5)
+    
+    # Organize frequencies by column (each column is a region)
+    column_freqs = [
+        selected_lower_extrap,
+        selected_lower_training,
+        selected_gap,
+        selected_upper_training,
+        selected_higher_extrap
+    ]
+    
     # ----------------------------------------
     # SET UP SUBPLOTS
-    n_plots = len(test_freqs)
-    
-    # Calculate subplot grid dimensions (roughly square)
-    n_cols = int(np.ceil(np.sqrt(n_plots)))
-    n_rows = int(np.ceil(n_plots / n_cols))
-    
-    # Create the figure with subplots
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 3*n_rows))
-    fig.suptitle('RNN Output vs Target Trajectories for Different Frequencies', fontsize=16)
-    
-    # Handle single subplot case
-    if n_plots == 1:
-        axes = [axes]
-    elif n_rows == 1:
-        axes = axes.reshape(1, -1)
-    elif n_cols == 1:
-        axes = axes.reshape(-1, 1)
+    # Create 5x5 grid
+    n_rows, n_cols = 5, 5
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, 15))
+    # fig.suptitle('RNN Output vs Target Trajectories for Different Frequencies', fontsize=28, y=0.98)
     
     # Define colors for each region
     region_colors = {
         'lower_extrap': '#FFE6E6',      # Very light red
         'lower_training': '#E6F7E6',    # Very light green
-        'gap': '#FFE6CC',               # Very light orange
+        'gap': '#E6D9FF',               # Light purple
         'upper_training': '#E6F7E6',    # Very light green (same as lower training)
         'higher_extrap': '#E6E6FF'      # Very light blue
     }
+    
+    region_names = ['lower_extrap', 'lower_training', 'gap', 'upper_training', 'higher_extrap']
     
     # Function to determine region for a frequency
     def get_frequency_region(freq):
@@ -1228,73 +1233,114 @@ def create_comprehensive_trajectory_subplots(results, max_plots=MAX_PLOTS,
         else:
             return 'higher_extrap'
     
-
     # ----------------------------------------
     # PLOT SUBPLOTS
-    # Plot each frequency in its own subplot
-    for i, freq in enumerate(test_freqs):
-        row = i // n_cols
-        col = i % n_cols
-        ax = axes[row, col] if n_rows > 1 else axes[col]
+    # Plot each column (frequency region)
+    for col in range(n_cols):
+        region_name = region_names[col]
+        freqs_in_column = column_freqs[col]
         
-        result = successful_results[freq]
-        rnn_output = result['rnn_output']
-        targets = result['targets']
-        mse = result['mse']
+        # Sort frequencies in ascending order for this column
+        freqs_in_column = sorted(freqs_in_column)
         
-        # Create time axis
-        time_axis = np.arange(len(rnn_output)) * dt
-        
-        # Determine region and set background color
-        region = get_frequency_region(freq)
-        ax.set_facecolor(region_colors[region])
-        
-        # Plot trajectories
-        ax.plot(time_axis, rnn_output.flatten(), 'b-', label='RNN Output', linewidth=1.5)
-        ax.plot(time_axis, targets.flatten(), 'r--', label='Target', linewidth=1.5, alpha=0.7)
-        
-        # Formatting
-        ax.set_title(f'ω={freq:.2f} rad/s\nMSE={mse:.2e}', fontsize=10)
-        ax.set_xlabel('Time (s)', fontsize=8)
-        ax.set_ylabel('Amplitude', fontsize=8)
-        ax.grid(True, alpha=0.3)
-        ax.tick_params(labelsize=7)
-        
-        # Add legend only to first subplot
-        if i == 0:
-            ax.legend(fontsize=8)
-    
+        for row in range(n_rows):
+            ax = axes[row, col]
+            
+            if row < len(freqs_in_column):
+                freq = freqs_in_column[row]
+                
+                if freq in successful_results:
+                    result = successful_results[freq]
+                    rnn_output = result['rnn_output']
+                    targets = result['targets']
+                    mse = result['mse']
+                    
+                    # Create time axis
+                    time_axis = np.arange(len(rnn_output)) * dt
+                    
+                    # Set background color for the region
+                    ax.set_facecolor(region_colors[region_name])
+                    
+                    # Plot trajectories
+                    ax.plot(time_axis, rnn_output.flatten(), 'b-', label='RNN Output', linewidth=2.5)
+                    ax.plot(time_axis, targets.flatten(), 'r--', label='Target', linewidth=2.5, alpha=0.8)
+                    
+                    # Formatting with larger text - removed MSE from title
+                    ax.set_title(f'ω={freq:.2f} rad/s', fontsize=26, fontweight='bold')
+                    
+                    # Only add x-axis label for bottom row
+                    if row == n_rows - 1:
+                        ax.set_xlabel('Time (s)', fontsize=24)
+                    
+                    # Only add y-axis label for first column
+                    if col == 0:
+                        ax.set_ylabel('Amplitude', fontsize=24)
+                    
+                    ax.grid(True, alpha=0.3)
+                    ax.tick_params(labelsize=20)
+                else:
+                    # No data available for this frequency
+                    ax.set_facecolor(region_colors[region_name])
+                    ax.text(0.5, 0.5, f'No data\nfor ω={freq:.2f}', 
+                           ha='center', va='center', fontsize=26, transform=ax.transAxes)
+                    
+                    # Only add x-axis label for bottom row
+                    if row == n_rows - 1:
+                        ax.set_xlabel('Time (s)', fontsize=24)
+                    
+                    # Only add y-axis label for first column
+                    if col == 0:
+                        ax.set_ylabel('Amplitude', fontsize=24)
+                    
+                    ax.tick_params(labelsize=20)
+            else:
+                # No frequency available for this row in this region
+                ax.set_facecolor(region_colors[region_name])
+                ax.text(0.5, 0.5, 'No frequency\navailable', 
+                       ha='center', va='center', fontsize=26, transform=ax.transAxes)
+                
+                # Only add x-axis label for bottom row
+                if row == n_rows - 1:
+                    ax.set_xlabel('Time (s)', fontsize=24)
+                
+                # Only add y-axis label for first column
+                if col == 0:
+                    ax.set_ylabel('Amplitude', fontsize=24)
+                
+                ax.tick_params(labelsize=20)
 
     # ----------------------------------------
     # STYLE AND LAYOUT
-    # Hide empty subplots
-    total_subplots = n_rows * n_cols
-    for i in range(n_plots, total_subplots):
-        row = i // n_cols
-        col = i % n_cols
-        ax = axes[row, col] if n_rows > 1 else axes[col]
-        ax.set_visible(False)
+    # Remove column titles completely
     
-    # Create region legend in the top right corner of the figure
+    # Create region legend
     legend_elements = [
         Patch(facecolor=region_colors['lower_extrap'], label='Lower Extrapolation'),
         Patch(facecolor=region_colors['lower_training'], label='Lower Training'),
         Patch(facecolor=region_colors['gap'], label='Gap Region'),
         Patch(facecolor=region_colors['upper_training'], label='Upper Training'),
-        Patch(facecolor=region_colors['higher_extrap'], label='Higher Extrapolation')
+        Patch(facecolor=region_colors['higher_extrap'], label='Upper Extrapolation')
     ]
     
-    # Adjust layout first to calculate proper spacing
+    # Create RNN output/target legend elements
+    from matplotlib.lines import Line2D
+    line_legend_elements = [
+        Line2D([0], [0], color='b', linewidth=2.5, label='RNN Output'),
+        Line2D([0], [0], color='r', linewidth=2.5, linestyle='--', alpha=0.8, label='Target')
+    ]
+    
+    # Adjust layout
     plt.tight_layout()
     
-    # Add the legend to the figure outside the plot area to avoid overlap
-    # Place it on the right side of the figure, outside the subplot area
-    fig.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1.02, 0.5), 
-               fontsize=10, title='Frequency Regions', title_fontsize=11)
+    # Add legends at the bottom - frequency regions on the left, RNN/target on the right
+    fig.legend(handles=legend_elements, loc='lower left', bbox_to_anchor=(0.05, 0.02), 
+               fontsize=14, title='Frequency Regions', title_fontsize=16, ncol=5)
+    fig.legend(handles=line_legend_elements, loc='lower right', bbox_to_anchor=(0.95, 0.02), 
+               fontsize=14, title='Legend', title_fontsize=16, ncol=2)
     
-    # Adjust the subplot layout to make room for the legend
-    plt.subplots_adjust(right=0.85)
-    save_plot_to_png(fig, f"Comprehensive_Trajectory_Subplots_{n_plots}_frequencies")
+    # Adjust the subplot layout to make room for the legends
+    plt.subplots_adjust(top=0.98, bottom=0.12, left=0.06, right=0.96)
+    save_plot_to_png(fig, f"Comprehensive_Trajectory_Subplots_5x5_grid")
     plt.close()
 
 
@@ -1582,7 +1628,7 @@ def plot_frequency_comparison_gap(all_unstable_eig_freq, test_frequencies):
     region_colors = {
         'lower_extrap': '#FFE6E6',      # Very light red
         'lower_training': '#E6F7E6',    # Very light green
-        'gap': '#FFE6CC',               # Very light orange
+        'gap': '#E6D9FF',               # Light purple
         'upper_training': '#E6F7E6',    # Very light green (same as lower training)
         'higher_extrap': '#E6E6FF'      # Very light blue
     }

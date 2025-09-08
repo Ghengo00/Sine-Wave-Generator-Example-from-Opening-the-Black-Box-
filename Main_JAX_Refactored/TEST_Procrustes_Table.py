@@ -109,7 +109,7 @@ def save_plot_to_png(plot_figure, base_name):
     os.makedirs(output_dir, exist_ok=True)
     
     # Create the filename using the base name and including all the sparsity levels
-    filename = f"{base_name}_sparsity_levels_{'_'.join(sparsity_levels)}_{timestamp}.png"
+    filename = f"{base_name}_sparsity_levels_{'_'.join(sparsity_levels)}_{timestamp}.pdf"
 
     # Full path for the output file
     file_path = os.path.join(output_dir, filename)

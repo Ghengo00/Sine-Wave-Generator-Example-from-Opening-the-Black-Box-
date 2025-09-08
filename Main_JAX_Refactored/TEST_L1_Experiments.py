@@ -2368,7 +2368,12 @@ def main():
     # Setup custom output directory with timestamp
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     output_dir_name = f"L1_Regularization_Experiments_{timestamp}"
-    output_base_path = "/Users/gianlucacarrozzo/Documents/University and Education/UCL/Machine Learning/MSc Project/Palmigiano Lab/Code/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs"
+    
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Move to parent directory, then to Outputs
+    parent_dir = os.path.dirname(script_dir)
+    output_base_path = os.path.join(parent_dir, 'Outputs')
     full_output_path = os.path.join(output_base_path, output_dir_name)
     
     # Set custom output directory for all saves
