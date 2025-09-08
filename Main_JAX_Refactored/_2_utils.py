@@ -205,7 +205,7 @@ def save_figure(fig, figure_name, N=N, num_tasks=num_tasks,
     os.makedirs(output_dir, exist_ok=True)
     
     # Generate filename with descriptive parameters
-    filename = generate_filename(figure_name, N, num_tasks, dt, T_drive, T_train, s, num_epochs_adam, num_epochs_lbfgs) + '.png'
+    filename = generate_filename(figure_name, N, num_tasks, dt, T_drive, T_train, s, num_epochs_adam, num_epochs_lbfgs) + '.pdf'
     filepath = os.path.join(output_dir, filename)
     
     # Use a try-except block to handle potential I/O errors
@@ -269,7 +269,7 @@ def save_figure_with_sparsity(fig, figure_name, sparsity_value=None, N=N, num_ta
     output_dir = get_sparsity_output_dir(sparsity_value)
     
     # Generate filename with descriptive parameters
-    filename = generate_filename(figure_name, N, num_tasks, dt, T_drive, T_train, s, num_epochs_adam, num_epochs_lbfgs) + '.png'
+    filename = generate_filename(figure_name, N, num_tasks, dt, T_drive, T_train, s, num_epochs_adam, num_epochs_lbfgs) + '.pdf'
     filepath = os.path.join(output_dir, filename)
     
     # Use a try-except block to handle potential I/O errors
@@ -333,7 +333,7 @@ def save_figure_with_l1_reg(fig, figure_name, l1_reg_strength=None, N=N, num_tas
     output_dir = get_l1_output_dir(l1_reg_strength)
     
     # Generate filename with descriptive parameters
-    filename = generate_filename(figure_name, N, num_tasks, dt, T_drive, T_train, s, num_epochs_adam, num_epochs_lbfgs) + '.png'
+    filename = generate_filename(figure_name, N, num_tasks, dt, T_drive, T_train, s, num_epochs_adam, num_epochs_lbfgs) + '.pdf'
     filepath = os.path.join(output_dir, filename)
     
     # Save the figure

@@ -160,8 +160,8 @@ def scan_with_history(params, opt_state, step_fn, num_steps, tag):
         # One optimization step
         params, opt_state, loss = step_fn(params, opt_state)
 
-        # (Optional) debug print
-        jax.debug.print("[{}] step {}: loss {:.6e}", tag, idx_unused+1, loss)
+        # (Optional) debug print - simplified to avoid tracer formatting issues
+        # jax.debug.print("[{}] step {}: loss {:.6e}", tag, idx_unused+1, loss)
 
         # If this step is better, update best_loss and best_params
         better = loss < best_loss
