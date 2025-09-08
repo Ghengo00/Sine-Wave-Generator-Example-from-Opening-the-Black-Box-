@@ -436,3 +436,109 @@ def create_loss_function(l1_reg_strength=0.0, use_precomputed_states=False):
             return mse_loss
         
         return regularized_batched_loss
+
+
+# =============================================================================
+# LOW-RANK RNN FUNCTIONS
+# =============================================================================
+@jit
+def rnn_step_low_rank(x, inputs, params):
+    """
+    Single time-step update of the RNN state using low-rank connectivity.
+    
+    Arguments:
+    x     : current state (at time t), dimensions (N,)
+    inputs: scalar input at this time-step (time t), dimensions (I,)
+    params: dict containing U, V, B, b_x, w, b_z
+
+    Returns:
+    x_new: new state (at time t+1), dimensions (N,)
+    z    : output at this time-step (time t), scalar
+    """
+    U, V, B, b_x, w, b_z = params["U"], params["V"], params["B"], params["b_x"], params["w"], params["b_z"]
+    
+    r = jnp.tanh(x)            # (N,)
+    z = jnp.dot(w, r) + b_z    # scalar
+    
+    # Efficient computation: U @ (V.T @ r) instead of (U @ V.T) @ r
+    Vt_r = V.T @ r             # (R,)
+    J_r = U @ Vt_r             # (N,)
+    
+    # dx/dt = -x + J r + B u + b_x
+    dx = -x + J_r + (B * inputs).sum(axis=1) + b_x
+    x_new = x + dt * dx
+    
+    return x_new, z
+
+
+@jit
+def simulate_trajectory_low_rank(x0, u_seq, params):
+    """
+    Vectorized simulation over T time-steps using lax.scan with low-rank connectivity.
+
+    Arguments:
+    x0    : initial state, dimensions (N,)
+    u_seq : input sequence over the T time steps, dimensions (T, I)
+    params: dict containing U, V, B, b_x, w, b_z
+
+    Returns
+      xs : system state sequence over the T time steps, dimensions (T+1, N)
+      zs : output sequence over the T time steps, dimensions (T,)
+    """
+    
+    def scan_func(carry, u_t):
+        """
+        Single step function for lax.scan.
+        """
+        x_t = carry
+        x_tp1, z_t = rnn_step_low_rank(x_t, u_t.squeeze(), params)
+        
+        return x_tp1, (x_tp1, z_t)
+
+    # Run scan: initial carry is x0, iterate over u_seq
+    x_final, (xs_all, zs_all) = lax.scan(scan_func, x0, u_seq)
+    
+    # xs_all has shape (T, N), but we want (T+1, N) including x0 at index 0
+    xs = jnp.vstack([x0[None, :], xs_all])
+    
+    return xs, zs_all
+
+
+@jit
+def solve_task_low_rank(params, task):
+    """
+    Run the drive and train phases for a single task using low-rank connectivity.
+    """
+    x0 = jnp.zeros((N,), dtype=jnp.float32)      # Initial state for the task
+    
+    # Drive phase
+    d_u = get_drive_input(task)                   # shape (num_steps_drive, I)
+    xs_d, _ = simulate_trajectory_low_rank(x0, d_u, params)
+    x_final = xs_d[-1]
+    
+    # Train phase
+    t_u = get_train_input(task)                   # shape (num_steps_train, I)
+    _, zs_tr = simulate_trajectory_low_rank(x_final, t_u, params)
+
+    return zs_tr    # shape (num_steps_train,)
+
+
+# Vectorize solve_task_low_rank over all task values
+vmap_solve_task_low_rank = vmap(solve_task_low_rank, in_axes=(None, 0))
+
+
+@jit
+def batched_loss_low_rank(params):
+    """
+    Compute the batched loss for low-rank connectivity RNN.
+    """
+    tasks = jnp.arange(num_tasks)
+
+    # Vectorized simulation over all tasks
+    zs_all = vmap_solve_task_low_rank(params, tasks)  # shape: (num_tasks, num_steps_train)
+
+    # Get the training targets for all tasks
+    targets_all = vmap(get_train_target)(tasks)       # shape: (num_tasks, num_steps_train)
+
+    # Compute the MSE over tasks and time
+    return jnp.mean((zs_all - targets_all) ** 2)

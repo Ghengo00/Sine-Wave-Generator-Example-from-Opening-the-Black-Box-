@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import optax
 from functools import partial
 from _1_config import s, NUM_EPOCHS_ADAM, NUM_EPOCHS_LBFGS, LOSS_THRESHOLD, ADAM_LR, LEARNING_RATE, MEMORY_SIZE, SCALE_INIT_PRECOND
-from _4_rnn_model import batched_loss
+from _4_rnn_model import batched_loss, batched_loss_low_rank
 
 
 # =============================================================================
@@ -210,6 +210,187 @@ def train_model(params, mask, loss_fn=None):
     
     # Create training functions with pre-computed driving states
     adam_step, lbfgs_step, _ = create_training_functions(adam_opt, lbfgs_opt, mask, loss_fn)
+    
+    # Adam training phase
+    print("Starting Adam optimization...")
+    best_params_adam, best_loss_adam, params_after_adam, adam_state_after = scan_with_history(
+        params, adam_state, adam_step,
+        NUM_EPOCHS_ADAM,
+        tag="ADAM"
+    )
+
+    print(f"Lowest Adam Loss: {best_loss_adam:.6e}")
+
+    # Restore the best parameters
+    params = best_params_adam
+    best_loss_total = best_loss_adam
+
+    # L-BFGS training phase (if needed)
+    if best_loss_adam > LOSS_THRESHOLD:
+        print("Starting L-BFGS optimization...")
+        # Run L-BFGS optimization phase
+        best_params_lbfgs, best_loss_lbfgs, params_after_lbfgs, lbfgs_state_after = scan_with_history(
+            params, lbfgs_state, lbfgs_step,
+            NUM_EPOCHS_LBFGS,
+            tag="L-BFGS"
+        )
+
+        print(f"Lowest L-BFGS Loss: {best_loss_lbfgs:.6e}")
+
+        # Restore the best parameters
+        if best_loss_lbfgs < best_loss_adam:
+            params = best_params_lbfgs
+            best_loss_total = best_loss_lbfgs
+
+    print(f"Overall best loss = {best_loss_total:.6e}")
+    
+    return params, best_loss_total
+
+
+# =============================================================================
+# LOW-RANK RNN FUNCTIONS
+# =============================================================================
+def apply_column_balancing(U: jnp.ndarray, V: jnp.ndarray, eps: float = 1e-8) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """
+    Apply column balancing to equalize norms of corresponding columns in U and V.
+    
+    For each column k, compute c_k = sqrt(||v_k|| / ||u_k||) and apply:
+    U <- U * C, V <- V * C^(-1)
+    
+    Args:
+        U: left factors of shape (N, R)
+        V: right factors of shape (N, R)
+        eps: small value for numerical stability
+        
+    Returns:
+        U_balanced: balanced left factors
+        V_balanced: balanced right factors
+    """
+    # Compute norms of each column
+    u_norms = jnp.linalg.norm(U, axis=0)  # shape (R,)
+    v_norms = jnp.linalg.norm(V, axis=0)  # shape (R,)
+    
+    # Compute balancing factors with numerical stability
+    c_k = jnp.sqrt(v_norms / (u_norms + eps))  # shape (R,)
+    
+    # Apply balancing
+    U_balanced = U * c_k[None, :]  # broadcast to (N, R)
+    V_balanced = V / c_k[None, :]  # broadcast to (N, R)
+    
+    return U_balanced, V_balanced
+
+
+def create_training_functions_low_rank(adam_opt, lbfgs_opt, loss_fn=None):
+    """
+    Create JIT-compiled training step functions for low-rank connectivity.
+    
+    Arguments:
+        adam_opt: Adam optimizer
+        lbfgs_opt: L-BFGS optimizer  
+        loss_fn: loss function (defaults to batched_loss_low_rank)
+        
+    Returns:
+        adam_step: JIT-compiled Adam training step function
+        lbfgs_step: JIT-compiled L-BFGS training step function
+        loss_fn: JIT-compiled loss function
+    """
+    # Use provided loss function or default to batched_loss_low_rank
+    if loss_fn is None:
+        loss_fn = batched_loss_low_rank
+
+    # Find the value and gradient of the loss function
+    value_and_grad_fn = jax.value_and_grad(loss_fn)
+
+    @jax.jit
+    def adam_step_low_rank(params, opt_state):
+        """
+        Perform one step of the Adam optimizer with low-rank connectivity.
+        
+        Arguments:
+            params: model parameters containing U, V
+            opt_state: optimizer state
+            
+        Returns:
+            new_params: updated parameters with column balancing applied
+            new_opt_state: updated optimizer state
+            loss: current loss value
+        """
+        # 1) Get loss and gradients
+        loss, grads = value_and_grad_fn(params)
+
+        # 2) One optimizer update
+        updates, new_state = adam_opt.update(grads, opt_state, params)
+
+        # 3) Apply updates to your parameters
+        new_params = optax.apply_updates(params, updates)
+
+        # 4) Apply column balancing to U and V
+        U_balanced, V_balanced = apply_column_balancing(new_params["U"], new_params["V"])
+        
+        # 5) Reconstruct the parameters with balanced U and V
+        new_params = {**new_params, "U": U_balanced, "V": V_balanced}
+
+        return new_params, new_state, loss
+
+    @jax.jit
+    def lbfgs_step_low_rank(params, opt_state):
+        """
+        Perform one step of the L-BFGS optimizer with low-rank connectivity.
+        
+        Arguments:
+            params: model parameters containing U, V
+            opt_state: optimizer state
+            
+        Returns:
+            new_params: updated parameters with column balancing applied
+            new_opt_state: updated optimizer state
+            loss: current loss value
+        """
+        # 1) Get loss and gradients
+        loss, grads = value_and_grad_fn(params)
+
+        # 2) One optimizer update
+        updates, new_state = lbfgs_opt.update(
+            grads, opt_state, params,
+            value=loss, grad=grads,
+            value_fn=loss_fn
+        )
+
+        # 3) Apply updates to your parameters
+        new_params = optax.apply_updates(params, updates)
+
+        # 4) Apply column balancing to U and V
+        U_balanced, V_balanced = apply_column_balancing(new_params["U"], new_params["V"])
+        
+        # 5) Reconstruct the parameters with balanced U and V
+        new_params = {**new_params, "U": U_balanced, "V": V_balanced}
+
+        return new_params, new_state, loss
+    
+    return adam_step_low_rank, lbfgs_step_low_rank, value_and_grad_fn
+
+
+def train_model_low_rank(params, loss_fn=None):
+    """
+    Execute the full training procedure with Adam followed by L-BFGS for low-rank connectivity.
+    
+    Arguments:
+        params: initial parameters containing U, V
+        loss_fn: optional custom loss function
+        
+    Returns:
+        trained_params: best parameters after training
+        final_loss: final loss value
+    """
+    # Setup optimizers
+    adam_opt, lbfgs_opt = setup_optimizers()
+    
+    # Initialize optimizer states
+    adam_state = adam_opt.init(params)
+    lbfgs_state = lbfgs_opt.init(params)
+    
+    # Create training functions
+    adam_step, lbfgs_step, _ = create_training_functions_low_rank(adam_opt, lbfgs_opt, loss_fn)
     
     # Adam training phase
     print("Starting Adam optimization...")

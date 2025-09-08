@@ -8,6 +8,7 @@ import time
 import pickle
 import glob
 from datetime import datetime
+from contextlib import contextmanager
 import matplotlib.pyplot as plt
 
 
@@ -525,3 +526,118 @@ class Timer:
         else:
             print(f"Total execution time: {seconds:.3f} seconds")
         print("=" * 60)
+
+
+# =============================================================================
+# For low-rank experiments
+def get_rank_output_dir(rank_value=None):
+    """
+    Get the output directory for rank-specific experiments.
+    
+    Arguments:
+        rank_value: rank level (if None, returns main output directory)
+        
+    Returns:
+        output_dir: path to the rank-specific output directory
+    """
+    if rank_value is None:
+        return get_output_dir()
+    
+    # Create rank-specific subdirectory
+    base_dir = get_output_dir()
+    rank_dir = os.path.join(base_dir, f"rank_{rank_value}")
+    os.makedirs(rank_dir, exist_ok=True)
+    return rank_dir
+
+
+def save_variable_with_rank(
+    variable, variable_name, rank_value=None, N=N, num_tasks=num_tasks,
+    dt=dt, T_drive=T_drive, T_train=T_train, r=None,
+    num_epochs_adam=NUM_EPOCHS_ADAM, num_epochs_lbfgs=NUM_EPOCHS_LBFGS
+    ):
+    """
+    Save a variable to a pickle file in a rank-specific subdirectory.
+    
+    Arguments:
+        variable: variable to save
+        variable_name: base name for the variable
+        rank_value: rank level (if None, saves to main directory)
+        r: rank parameter for filename generation (if None, uses rank_value)
+        Other parameters: configuration parameters for filename generation
+    """
+    # Use rank_value for r if not specified
+    if r is None:
+        r = rank_value if rank_value is not None else 0
+        
+    # Define the output directory (rank-specific if provided)
+    output_dir = get_rank_output_dir(rank_value)
+    
+    # Generate filename with descriptive parameters (using s=0 for sparsity since we're using rank)
+    filename = generate_filename(variable_name, N, num_tasks, dt, T_drive, T_train, s=0, num_epochs_adam=num_epochs_adam, num_epochs_lbfgs=num_epochs_lbfgs) + f'_r{r}.pkl'
+    filepath = os.path.join(output_dir, filename)
+    
+    # Use a try-except block to handle potential I/O errors
+    try:
+        with open(filepath, 'wb') as f:
+            pickle.dump(variable, f)
+        print(f"Saved {variable_name} to {filepath}")
+    except Exception as e:
+        print(f"Error saving {variable_name} to {filepath}: {e}")
+
+
+def save_figure_with_rank(fig, figure_name, rank_value=None, N=N, num_tasks=num_tasks,
+                          dt=dt, T_drive=T_drive, T_train=T_train, r=None,
+                          num_epochs_adam=NUM_EPOCHS_ADAM, num_epochs_lbfgs=NUM_EPOCHS_LBFGS):
+    """
+    Save a matplotlib figure in a rank-specific subdirectory.
+    
+    Arguments:
+        fig: matplotlib figure to save
+        figure_name: base name for the figure
+        rank_value: rank level (if None, saves to main directory)
+        r: rank parameter for filename generation (if None, uses rank_value)
+        Other parameters: configuration parameters for filename generation
+    """
+    # Use rank_value for r if not specified
+    if r is None:
+        r = rank_value if rank_value is not None else 0
+        
+    # Define the output directory (rank-specific if provided)
+    output_dir = get_rank_output_dir(rank_value)
+    
+    # Generate filename with descriptive parameters (using s=0 for sparsity since we're using rank)
+    filename = generate_filename(figure_name, N, num_tasks, dt, T_drive, T_train, s=0, num_epochs_adam=num_epochs_adam, num_epochs_lbfgs=num_epochs_lbfgs) + f'_r{r}.pdf'
+    filepath = os.path.join(output_dir, filename)
+    
+    try:
+        if hasattr(fig, '__iter__'):
+            # Multiple figures provided as a list
+            for i, single_fig in enumerate(fig):
+                indexed_filename = filename.replace('.pdf', f'_{i}.pdf')
+                indexed_filepath = os.path.join(output_dir, indexed_filename)
+                single_fig.savefig(indexed_filepath, dpi=300, bbox_inches='tight')
+        else:
+            # Save the specified figure
+            fig.savefig(filepath, dpi=300, bbox_inches='tight')
+        print(f"Saved figure to {filepath}")
+    except Exception as e:
+        print(f"Error saving figure to {filepath}: {e}")
+
+
+@contextmanager
+def rank_output_context(rank_value):
+    """
+    Context manager for temporarily setting rank-specific output directory.
+    
+    Arguments:
+        rank_value: rank level for this context
+    """
+    original_output_dir = globals().get('CUSTOM_OUTPUT_DIR')
+    set_custom_output_dir(get_rank_output_dir(rank_value))
+    try:
+        yield
+    finally:
+        if original_output_dir:
+            set_custom_output_dir(original_output_dir)
+        else:
+            globals()['CUSTOM_OUTPUT_DIR'] = None
