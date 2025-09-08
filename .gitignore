@@ -1,0 +1,18 @@
+# Ignore macOS metadata
+.DS_Store
+
+# Ignore Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignore logs produced by Main_JAX_Refactored
+Main_JAX_Refactored/logs/
+
+# (Optional) Ignore virtual environment folders (uncomment if created locally)
+# venv/
+# .venv/
+# env/
+
+# Ignore outputs if they are large/generated (comment out if you want to track)
+# Outputs/
