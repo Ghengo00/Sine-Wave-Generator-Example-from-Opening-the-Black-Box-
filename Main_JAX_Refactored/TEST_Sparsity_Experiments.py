@@ -1147,20 +1147,20 @@ def plot_training_loss_evolution(training_loss_data, sparsity_value, ax=None, fo
         ax.axhline(y=final_loss, color='green', linestyle='--', alpha=0.7, label=final_label)
     
     # Formatting
-    ax.set_xlabel('Training Iteration', fontsize=20)
-    ax.set_ylabel('Training Loss', fontsize=20)
-    ax.tick_params(axis='both', which='major', labelsize=16)
+    ax.set_xlabel('Training Iteration', fontsize=18)
+    ax.set_ylabel('Training Loss', fontsize=18)
+    ax.tick_params(axis='both', which='major', labelsize=15)
     
     # Set title based on context - remove final loss for publication readiness
     if standalone_plot:
-        ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}', fontsize=24)
+        ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}', fontsize=20)
     else:
-        ax.set_title(f'Sparsity s = {sparsity_value:.2f}', fontsize=24)
+        ax.set_title(f'Sparsity s = {sparsity_value:.2f}', fontsize=20)
     
     ax.set_yscale('log')
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=20)
-    
+    ax.legend(fontsize=18, loc='upper right')
+
     # Set consistent y-axis limits if provided
     if ylim is not None:
         ax.set_ylim(ylim)
@@ -1311,12 +1311,12 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
         ax.plot(np.cos(theta), np.sin(theta), 'k--', alpha=0.3, linewidth=1)
         
         # Formatting
-        ax.set_xlabel('Real', fontsize=20)
-        ax.set_ylabel('Imaginary', fontsize=20)
-        ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
+        ax.set_xlabel('Real', fontsize=18)
+        ax.set_ylabel('Imaginary', fontsize=18)
+        ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=20)
         ax.grid(True, alpha=0.3)
         ax.set_aspect('equal')
-        ax.tick_params(axis='both', which='major', labelsize=16)
+        ax.tick_params(axis='both', which='major', labelsize=15)
     
     # Hide unused subplots if any
     for idx in range(n_sparsity, len(axes)):
@@ -1330,8 +1330,8 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
         # Add colorbar
         cbar_ax = fig.add_axes([0.87, 0.15, 0.02, 0.7])
         cbar = plt.colorbar(scatter_plot, cax=cbar_ax)
-        cbar.set_label('Training Progress', fontsize=20)
-        cbar.ax.tick_params(labelsize=16)
+        cbar.set_label('Training Progress', fontsize=18)
+        cbar.ax.tick_params(labelsize=15)
     
     # Remove super title for publication readiness
     # plt.suptitle('Connectivity Matrix Eigenvalue Evolution During Training', fontsize=16)
@@ -1897,20 +1897,21 @@ def plot_trajectories_vs_targets_comparison(all_results, sparsity_values, test_i
             )
             
             # Add sparsity information to the title for comparison context (remove omega and MSE for publication)
-            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=20)
             
             # Enhance axis formatting for publication readiness
-            ax.tick_params(axis='both', which='major', labelsize=16)
-            ax.set_xlabel(ax.get_xlabel(), fontsize=20)
-            ax.set_ylabel(ax.get_ylabel(), fontsize=20)
+            ax.tick_params(axis='both', which='major', labelsize=15)
+            ax.set_xlabel(ax.get_xlabel(), fontsize=18)
+            ax.set_ylabel(ax.get_ylabel(), fontsize=18)
             legend = ax.get_legend()
             if legend is not None:
-                legend.set_fontsize(20)
-            
+                for text in legend.get_texts():
+                    text.set_fontsize(18)
+
         except Exception as e:
-            ax.text(0.5, 0.5, f'Simulation failed\n{str(e)[:30]}...', 
-                   ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+            # ax.text(0.5, 0.5, f'Simulation failed\n{str(e)[:30]}...', 
+            #        ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=20)
     
     # Hide unused subplots if any
     for idx in range(n_sparsity, len(axes)):
@@ -1993,7 +1994,7 @@ def plot_frequency_comparison_across_sparsity(all_results, sparsity_values):
         axes[idx].set_visible(False)
     
     # Add overall title and formatting
-    plt.suptitle('Frequency Comparison Across Sparsity Levels', fontsize=16)
+    # plt.suptitle('Frequency Comparison Across Sparsity Levels', fontsize=16)
     plt.tight_layout()
     
     # Create sparsity-specific filename
@@ -2061,10 +2062,10 @@ def plot_pca_explained_variance_comparison(all_results, sparsity_values, skip_st
             )
             
             # Format for publication readiness: enhance title and font sizes, enlarge grey boxes
-            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
-            ax.set_xlabel(ax.get_xlabel(), fontsize=20)
-            ax.set_ylabel(ax.get_ylabel(), fontsize=20)
-            ax.tick_params(axis='both', which='major', labelsize=16)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=20)
+            ax.set_xlabel(ax.get_xlabel(), fontsize=18)
+            ax.set_ylabel(ax.get_ylabel(), fontsize=18)
+            ax.tick_params(axis='both', which='major', labelsize=14)
 
             # Make grey boxes larger by adjusting bar width in future calls
             # (This would need to be done in the individual plotting function if accessible)
@@ -2072,7 +2073,7 @@ def plot_pca_explained_variance_comparison(all_results, sparsity_values, skip_st
         except Exception as e:
             ax.text(0.5, 0.5, f'Plot failed\n{str(e)[:30]}...', 
                    ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=20)
     
     # Hide unused subplots if any
     for idx in range(n_sparsity, len(axes)):
@@ -2212,22 +2213,27 @@ def plot_pca_3d_comparison(all_results, sparsity_values, skip_steps, apply_tanh,
             if legend is not None:
                 legend.remove()  # Remove legend for cleaner publication appearance
             
-            # Enhance axis label font sizes
-            ax.set_xlabel(ax.get_xlabel(), fontsize=20)
-            ax.set_ylabel(ax.get_ylabel(), fontsize=20)
-            ax.set_zlabel(ax.get_zlabel() if hasattr(ax, 'get_zlabel') else '', fontsize=20)
-            ax.tick_params(axis='both', which='major', labelsize=16)
+            # Enhance axis label font sizes with proper padding for 3D plots
+            ax.set_xlabel(ax.get_xlabel(), fontsize=18, labelpad=10)
+            ax.set_ylabel(ax.get_ylabel(), fontsize=18, labelpad=10)
+            ax.set_zlabel(ax.get_zlabel() if hasattr(ax, 'get_zlabel') else '', fontsize=18, labelpad=10)
+            ax.tick_params(axis='both', which='major', labelsize=15)
+            
+            # Adjust 3D plot view and spacing
+            ax.view_init(elev=20, azim=45)  # Set a good viewing angle
             
         except Exception as e:
             ax.text(0.5, 0.5, 0.5, f'Plot failed\n{str(e)[:30]}...', 
                    ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=20)
     
     plot_name = 'pca_plot_fixed' if plot_type == 'fixed' else 'subset_of_indices_pca_plot_fixed'
     
     # Remove super title for publication readiness
     # plt.suptitle(f'3D PCA Plots Across Sparsity Levels ({plot_name})\n(skip_steps={skip_steps}, apply_tanh={apply_tanh})', fontsize=16)
-    plt.tight_layout()
+    
+    # Use subplots_adjust for better control over 3D plot spacing
+    plt.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.90, wspace=0.2, hspace=0.3)
     
     # Create sparsity-specific filename
     sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
