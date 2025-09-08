@@ -230,15 +230,34 @@ Fixed points per task distribution plots:
 
 
 import numpy as np
-import jax
-import jax.numpy as jnp
-from jax import random
+try:
+    import jax
+    import jax.numpy as jnp
+    from jax import random
+except Exception as e:  # pragma: no cover
+    raise RuntimeError(f"Failed to import JAX packages: {e}. Ensure jax & jaxlib are installed in the active environment.")
 
-import matplotlib
-# Set matplotlib to non-interactive backend to prevent plots from displaying
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
+try:
+    import matplotlib
+    matplotlib.use('Agg')  # non-interactive backend
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+except Exception as e:  # pragma: no cover
+    raise RuntimeError(f"Failed to import matplotlib: {e}. Install via 'pip install matplotlib'.")
+
+# Quick runtime diagnostics
+def _print_startup_diagnostics():
+    import sys
+    print("[Startup] Python:", sys.version.split()[0])
+    try:
+        import jax
+        devs = jax.devices()
+        print(f"[Startup] JAX devices ({len(devs)}):", devs)
+        if not any(d.platform == 'gpu' for d in devs):
+            print("[Startup][WARN] No GPU detected by JAX; computation will run on CPU.")
+    except Exception as e:
+        print(f"[Startup][ERROR] Could not query JAX devices: {e}")
+_print_startup_diagnostics()
 
 from functools import partial
 from tqdm import tqdm
@@ -264,6 +283,8 @@ from _6_analysis import find_points, compute_jacobian, find_and_analyze_points, 
 from _7_visualization import (save_figure, plot_single_trajectory_vs_target, plot_trajectories_vs_targets, plot_parameter_matrices_for_tasks, 
                           plot_frequency_comparison, analyze_jacobians_visualization, analyze_unstable_frequencies_visualization)
 from _8_pca_analysis import plot_explained_variance_ratio, plot_pca_trajectories_and_points, run_pca_analysis
+
+
 
 
 # =============================================================================
@@ -474,7 +495,7 @@ def init_params_with_sparsity(key, sparsity_val):
 
     mask = random.bernoulli(k_mask, p=1.0 - sparsity_val, shape=(N, N)).astype(jnp.float32)
     J_unscaled = random.normal(k1, (N, N)) / jnp.sqrt(N) * mask
-    J = J_unscaled / jnp.sqrt(1 - sparsity_val) if sparsity_val < 1.0 else J_unscaled
+    J = J_unscaled / (1 - sparsity_val) if sparsity_val < 1.0 else J_unscaled
 
     B = random.normal(k2, (N, I)) / jnp.sqrt(N)
     b_x = jnp.zeros((N,))
@@ -1126,18 +1147,19 @@ def plot_training_loss_evolution(training_loss_data, sparsity_value, ax=None, fo
         ax.axhline(y=final_loss, color='green', linestyle='--', alpha=0.7, label=final_label)
     
     # Formatting
-    ax.set_xlabel('Training Iteration')
-    ax.set_ylabel('Training Loss')
+    ax.set_xlabel('Training Iteration', fontsize=20)
+    ax.set_ylabel('Training Loss', fontsize=20)
+    ax.tick_params(axis='both', which='major', labelsize=16)
     
-    # Set title based on context
+    # Set title based on context - remove final loss for publication readiness
     if standalone_plot:
-        ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}')
+        ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}', fontsize=24)
     else:
-        ax.set_title(f'Sparsity s = {sparsity_value:.2f}\nFinal loss: {final_loss:.2e}')
+        ax.set_title(f'Sparsity s = {sparsity_value:.2f}', fontsize=24)
     
     ax.set_yscale('log')
     ax.grid(True, alpha=0.3)
-    ax.legend()
+    ax.legend(fontsize=20)
     
     # Set consistent y-axis limits if provided
     if ylim is not None:
@@ -1289,11 +1311,12 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
         ax.plot(np.cos(theta), np.sin(theta), 'k--', alpha=0.3, linewidth=1)
         
         # Formatting
-        ax.set_xlabel('Real')
-        ax.set_ylabel('Imaginary')
-        ax.set_title(f'Sparsity s = {sparsity:.2f}\nFinal loss: {final_loss:.2e}')
+        ax.set_xlabel('Real', fontsize=20)
+        ax.set_ylabel('Imaginary', fontsize=20)
+        ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
         ax.grid(True, alpha=0.3)
         ax.set_aspect('equal')
+        ax.tick_params(axis='both', which='major', labelsize=16)
     
     # Hide unused subplots if any
     for idx in range(n_sparsity, len(axes)):
@@ -1307,9 +1330,11 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
         # Add colorbar
         cbar_ax = fig.add_axes([0.87, 0.15, 0.02, 0.7])
         cbar = plt.colorbar(scatter_plot, cax=cbar_ax)
-        cbar.set_label('Training Progress')
+        cbar.set_label('Training Progress', fontsize=20)
+        cbar.ax.tick_params(labelsize=16)
     
-    plt.suptitle('Connectivity Matrix Eigenvalue Evolution During Training', fontsize=16)
+    # Remove super title for publication readiness
+    # plt.suptitle('Connectivity Matrix Eigenvalue Evolution During Training', fontsize=16)
     
     # Create sparsity-specific filename
     sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
@@ -1808,8 +1833,8 @@ def plot_training_loss_evolution_comparison(all_results, sparsity_values):
     for idx in range(n_sparsity, len(axes)):
         axes[idx].set_visible(False)
     
-    # Add overall title and formatting
-    plt.suptitle('Training Loss Evolution Across Sparsity Levels', fontsize=16)
+    # Remove super title for publication readiness
+    # plt.suptitle('Training Loss Evolution Across Sparsity Levels', fontsize=16)
     plt.tight_layout()
     
     # Create sparsity-specific filename
@@ -1871,9 +1896,16 @@ def plot_trajectories_vs_targets_comparison(all_results, sparsity_values, test_i
                 for_comparison=True
             )
             
-            # Add additional information to the title for comparison context
-            current_title = ax.get_title()
-            ax.set_title(f'Sparsity s = {sparsity:.2f}\n{current_title.split(": ")[1]}\nFinal loss: {final_loss:.2e}')
+            # Add sparsity information to the title for comparison context (remove omega and MSE for publication)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
+            
+            # Enhance axis formatting for publication readiness
+            ax.tick_params(axis='both', which='major', labelsize=16)
+            ax.set_xlabel(ax.get_xlabel(), fontsize=20)
+            ax.set_ylabel(ax.get_ylabel(), fontsize=20)
+            legend = ax.get_legend()
+            if legend is not None:
+                legend.set_fontsize(20)
             
         except Exception as e:
             ax.text(0.5, 0.5, f'Simulation failed\n{str(e)[:30]}...', 
@@ -1884,8 +1916,8 @@ def plot_trajectories_vs_targets_comparison(all_results, sparsity_values, test_i
     for idx in range(n_sparsity, len(axes)):
         axes[idx].set_visible(False)
     
-    # Add overall title and formatting
-    plt.suptitle(f'Trajectory vs Target Across Sparsity Levels\nTask {j}: ω = {omega:.3f} rad/s, u_offset = {u_off:.3f}', fontsize=16)
+    # Remove super title for publication readiness
+    # plt.suptitle(f'Trajectory vs Target Across Sparsity Levels\nTask {j}: ω = {omega:.3f} rad/s, u_offset = {u_off:.3f}', fontsize=16)
     plt.tight_layout()
     
     # Create sparsity-specific filename
@@ -2028,17 +2060,26 @@ def plot_pca_explained_variance_comparison(all_results, sparsity_values, skip_st
                 for_comparison=True
             )
             
+            # Format for publication readiness: enhance title and font sizes, enlarge grey boxes
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
+            ax.set_xlabel(ax.get_xlabel(), fontsize=20)
+            ax.set_ylabel(ax.get_ylabel(), fontsize=20)
+            ax.tick_params(axis='both', which='major', labelsize=16)
+
+            # Make grey boxes larger by adjusting bar width in future calls
+            # (This would need to be done in the individual plotting function if accessible)
+            
         except Exception as e:
             ax.text(0.5, 0.5, f'Plot failed\n{str(e)[:30]}...', 
                    ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
     
     # Hide unused subplots if any
     for idx in range(n_sparsity, len(axes)):
         axes[idx].set_visible(False)
     
-    # Add overall title and formatting
-    plt.suptitle(f'PCA Explained Variance Ratio Across Sparsity Levels\n(skip_steps={skip_steps}, apply_tanh={apply_tanh})', fontsize=16)
+    # Remove super title for publication readiness
+    # plt.suptitle(f'PCA Explained Variance Ratio Across Sparsity Levels\n(skip_steps={skip_steps}, apply_tanh={apply_tanh})', fontsize=16)
     plt.tight_layout()
     
     # Create sparsity-specific filename
@@ -2165,13 +2206,27 @@ def plot_pca_3d_comparison(all_results, sparsity_values, skip_steps, apply_tanh,
                 for_comparison=True
             )
             
+            # Format for publication readiness: remove legend, clean title, enhance font sizes
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
+            legend = ax.get_legend()
+            if legend is not None:
+                legend.remove()  # Remove legend for cleaner publication appearance
+            
+            # Enhance axis label font sizes
+            ax.set_xlabel(ax.get_xlabel(), fontsize=20)
+            ax.set_ylabel(ax.get_ylabel(), fontsize=20)
+            ax.set_zlabel(ax.get_zlabel() if hasattr(ax, 'get_zlabel') else '', fontsize=20)
+            ax.tick_params(axis='both', which='major', labelsize=16)
+            
         except Exception as e:
             ax.text(0.5, 0.5, 0.5, f'Plot failed\n{str(e)[:30]}...', 
                    ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
     
     plot_name = 'pca_plot_fixed' if plot_type == 'fixed' else 'subset_of_indices_pca_plot_fixed'
-    plt.suptitle(f'3D PCA Plots Across Sparsity Levels ({plot_name})\n(skip_steps={skip_steps}, apply_tanh={apply_tanh})', fontsize=16)
+    
+    # Remove super title for publication readiness
+    # plt.suptitle(f'3D PCA Plots Across Sparsity Levels ({plot_name})\n(skip_steps={skip_steps}, apply_tanh={apply_tanh})', fontsize=16)
     plt.tight_layout()
     
     # Create sparsity-specific filename
@@ -2242,7 +2297,12 @@ def main():
     # Setup custom output directory with timestamp
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     output_dir_name = f"Sparsity_Experiments_{timestamp}"
-    output_base_path = "/Users/gianlucacarrozzo/Documents/University and Education/UCL/Machine Learning/MSc Project/Palmigiano Lab/Code/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs"
+    
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Move to parent directory, then to Outputs
+    parent_dir = os.path.dirname(script_dir)
+    output_base_path = os.path.join(parent_dir, 'Outputs')
     full_output_path = os.path.join(output_base_path, output_dir_name)
     
     # Set custom output directory for all saves
