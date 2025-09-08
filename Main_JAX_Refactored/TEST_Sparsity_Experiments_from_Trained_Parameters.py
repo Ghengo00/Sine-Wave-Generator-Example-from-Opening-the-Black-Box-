@@ -27,10 +27,10 @@ all_results: dict containing (one per sparsity level - keys are sparsity_value):
     - 'state_fixed_point_inits'
     - 'all_fixed_points'
     - 'all_jacobians'
-    - 'all_unstable_eig_freqs'
+    - 'all_unstable_eig_freq'
     - 'all_slow_points' (if SLOW_POINT_SEARCH is True)
     - 'all_slow_jacobians' (if SLOW_POINT_SEARCH is True)
-    - 'all_slow_unstable_eig_freqs' (if SLOW_POINT_SEARCH is True)
+    - 'all_slow_unstable_eig_freq' (if SLOW_POINT_SEARCH is True)
     - 'pca_results': dict containing PCA analysis results (one per combinations of skip and tanh options - keys are f"skip_{skip_steps}_tanh_{apply_tanh}"):
         - 'pca': PCA object
         - 'proj_trajs': projected trajectories
@@ -951,7 +951,7 @@ def sparsify_and_analyze(dense_params, sparsity_value, key, compute_jacobian_eig
         
         results['all_fixed_points'] = all_fixed_points
         results['all_jacobians'] = all_jacobians  
-        results['all_unstable_eig_freqs'] = all_unstable_eig_freqs
+        results['all_unstable_eig_freq'] = all_unstable_eig_freqs
         
         # Save fixed point analysis results
         save_variable_with_sparsity(all_fixed_points, "all_fixed_points", sparsity_value)
@@ -972,7 +972,7 @@ def sparsify_and_analyze(dense_params, sparsity_value, key, compute_jacobian_eig
             
             results['all_slow_points'] = all_slow_points
             results['all_slow_jacobians'] = all_slow_jacobians
-            results['all_slow_unstable_eig_freqs'] = all_slow_unstable_eig_freqs
+            results['all_slow_unstable_eig_freq'] = all_slow_unstable_eig_freqs
             
             # Save slow point analysis results
             save_variable_with_sparsity(all_slow_points, "all_slow_points", sparsity_value)
@@ -985,7 +985,7 @@ def sparsify_and_analyze(dense_params, sparsity_value, key, compute_jacobian_eig
         all_slow_unstable_eig_freqs = None
         results['all_slow_points'] = all_slow_points
         results['all_slow_jacobians'] = all_slow_jacobians
-        results['all_slow_unstable_eig_freqs'] = all_slow_unstable_eig_freqs
+        results['all_slow_unstable_eig_freq'] = all_slow_unstable_eig_freqs
     
     # ========================================
     # 6. PCA ANALYSIS
@@ -1425,20 +1425,20 @@ def plot_training_loss_evolution(training_loss_data, sparsity_value, ax=None, fo
         ax.axhline(y=final_loss, color='green', linestyle='--', alpha=0.7, label=final_label)
     
     # Formatting
-    ax.set_xlabel('Training Iteration', fontsize=20)
-    ax.set_ylabel('Training Loss', fontsize=20)
-    ax.tick_params(axis='both', which='major', labelsize=16)
+    ax.set_xlabel('Training Iteration', fontsize=18)
+    ax.set_ylabel('Training Loss', fontsize=18)
+    ax.tick_params(axis='both', which='major', labelsize=15)
     
     # Set title based on context - remove final loss for publication readiness
     if standalone_plot:
-        ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}', fontsize=24)
+        ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}', fontsize=20)
     else:
-        ax.set_title(f'Sparsity s = {sparsity_value:.2f}', fontsize=24)
+        ax.set_title(f'Sparsity s = {sparsity_value:.2f}', fontsize=20)
     
     ax.set_yscale('log')
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=20)
-    
+    ax.legend(fontsize=18, loc='upper right')
+
     # Set consistent y-axis limits if provided
     if ylim is not None:
         ax.set_ylim(ylim)
@@ -1589,12 +1589,12 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
         ax.plot(np.cos(theta), np.sin(theta), 'k--', alpha=0.3, linewidth=1)
         
         # Formatting
-        ax.set_xlabel('Real', fontsize=20)
-        ax.set_ylabel('Imaginary', fontsize=20)
-        ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
+        ax.set_xlabel('Real', fontsize=18)
+        ax.set_ylabel('Imaginary', fontsize=18)
+        ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=20)
         ax.grid(True, alpha=0.3)
         ax.set_aspect('equal')
-        ax.tick_params(axis='both', which='major', labelsize=16)
+        ax.tick_params(axis='both', which='major', labelsize=15)
     
     # Hide unused subplots if any
     for idx in range(n_sparsity, len(axes)):
@@ -1608,8 +1608,8 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
         # Add colorbar
         cbar_ax = fig.add_axes([0.87, 0.15, 0.02, 0.7])
         cbar = plt.colorbar(scatter_plot, cax=cbar_ax)
-        cbar.set_label('Training Progress', fontsize=20)
-        cbar.ax.tick_params(labelsize=16)
+        cbar.set_label('Training Progress', fontsize=18)
+        cbar.ax.tick_params(labelsize=15)
     
     # Remove super title for publication readiness
     # plt.suptitle('Connectivity Matrix Eigenvalue Evolution During Training', fontsize=16)
@@ -1758,14 +1758,14 @@ def plot_connectivity_eigenvalues_before_after(dense_J, sparse_J, sparsity_value
     
     # Set equal aspect ratio and labels
     ax.set_aspect('equal')
-    ax.set_xlabel('Real Part', fontsize=20)
-    ax.set_ylabel('Imaginary Part', fontsize=20)
-    ax.set_title(f'Connectivity Matrix Eigenvalues\nBefore vs After Sparsification (s={sparsity_value})', fontsize=24)
-    ax.legend(fontsize=20)
+    ax.set_xlabel('Real Part', fontsize=18)
+    ax.set_ylabel('Imaginary Part', fontsize=18)
+    ax.set_title(f'Connectivity Matrix Eigenvalues\nBefore vs After Sparsification (s={sparsity_value})', fontsize=20)
+    ax.legend(fontsize=18)
     ax.grid(True, alpha=0.3)
     
     # Set axis tick fontsize
-    ax.tick_params(axis='both', which='major', labelsize=16)
+    ax.tick_params(axis='both', which='major', labelsize=15)
     
     # Set axis limits to show unit circle clearly
     max_val = max(np.max(np.abs(dense_eigenvals)), np.max(np.abs(sparse_eigenvals)), 1.2)
@@ -1831,14 +1831,14 @@ def plot_connectivity_eigenvalues_before_after_aggregate(all_results, sparsity_v
         
         # Set equal aspect ratio and labels
         ax.set_aspect('equal')
-        ax.set_xlabel('Real Part', fontsize=20)
-        ax.set_ylabel('Imaginary Part', fontsize=20)
-        ax.set_title(f'Sparsity = {sparsity}', fontsize=24)
-        ax.legend(fontsize=20)
+        ax.set_xlabel('Real Part', fontsize=18)
+        ax.set_ylabel('Imaginary Part', fontsize=18)
+        ax.set_title(f'Sparsity = {sparsity}', fontsize=20)
+        ax.legend(fontsize=18)
         ax.grid(True, alpha=0.3)
         
         # Set axis tick fontsize
-        ax.tick_params(axis='both', which='major', labelsize=16)
+        ax.tick_params(axis='both', which='major', labelsize=15)
         
         # Set axis limits
         max_val = max(np.max(np.abs(dense_eigenvals)), np.max(np.abs(sparse_eigenvals)), 1.2)
@@ -1878,6 +1878,9 @@ def create_sparsity_summary_plots(all_results, sparsity_values):
     num_slow_points = []
     spectral_radii = []
     
+    # Check if this is import mode (final_loss is None)
+    is_import_mode = all_results and all_results[0]['final_loss'] is None
+    
     for result in all_results:
         final_losses.append(result['final_loss'])
         
@@ -1904,13 +1907,18 @@ def create_sparsity_summary_plots(all_results, sparsity_values):
     # Create summary plots
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
     
-    # Plot 1: Final loss vs sparsity
-    axes[0, 0].plot(sparsity_values, final_losses, 'bo-', linewidth=2, markersize=8)
-    axes[0, 0].set_xlabel('Sparsity')
-    axes[0, 0].set_ylabel('Final Loss')
-    axes[0, 0].set_title('Training Loss vs Sparsity')
-    axes[0, 0].set_yscale('log')
-    axes[0, 0].grid(True, alpha=0.3)
+    # Plot 1: Final loss vs sparsity (only for training mode)
+    if not is_import_mode and any(loss is not None for loss in final_losses):
+        axes[0, 0].plot(sparsity_values, final_losses, 'bo-', linewidth=2, markersize=8)
+        axes[0, 0].set_xlabel('Sparsity')
+        axes[0, 0].set_ylabel('Final Loss')
+        axes[0, 0].set_title('Training Loss vs Sparsity')
+        axes[0, 0].set_yscale('log')
+        axes[0, 0].grid(True, alpha=0.3)
+    else:
+        axes[0, 0].text(0.5, 0.5, 'Training loss not available\n(Import mode)', 
+                       ha='center', va='center', transform=axes[0, 0].transAxes)
+        axes[0, 0].set_title('Training Loss vs Sparsity')
     
     # Plot 2: Number of fixed points vs sparsity
     axes[0, 1].plot(sparsity_values, num_fixed_points, 'ro-', linewidth=2, markersize=8)
@@ -1969,6 +1977,12 @@ def create_unstable_eigenvalue_table(all_results, sparsity_values):
         unstable_counts = []
         
         # Extract unstable eigenvalue counts from fixed points
+        # Add error handling for missing keys
+        if 'all_unstable_eig_freq' not in result:
+            print(f"Warning: Missing 'all_unstable_eig_freq' key for sparsity {sparsity}")
+            unstable_counts_per_sparsity[sparsity] = []
+            continue
+            
         if result['all_unstable_eig_freq'] and len(result['all_unstable_eig_freq']) > 0:
             for task_unstable_freqs in result['all_unstable_eig_freq']:
                 if task_unstable_freqs:  # Check if not None/empty
@@ -2180,6 +2194,11 @@ def plot_training_loss_evolution_comparison(all_results, sparsity_values):
         all_results: list of results dictionaries
         sparsity_values: list of sparsity values tested
     """
+    # Check if this is import mode (training_loss_data is empty)
+    if all_results and not all_results[0]['training_loss_data']:
+        print("Skipping training loss evolution comparison - not applicable for import mode")
+        return
+    
     n_sparsity = len(sparsity_values)
     
     # Calculate subplot layout - prefer wider layouts
@@ -2309,20 +2328,21 @@ def plot_trajectories_vs_targets_comparison(all_results, sparsity_values, test_i
             )
             
             # Add sparsity information to the title for comparison context (remove omega and MSE for publication)
-            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=20)
             
             # Enhance axis formatting for publication readiness
-            ax.tick_params(axis='both', which='major', labelsize=16)
-            ax.set_xlabel(ax.get_xlabel(), fontsize=20)
-            ax.set_ylabel(ax.get_ylabel(), fontsize=20)
+            ax.tick_params(axis='both', which='major', labelsize=15)
+            ax.set_xlabel(ax.get_xlabel(), fontsize=18)
+            ax.set_ylabel(ax.get_ylabel(), fontsize=18)
             legend = ax.get_legend()
             if legend is not None:
-                legend.set_fontsize(20)
-            
+                for text in legend.get_texts():
+                    text.set_fontsize(18)
+
         except Exception as e:
-            ax.text(0.5, 0.5, f'Simulation failed\n{str(e)[:30]}...', 
-                   ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+            # ax.text(0.5, 0.5, f'Simulation failed\n{str(e)[:30]}...', 
+            #        ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=20)
     
     # Hide unused subplots if any
     for idx in range(n_sparsity, len(axes)):
@@ -2372,6 +2392,9 @@ def plot_frequency_comparison_across_sparsity(all_results, sparsity_values):
         all_unstable_eig_freq = result['all_unstable_eig_freq']
         final_loss = result['final_loss']
         
+        # Check if this is import mode (final_loss is None)
+        is_import_mode = final_loss is None
+        
         if not all_unstable_eig_freq or len(all_unstable_eig_freq) == 0:
             ax.text(0.5, 0.5, 'No unstable\neigenvalue data', 
                    ha='center', va='center', transform=ax.transAxes)
@@ -2388,12 +2411,17 @@ def plot_frequency_comparison_across_sparsity(all_results, sparsity_values):
                 for_comparison=True
             )
             
-            # Add final loss information to the title
+            # Add final loss information to the title only if available (training mode)
             current_title = ax.get_title()
-            if current_title and not current_title.startswith('Sparsity'):
-                ax.set_title(f'Sparsity s = {sparsity:.2f}\nFinal loss: {final_loss:.2e}')
-            elif 'Sparsity' in current_title and 'Final loss' not in current_title:
-                ax.set_title(f'{current_title}\nFinal loss: {final_loss:.2e}')
+            if not is_import_mode and final_loss is not None:
+                if current_title and not current_title.startswith('Sparsity'):
+                    ax.set_title(f'Sparsity s = {sparsity:.2f}\nFinal loss: {final_loss:.2e}')
+                elif 'Sparsity' in current_title and 'Final loss' not in current_title:
+                    ax.set_title(f'{current_title}\nFinal loss: {final_loss:.2e}')
+            else:
+                # Import mode - just show sparsity
+                if current_title and not current_title.startswith('Sparsity'):
+                    ax.set_title(f'Sparsity s = {sparsity:.2f}')
             
         except Exception as e:
             ax.text(0.5, 0.5, f'Plot failed\n{str(e)[:30]}...', 
@@ -2405,7 +2433,7 @@ def plot_frequency_comparison_across_sparsity(all_results, sparsity_values):
         axes[idx].set_visible(False)
     
     # Add overall title and formatting
-    plt.suptitle('Frequency Comparison Across Sparsity Levels', fontsize=16)
+    # plt.suptitle('Frequency Comparison Across Sparsity Levels', fontsize=16)
     plt.tight_layout()
     
     # Create sparsity-specific filename
@@ -2473,10 +2501,10 @@ def plot_pca_explained_variance_comparison(all_results, sparsity_values, skip_st
             )
             
             # Format for publication readiness: enhance title and font sizes, enlarge grey boxes
-            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
-            ax.set_xlabel(ax.get_xlabel(), fontsize=20)
-            ax.set_ylabel(ax.get_ylabel(), fontsize=20)
-            ax.tick_params(axis='both', which='major', labelsize=16)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=20)
+            ax.set_xlabel(ax.get_xlabel(), fontsize=18)
+            ax.set_ylabel(ax.get_ylabel(), fontsize=18)
+            ax.tick_params(axis='both', which='major', labelsize=14)
 
             # Make grey boxes larger by adjusting bar width in future calls
             # (This would need to be done in the individual plotting function if accessible)
@@ -2484,7 +2512,7 @@ def plot_pca_explained_variance_comparison(all_results, sparsity_values, skip_st
         except Exception as e:
             ax.text(0.5, 0.5, f'Plot failed\n{str(e)[:30]}...', 
                    ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=20)
     
     # Hide unused subplots if any
     for idx in range(n_sparsity, len(axes)):
@@ -2624,22 +2652,27 @@ def plot_pca_3d_comparison(all_results, sparsity_values, skip_steps, apply_tanh,
             if legend is not None:
                 legend.remove()  # Remove legend for cleaner publication appearance
             
-            # Enhance axis label font sizes
-            ax.set_xlabel(ax.get_xlabel(), fontsize=20)
-            ax.set_ylabel(ax.get_ylabel(), fontsize=20)
-            ax.set_zlabel(ax.get_zlabel() if hasattr(ax, 'get_zlabel') else '', fontsize=20)
-            ax.tick_params(axis='both', which='major', labelsize=16)
+            # Enhance axis label font sizes with proper padding for 3D plots
+            ax.set_xlabel(ax.get_xlabel(), fontsize=18, labelpad=10)
+            ax.set_ylabel(ax.get_ylabel(), fontsize=18, labelpad=10)
+            ax.set_zlabel(ax.get_zlabel() if hasattr(ax, 'get_zlabel') else '', fontsize=18, labelpad=10)
+            ax.tick_params(axis='both', which='major', labelsize=15)
+            
+            # Adjust 3D plot view and spacing
+            ax.view_init(elev=20, azim=45)  # Set a good viewing angle
             
         except Exception as e:
             ax.text(0.5, 0.5, 0.5, f'Plot failed\n{str(e)[:30]}...', 
                    ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=24)
+            ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=20)
     
     plot_name = 'pca_plot_fixed' if plot_type == 'fixed' else 'subset_of_indices_pca_plot_fixed'
     
     # Remove super title for publication readiness
     # plt.suptitle(f'3D PCA Plots Across Sparsity Levels ({plot_name})\n(skip_steps={skip_steps}, apply_tanh={apply_tanh})', fontsize=16)
-    plt.tight_layout()
+    
+    # Use subplots_adjust for better control over 3D plot spacing
+    plt.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.90, wspace=0.2, hspace=0.3)
     
     # Create sparsity-specific filename
     sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
@@ -2779,28 +2812,42 @@ def main():
         print(f"PROCESSING SPARSITY LEVEL {i+1}/{len(sparsity_values)}: s = {sparsity}")
         print(f"{'='*80}")
         
-        # Generate a unique analysis key for this sparsity level
-        analysis_key, subkey = random.split(analysis_key)
-        
-        if mode == "train":
-            # Use the same base key for all sparsity levels to ensure consistent initial parameters
-            # Only the sparsity mask will differ between runs
-            mask, params = init_params_with_sparsity(base_key, sparsity)
+        try:
+            # Generate a unique analysis key for this sparsity level
+            analysis_key, subkey = random.split(analysis_key)
             
-            # Run full training and analysis pipeline
-            results = train_with_full_analysis(params, mask, sparsity, subkey, 
-                                              compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies)
-        else:
-            # Run sparsification and analysis pipeline
-            results = sparsify_and_analyze(dense_params, sparsity, subkey, 
-                                         compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies)
-        
-        # Store results
-        all_results.append(results)
-        if mode == "train":
-            print(f"\nCompleted sparsity {sparsity}: final loss = {results['final_loss']:.6e}")
-        else:
-            print(f"\nCompleted sparsity {sparsity}: sparsification and analysis")
+            if mode == "train":
+                # Use the same base key for all sparsity levels to ensure consistent initial parameters
+                # Only the sparsity mask will differ between runs
+                mask, params = init_params_with_sparsity(base_key, sparsity)
+                
+                # Run full training and analysis pipeline
+                results = train_with_full_analysis(params, mask, sparsity, subkey, 
+                                                  compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies)
+            else:
+                # Run sparsification and analysis pipeline
+                results = sparsify_and_analyze(dense_params, sparsity, subkey, 
+                                             compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies)
+            
+            # Store results
+            all_results.append(results)
+            if mode == "train":
+                print(f"\nCompleted sparsity {sparsity}: final loss = {results['final_loss']:.6e}")
+            else:
+                print(f"\nCompleted sparsity {sparsity}: sparsification and analysis")
+                
+        except Exception as e:
+            print(f"\nERROR processing sparsity {sparsity}: {e}")
+            print(f"Skipping this sparsity level and continuing with remaining levels...")
+            # Continue with the next sparsity level instead of crashing
+    
+    # Check if we have any results before proceeding
+    if not all_results:
+        print(f"\nERROR: No successful results obtained for any sparsity level!")
+        print("Cannot proceed with aggregate analysis. Exiting...")
+        return
+    
+    print(f"\nSuccessfully processed {len(all_results)} out of {len(sparsity_values)} sparsity levels.")
     
 
     # ========================================
@@ -2813,7 +2860,12 @@ def main():
             print("CREATING COMPARATIVE EIGENVALUE EVOLUTION VISUALIZATION")
             print(f"{'='*60}")
             
-            plot_eigenvalue_evolution_comparison(all_results, sparsity_values)
+            try:
+                plot_eigenvalue_evolution_comparison(all_results, sparsity_values)
+                print("Successfully created eigenvalue evolution comparison.")
+            except Exception as e:
+                print(f"Error creating eigenvalue evolution comparison: {e}")
+                print("Continuing with remaining visualizations...")
         else:
             print(f"\n{'='*60}")
             print("SKIPPING EIGENVALUE VISUALIZATION (NO EIGENVALUE DATA)")
@@ -2824,7 +2876,12 @@ def main():
         print("CREATING BEFORE/AFTER EIGENVALUE VISUALIZATION")
         print(f"{'='*60}")
         
-        plot_connectivity_eigenvalues_before_after_aggregate(all_results, sparsity_values)
+        try:
+            plot_connectivity_eigenvalues_before_after_aggregate(all_results, sparsity_values)
+            print("Successfully created before/after eigenvalue visualization.")
+        except Exception as e:
+            print(f"Error creating before/after eigenvalue visualization: {e}")
+            print("Continuing with remaining visualizations...")
     
 
     # ========================================
@@ -2834,7 +2891,12 @@ def main():
     print("CREATING COMPREHENSIVE SUMMARY VISUALIZATIONS")
     print(f"{'='*60}")
     
-    create_sparsity_summary_plots(all_results, sparsity_values)
+    try:
+        create_sparsity_summary_plots(all_results, sparsity_values)
+        print("Successfully created summary plots.")
+    except Exception as e:
+        print(f"Error creating summary plots: {e}")
+        print("Continuing with remaining visualizations...")
     
 
     # ========================================
@@ -2844,7 +2906,12 @@ def main():
     print("CREATING UNSTABLE EIGENVALUE DISTRIBUTION TABLE")
     print(f"{'='*60}")
     
-    create_unstable_eigenvalue_table(all_results, sparsity_values)
+    try:
+        create_unstable_eigenvalue_table(all_results, sparsity_values)
+        print("Successfully created unstable eigenvalue distribution table.")
+    except Exception as e:
+        print(f"Error creating unstable eigenvalue table: {e}")
+        print("Continuing with remaining visualizations...")
     
 
     # ========================================
@@ -2854,7 +2921,12 @@ def main():
     print("CREATING FIXED POINTS PER TASK DISTRIBUTION TABLE")
     print(f"{'='*60}")
     
-    create_fixed_points_per_task_table(all_results, sparsity_values)
+    try:
+        create_fixed_points_per_task_table(all_results, sparsity_values)
+        print("Successfully created fixed points per task distribution table.")
+    except Exception as e:
+        print(f"Error creating fixed points per task table: {e}")
+        print("Continuing with remaining visualizations...")
     
 
     # ========================================
@@ -2864,7 +2936,13 @@ def main():
     print("CREATING ALL AGGREGATE PLOTS ACROSS SPARSITY LEVELS")
     print(f"{'='*60}")
     
-    create_all_aggregate_plots(all_results, sparsity_values)
+    try:
+        create_all_aggregate_plots(all_results, sparsity_values)
+        print("Successfully created all aggregate plots.")
+    except Exception as e:
+        print(f"Error creating aggregate plots: {e}")
+        print("Continuing with saving experiment results...")
+    
     
 
     # ========================================
@@ -2874,24 +2952,30 @@ def main():
     print("SAVING COMPLETE EXPERIMENT RESULTS")
     print(f"{'='*60}")
     
-    # Save all results together
-    complete_experiment_results = {
-        'sparsity_values': sparsity_values,
-        'experiment_config': {
-            'eigenvalue_sample_frequency': EIGENVALUE_SAMPLE_FREQUENCY,
-            'compute_jacobian_eigenvals': compute_jacobian_eigenvals,
-            'compute_connectivity_eigenvals': compute_connectivity_eigenvals,
-            'jacobian_frequencies': jacobian_frequencies,
-            'num_epochs_adam': NUM_EPOCHS_ADAM,
-            'num_epochs_lbfgs': NUM_EPOCHS_LBFGS,
-            'network_size': N,
-            'num_tasks': num_tasks,
-            'slow_point_search': SLOW_POINT_SEARCH,
-            'timestamp': timestamp,
-            'output_directory': full_output_path
+    try:
+        # Save all results together
+        complete_experiment_results = {
+            'sparsity_values': sparsity_values,
+            'experiment_config': {
+                'eigenvalue_sample_frequency': EIGENVALUE_SAMPLE_FREQUENCY,
+                'compute_jacobian_eigenvals': compute_jacobian_eigenvals,
+                'compute_connectivity_eigenvals': compute_connectivity_eigenvals,
+                'jacobian_frequencies': jacobian_frequencies,
+                'num_epochs_adam': NUM_EPOCHS_ADAM,
+                'num_epochs_lbfgs': NUM_EPOCHS_LBFGS,
+                'network_size': N,
+                'num_tasks': num_tasks,
+                'slow_point_search': SLOW_POINT_SEARCH,
+                'timestamp': timestamp,
+                'output_directory': full_output_path,
+                'mode': mode  # Add mode information
+            }
         }
-    }
-    save_variable(complete_experiment_results, f"complete_sparsity_experiment_{timestamp}")
+        save_variable(complete_experiment_results, f"complete_sparsity_experiment_{timestamp}")
+        print("Successfully saved complete experiment results.")
+    except Exception as e:
+        print(f"Error saving experiment results: {e}")
+    
     
 
     # ========================================
