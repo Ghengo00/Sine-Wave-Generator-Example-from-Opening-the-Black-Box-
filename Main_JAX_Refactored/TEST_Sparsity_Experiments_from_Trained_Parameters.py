@@ -571,7 +571,7 @@ def apply_sparsity_to_params(params, sparsity_val, key):
     
     # Scale to maintain expected norm (same as in training)
     if sparsity_val < 1.0:
-        J_sparse = J_sparse / (1 - sparsity_val)
+        J_sparse = J_sparse / jnp.sqrt(1 - sparsity_val)
     
     # Create new parameter dictionary with sparsified J
     sparsified_params = {
