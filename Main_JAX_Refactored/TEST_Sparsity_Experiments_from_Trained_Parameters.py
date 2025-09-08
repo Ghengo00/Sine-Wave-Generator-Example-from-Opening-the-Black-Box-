@@ -994,15 +994,52 @@ def sparsify_and_analyze(dense_params, sparsity_value, key, compute_jacobian_eig
     print("-" * 40)
     
     with Timer(f"PCA analysis with sparsity {sparsity_value}"):
-        pca_results = run_pca_analysis(
-            states_trajectory,
-            all_fixed_points=all_fixed_points,
-            all_slow_points=all_slow_points,
-            params=trained_params,
-            slow_point_search=SLOW_POINT_SEARCH,
-            n_components=PCA_N_COMPONENTS
-        )
-        results['pca_results'] = pca_results
+        print(f"\nRunning PCA analysis for all skip/tanh combinations...")
+        
+        # Initialize PCA results dictionary
+        pca_results = {}
+        
+        # Run PCA analysis for all combinations of skip and tanh options
+        for skip_steps in PCA_SKIP_OPTIONS:
+            for apply_tanh in PCA_TANH_OPTIONS:
+                print(f"  Processing skip_steps={skip_steps}, apply_tanh={apply_tanh}")
+                
+                # Run PCA analysis (save plots in sparsity-specific directory)
+                with sparsity_output_context(sparsity_value):
+                    # Temporarily update the config sparsity for plot titles
+                    import _1_config
+                    original_s = _1_config.s
+                    _1_config.s = sparsity_value
+                    
+                    try:
+                        pca_result = run_pca_analysis(
+                            states_trajectory, 
+                            all_fixed_points=all_fixed_points,
+                            all_slow_points=all_slow_points,
+                            params=trained_params,
+                            slow_point_search=SLOW_POINT_SEARCH,
+                            skip_initial_steps=skip_steps,
+                            apply_tanh=apply_tanh,
+                            n_components=PCA_N_COMPONENTS
+                        )
+                    finally:
+                        # Restore original sparsity value
+                        _1_config.s = original_s
+                
+                # Store results with key indicating skip and tanh settings
+                key = f"skip_{skip_steps}_tanh_{apply_tanh}"
+                pca_results[key] = pca_result
+                
+                # Debug: check what was stored
+                print(f"    Stored PCA result for key '{key}': {list(pca_result.keys()) if pca_result else 'None'}")
+                if pca_result and 'proj_trajs' in pca_result:
+                    print(f"    - Number of projected trajectories: {len(pca_result['proj_trajs'])}")
+                if pca_result and 'pca' in pca_result:
+                    print(f"    - PCA object available: {pca_result['pca'] is not None}")
+        
+        print(f"Completed PCA analysis for all combinations. Total PCA keys stored: {list(pca_results.keys())}")
+    
+    results['pca_results'] = pca_results
     
     # ========================================
     # 7. VISUALIZATION
