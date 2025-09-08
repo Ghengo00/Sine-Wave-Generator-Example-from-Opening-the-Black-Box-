@@ -495,7 +495,7 @@ def init_params_with_sparsity(key, sparsity_val):
 
     mask = random.bernoulli(k_mask, p=1.0 - sparsity_val, shape=(N, N)).astype(jnp.float32)
     J_unscaled = random.normal(k1, (N, N)) / jnp.sqrt(N) * mask
-    J = J_unscaled / (1 - sparsity_val) if sparsity_val < 1.0 else J_unscaled
+    J = J_unscaled / jnp.sqrt(1 - sparsity_val) if sparsity_val < 1.0 else J_unscaled
 
     B = random.normal(k2, (N, I)) / jnp.sqrt(N)
     b_x = jnp.zeros((N,))

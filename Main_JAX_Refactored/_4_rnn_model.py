@@ -34,8 +34,8 @@ def init_params(key):
     # within a disk centred at the origin of radius sqrt(Var * N) = sqrt((1 / N) * N) = 1.
     # After masking, the elements remain independently distributed with mean zero,
     # but their variance becomes Var_m = (1 - s) / N, meaning the spectral radius becomes sqrt(1 - s).
-    # To compensate for the reduction in effective connectivity, we scale J by 1 / (1 - s).
-    J = J_unscaled / (1 - s)
+    # Thus, to maintain the same spectral radius as the full matrix, we scale J by 1 / sqrt(1 - s).
+    J = J_unscaled / jnp.sqrt(1 - s)
 
     B = random.normal(k2, (N, I)) / jnp.sqrt(N)
     b_x = jnp.zeros((N,))
