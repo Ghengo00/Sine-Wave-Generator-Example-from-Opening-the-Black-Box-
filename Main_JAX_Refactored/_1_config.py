@@ -62,8 +62,8 @@ time_full = jnp.concatenate([time_drive, T_drive + time_train])
 # TRAINING PARAMETERS
 # =============================================================================
 # Optimization parameters
-NUM_EPOCHS_ADAM = 1000
-NUM_EPOCHS_LBFGS = 4000
+NUM_EPOCHS_ADAM = 1_000
+NUM_EPOCHS_LBFGS = 10_000
 LOSS_THRESHOLD = 1e-4
 
 # Adam optimizer parameters
