@@ -992,52 +992,73 @@ def sparsify_and_analyze(dense_params, sparsity_value, key, compute_jacobian_eig
     # ========================================
     print("\n6. PCA ANALYSIS")
     print("-" * 40)
-    
+
     with Timer(f"PCA analysis with sparsity {sparsity_value}"):
         print(f"\nRunning PCA analysis for all skip/tanh combinations...")
         
         # Initialize PCA results dictionary
         pca_results = {}
         
+        # Check trajectory length to determine feasible skip options
+        traj_length = states_trajectory.shape[1] if len(states_trajectory.shape) >= 2 else 0
+        print(f"Trajectory length: {traj_length} time steps")
+        
         # Run PCA analysis for all combinations of skip and tanh options
         for skip_steps in PCA_SKIP_OPTIONS:
             for apply_tanh in PCA_TANH_OPTIONS:
                 print(f"  Processing skip_steps={skip_steps}, apply_tanh={apply_tanh}")
                 
+                # Check if we have enough time steps after skipping
+                if skip_steps >= traj_length:
+                    print(f"    WARNING: Skip steps ({skip_steps}) >= trajectory length ({traj_length}). Skipping this combination.")
+                    # Store None result to indicate this combination was skipped
+                    key = f"skip_{skip_steps}_tanh_{apply_tanh}"
+                    pca_results[key] = None
+                    continue
+                
                 # Run PCA analysis (save plots in sparsity-specific directory)
-                with sparsity_output_context(sparsity_value):
-                    # Temporarily update the config sparsity for plot titles
-                    import _1_config
-                    original_s = _1_config.s
-                    _1_config.s = sparsity_value
+                try:
+                    with sparsity_output_context(sparsity_value):
+                        # Temporarily update the config sparsity for plot titles
+                        import _1_config
+                        original_s = _1_config.s
+                        _1_config.s = sparsity_value
+                        
+                        try:
+                            pca_result = run_pca_analysis(
+                                states_trajectory, 
+                                all_fixed_points=all_fixed_points,
+                                all_slow_points=all_slow_points,
+                                params=trained_params,
+                                slow_point_search=SLOW_POINT_SEARCH,
+                                skip_initial_steps=skip_steps,
+                                apply_tanh=apply_tanh,
+                                n_components=PCA_N_COMPONENTS
+                            )
+                        finally:
+                            # Restore original sparsity value
+                            _1_config.s = original_s
                     
-                    try:
-                        pca_result = run_pca_analysis(
-                            states_trajectory, 
-                            all_fixed_points=all_fixed_points,
-                            all_slow_points=all_slow_points,
-                            params=trained_params,
-                            slow_point_search=SLOW_POINT_SEARCH,
-                            skip_initial_steps=skip_steps,
-                            apply_tanh=apply_tanh,
-                            n_components=PCA_N_COMPONENTS
-                        )
-                    finally:
-                        # Restore original sparsity value
-                        _1_config.s = original_s
+                    # Store results with key indicating skip and tanh settings
+                    key = f"skip_{skip_steps}_tanh_{apply_tanh}"
+                    pca_results[key] = pca_result
+                    
+                    # Debug: check what was stored
+                    print(f"    Stored PCA result for key '{key}': {list(pca_result.keys()) if pca_result else 'None'}")
+                    if pca_result and 'proj_trajs' in pca_result:
+                        print(f"    - Number of projected trajectories: {len(pca_result['proj_trajs'])}")
+                    if pca_result and 'pca' in pca_result:
+                        print(f"    - PCA object available: {pca_result['pca'] is not None}")
                 
-                # Store results with key indicating skip and tanh settings
-                key = f"skip_{skip_steps}_tanh_{apply_tanh}"
-                pca_results[key] = pca_result
-                
-                # Debug: check what was stored
-                print(f"    Stored PCA result for key '{key}': {list(pca_result.keys()) if pca_result else 'None'}")
-                if pca_result and 'proj_trajs' in pca_result:
-                    print(f"    - Number of projected trajectories: {len(pca_result['proj_trajs'])}")
-                if pca_result and 'pca' in pca_result:
-                    print(f"    - PCA object available: {pca_result['pca'] is not None}")
+                except Exception as e:
+                    print(f"    ERROR in PCA analysis for skip={skip_steps}, tanh={apply_tanh}: {e}")
+                    print(f"    Storing None result and continuing with other combinations...")
+                    key = f"skip_{skip_steps}_tanh_{apply_tanh}"
+                    pca_results[key] = None
         
         print(f"Completed PCA analysis for all combinations. Total PCA keys stored: {list(pca_results.keys())}")
+        successful_pca_keys = [k for k, v in pca_results.items() if v is not None]
+        print(f"Successful PCA analyses: {len(successful_pca_keys)} out of {len(pca_results)}")
     
     results['pca_results'] = pca_results
     
@@ -1329,48 +1350,69 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
         # Initialize PCA results dictionary
         pca_results = {}
         
+        # Check trajectory length to determine feasible skip options
+        traj_length = state_traj_states.shape[1] if len(state_traj_states.shape) >= 2 else 0
+        print(f"Trajectory length: {traj_length} time steps")
+        
         # Run PCA analysis for all combinations of skip and tanh options
         for skip_steps in PCA_SKIP_OPTIONS:
             for apply_tanh in PCA_TANH_OPTIONS:
                 print(f"  Processing skip_steps={skip_steps}, apply_tanh={apply_tanh}")
                 
+                # Check if we have enough time steps after skipping
+                if skip_steps >= traj_length:
+                    print(f"    WARNING: Skip steps ({skip_steps}) >= trajectory length ({traj_length}). Skipping this combination.")
+                    # Store None result to indicate this combination was skipped
+                    key = f"skip_{skip_steps}_tanh_{apply_tanh}"
+                    pca_results[key] = None
+                    continue
+                
                 # Run PCA analysis (save plots in sparsity-specific directory)
-                with sparsity_output_context(sparsity_value):
-                    # Temporarily update the config sparsity for plot titles
-                    import _1_config
-                    original_s = _1_config.s
-                    _1_config.s = sparsity_value
+                try:
+                    with sparsity_output_context(sparsity_value):
+                        # Temporarily update the config sparsity for plot titles
+                        import _1_config
+                        original_s = _1_config.s
+                        _1_config.s = sparsity_value
+                        
+                        try:
+                            pca_result = run_pca_analysis(
+                                state_traj_states, 
+                                all_fixed_points=all_fixed_points,
+                                all_slow_points=all_slow_points,
+                                params=trained_params,
+                                slow_point_search=SLOW_POINT_SEARCH,
+                                skip_initial_steps=skip_steps,
+                                apply_tanh=apply_tanh,
+                                n_components=PCA_N_COMPONENTS
+                            )
+                        finally:
+                            # Restore original sparsity value
+                            _1_config.s = original_s
                     
-                    try:
-                        pca_result = run_pca_analysis(
-                            state_traj_states, 
-                            all_fixed_points=all_fixed_points,
-                            all_slow_points=all_slow_points,
-                            params=trained_params,
-                            slow_point_search=SLOW_POINT_SEARCH,
-                            skip_initial_steps=skip_steps,
-                            apply_tanh=apply_tanh,
-                            n_components=PCA_N_COMPONENTS
-                        )
-                    finally:
-                        # Restore original sparsity value
-                        _1_config.s = original_s
+                    # Store results with key indicating skip and tanh settings
+                    key = f"skip_{skip_steps}_tanh_{apply_tanh}"
+                    pca_results[key] = pca_result
+                    
+                    # Debug: check what was stored
+                    print(f"    Stored PCA result for key '{key}': {list(pca_result.keys()) if pca_result else 'None'}")
+                    if pca_result and 'proj_trajs' in pca_result:
+                        print(f"    - Number of projected trajectories: {len(pca_result['proj_trajs'])}")
+                    if pca_result and 'pca' in pca_result:
+                        print(f"    - PCA object available: {pca_result['pca'] is not None}")
                 
-                # Store results with key indicating skip and tanh settings
-                key = f"skip_{skip_steps}_tanh_{apply_tanh}"
-                pca_results[key] = pca_result
-                
-                # Debug: check what was stored
-                print(f"    Stored PCA result for key '{key}': {list(pca_result.keys()) if pca_result else 'None'}")
-                if pca_result and 'proj_trajs' in pca_result:
-                    print(f"    - Number of projected trajectories: {len(pca_result['proj_trajs'])}")
-                if pca_result and 'pca' in pca_result:
-                    print(f"    - PCA object available: {pca_result['pca'] is not None}")
+                except Exception as e:
+                    print(f"    ERROR in PCA analysis for skip={skip_steps}, tanh={apply_tanh}: {e}")
+                    print(f"    Storing None result and continuing with other combinations...")
+                    key = f"skip_{skip_steps}_tanh_{apply_tanh}"
+                    pca_results[key] = None
         
         # Save PCA results
         # save_variable_with_sparsity(pca_results, f"pca_results_sparsity_{sparsity_value}", sparsity_value, s=sparsity_value)
         
         print(f"Completed PCA analysis for all combinations. Total PCA keys stored: {list(pca_results.keys())}")
+        successful_pca_keys = [k for k, v in pca_results.items() if v is not None]
+        print(f"Successful PCA analyses: {len(successful_pca_keys)} out of {len(pca_results)}")
     
     results['pca_results'] = pca_results
     
@@ -2849,6 +2891,13 @@ def main():
         print(f"PROCESSING SPARSITY LEVEL {i+1}/{len(sparsity_values)}: s = {sparsity}")
         print(f"{'='*80}")
         
+        # Initialize results structure with basic info
+        results = {
+            'sparsity': sparsity,
+            'success': False,
+            'error_message': None
+        }
+        
         try:
             # Generate a unique analysis key for this sparsity level
             analysis_key, subkey = random.split(analysis_key)
@@ -2866,6 +2915,9 @@ def main():
                 results = sparsify_and_analyze(dense_params, sparsity, subkey, 
                                              compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies)
             
+            # Mark as successful if we get here
+            results['success'] = True
+            
             # Store results
             all_results.append(results)
             if mode == "train":
@@ -2874,17 +2926,43 @@ def main():
                 print(f"\nCompleted sparsity {sparsity}: sparsification and analysis")
                 
         except Exception as e:
-            print(f"\nERROR processing sparsity {sparsity}: {e}")
+            error_msg = str(e)
+            print(f"\nERROR processing sparsity {sparsity}: {error_msg}")
             print(f"Skipping this sparsity level and continuing with remaining levels...")
+            
+            # Store the error information for debugging
+            results['error_message'] = error_msg
+            results['success'] = False
+            all_results.append(results)  # Still append so we know what failed
+            
             # Continue with the next sparsity level instead of crashing
     
-    # Check if we have any results before proceeding
-    if not all_results:
+    # Check if we have any successful results before proceeding
+    successful_results = [r for r in all_results if r.get('success', False)]
+    failed_results = [r for r in all_results if not r.get('success', False)]
+    
+    if not successful_results:
         print(f"\nERROR: No successful results obtained for any sparsity level!")
         print("Cannot proceed with aggregate analysis. Exiting...")
+        if failed_results:
+            print("\nFailure summary:")
+            for result in failed_results:
+                sparsity = result.get('sparsity', 'unknown')
+                error = result.get('error_message', 'unknown error')
+                print(f"  s = {sparsity}: {error}")
         return
     
-    print(f"\nSuccessfully processed {len(all_results)} out of {len(sparsity_values)} sparsity levels.")
+    print(f"\nSuccessfully processed {len(successful_results)} out of {len(sparsity_values)} sparsity levels.")
+    if failed_results:
+        print(f"Failed to process {len(failed_results)} sparsity levels:")
+        for result in failed_results:
+            sparsity = result.get('sparsity', 'unknown')
+            error = result.get('error_message', 'unknown error')
+            print(f"  s = {sparsity}: {error}")
+    
+    # Use only successful results for subsequent analysis
+    working_results = successful_results
+    working_sparsity_values = [r['sparsity'] for r in successful_results]
     
 
     # ========================================
@@ -2898,7 +2976,7 @@ def main():
             print(f"{'='*60}")
             
             try:
-                plot_eigenvalue_evolution_comparison(all_results, sparsity_values)
+                plot_eigenvalue_evolution_comparison(working_results, working_sparsity_values)
                 print("Successfully created eigenvalue evolution comparison.")
             except Exception as e:
                 print(f"Error creating eigenvalue evolution comparison: {e}")
@@ -2914,7 +2992,7 @@ def main():
         print(f"{'='*60}")
         
         try:
-            plot_connectivity_eigenvalues_before_after_aggregate(all_results, sparsity_values)
+            plot_connectivity_eigenvalues_before_after_aggregate(working_results, working_sparsity_values)
             print("Successfully created before/after eigenvalue visualization.")
         except Exception as e:
             print(f"Error creating before/after eigenvalue visualization: {e}")
@@ -2929,7 +3007,7 @@ def main():
     print(f"{'='*60}")
     
     try:
-        create_sparsity_summary_plots(all_results, sparsity_values)
+        create_sparsity_summary_plots(working_results, working_sparsity_values)
         print("Successfully created summary plots.")
     except Exception as e:
         print(f"Error creating summary plots: {e}")
@@ -2944,7 +3022,7 @@ def main():
     print(f"{'='*60}")
     
     try:
-        create_unstable_eigenvalue_table(all_results, sparsity_values)
+        create_unstable_eigenvalue_table(working_results, working_sparsity_values)
         print("Successfully created unstable eigenvalue distribution table.")
     except Exception as e:
         print(f"Error creating unstable eigenvalue table: {e}")
@@ -2959,7 +3037,7 @@ def main():
     print(f"{'='*60}")
     
     try:
-        create_fixed_points_per_task_table(all_results, sparsity_values)
+        create_fixed_points_per_task_table(working_results, working_sparsity_values)
         print("Successfully created fixed points per task distribution table.")
     except Exception as e:
         print(f"Error creating fixed points per task table: {e}")
@@ -2974,7 +3052,7 @@ def main():
     print(f"{'='*60}")
     
     try:
-        create_all_aggregate_plots(all_results, sparsity_values)
+        create_all_aggregate_plots(working_results, working_sparsity_values)
         print("Successfully created all aggregate plots.")
     except Exception as e:
         print(f"Error creating aggregate plots: {e}")
@@ -2992,7 +3070,7 @@ def main():
     try:
         # Save all results together
         complete_experiment_results = {
-            'sparsity_values': sparsity_values,
+            'sparsity_values': working_sparsity_values,
             'experiment_config': {
                 'eigenvalue_sample_frequency': EIGENVALUE_SAMPLE_FREQUENCY,
                 'compute_jacobian_eigenvals': compute_jacobian_eigenvals,
@@ -3005,7 +3083,10 @@ def main():
                 'slow_point_search': SLOW_POINT_SEARCH,
                 'timestamp': timestamp,
                 'output_directory': full_output_path,
-                'mode': mode  # Add mode information
+                'mode': mode,  # Add mode information
+                'successful_sparsity_levels': len(working_results),
+                'failed_sparsity_levels': len(failed_results),
+                'total_sparsity_levels': len(sparsity_values)
             }
         }
         save_variable(complete_experiment_results, f"complete_sparsity_experiment_{timestamp}")
@@ -3024,23 +3105,27 @@ def main():
     print(f"Experiment timestamp: {timestamp}")
     print(f"Output directory: {full_output_path}")
     print(f"Tested sparsity values: {sparsity_values}")
+    print(f"Successfully processed: {working_sparsity_values}")
+    if failed_results:
+        failed_sparsities = [r.get('sparsity', 'unknown') for r in failed_results]
+        print(f"Failed to process: {failed_sparsities}")
     if mode == "train":
         print(f"Eigenvalue tracking: {eigenval_msg}")
         print("Final losses by sparsity:")
-        for result in all_results:
+        for result in working_results:
             print(f"  s = {result['sparsity']:.3f}: loss = {result['final_loss']:.6e}")
     else:
         print("Mode: Post-training sparsification of pre-trained dense network")
     
     print(f"\nNumber of fixed points found by sparsity:")
-    for result in all_results:
+    for result in working_results:
         if result['all_fixed_points']:
             num_fps = sum(len(task_fps) for task_fps in result['all_fixed_points'])
             print(f"  s = {result['sparsity']:.3f}: {num_fps} fixed points")
     
     if SLOW_POINT_SEARCH:
         print(f"\nNumber of slow points found by sparsity:")
-        for result in all_results:
+        for result in working_results:
             if result['all_slow_points']:
                 num_sps = sum(len(task_sps) for task_sps in result['all_slow_points'])
                 print(f"  s = {result['sparsity']:.3f}: {num_sps} slow points")
