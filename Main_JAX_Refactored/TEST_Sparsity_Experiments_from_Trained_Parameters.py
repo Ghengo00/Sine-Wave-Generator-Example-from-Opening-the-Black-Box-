@@ -525,16 +525,16 @@ def load_dense_parameters():
     Returns:
         dict: parameters dictionary containing J, B, b_x, w, b_z
     """
-    base_dir = "/nfs/ghome/live/gcarrozzo/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250624_133230/Sparsity_0p00"
+    base_dir = "/nfs/ghome/live/gcarrozzo/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250909_085835_11_Same_as_10_but_with_10_000_LBFGS_Steps/Sparsity_0p00"
 
     try:
         # Load individual parameter files
         param_files = {
-            'J': "J_param_sparsity_0.0_20250624_133209_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl",
-            'B': "B_param_sparsity_0.0_20250624_133209_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl",
-            'b_x': "b_x_param_sparsity_0.0_20250624_133209_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl",
-            'w': "w_param_sparsity_0.0_20250624_133209_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl",
-            'b_z': "b_z_param_sparsity_0.0_20250624_133209_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_2000.pkl"
+            'J': "J_param_sparsity_0.0_20250909_085832_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_10000.pkl",
+            'B': "B_param_sparsity_0.0_20250909_085832_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_10000.pkl",
+            'b_x': "b_x_param_sparsity_0.0_20250909_085832_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_10000.pkl",
+            'w': "w_param_sparsity_0.0_20250909_085832_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_10000.pkl",
+            'b_z': "b_z_param_sparsity_0.0_20250909_085832_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.0_Adam_Epochs_1000_LBFGS_Epochs_10000.pkl"
         }
         
         params = {}

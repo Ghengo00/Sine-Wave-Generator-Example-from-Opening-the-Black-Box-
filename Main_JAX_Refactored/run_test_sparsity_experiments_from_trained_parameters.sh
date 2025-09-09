@@ -9,9 +9,9 @@
 #SBATCH --mail-type=END,FAIL
 
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
-#SBATCH --time=8:00:00
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=128G
+#SBATCH --time=16:00:00
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 
