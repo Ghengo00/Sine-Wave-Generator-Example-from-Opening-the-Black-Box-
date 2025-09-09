@@ -9,9 +9,9 @@
 #SBATCH --mail-type=END,FAIL
 
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=32G
-#SBATCH --time=10:00:00
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=128G
+#SBATCH --time=48:00:00
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 
@@ -78,7 +78,7 @@ echo "Running original sparsity experiments in $(pwd)"
 echo "Starting Python script at $(date)"
 echo "Running original TEST_Sparsity_Experiments.py with fixed JAX debug print"
 python -u TEST_Sparsity_Experiments.py << EOF
-0.0
+0.0, 0.2, 0.4, 0.6, 0.8, 0.99
 y
 2
 EOF
