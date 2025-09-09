@@ -280,12 +280,16 @@ from _2_utils import (Timer, save_variable, set_custom_output_dir, get_output_di
                      save_variable_with_sparsity, save_figure_with_sparsity, get_sparsity_output_dir,
                      save_variable_with_rank, save_figure_with_rank, get_rank_output_dir, rank_output_context)
 from _3_data_generation import generate_all_inputs_and_targets
-from _4_rnn_model import run_batch_diagnostics, simulate_trajectory, rnn_step_low_rank, simulate_trajectory_low_rank, solve_task_low_rank, vmap_solve_task_low_rank, batched_loss_low_rank
+from _4_rnn_model import run_batch_diagnostics, run_batch_diagnostics_low_rank, simulate_trajectory, rnn_step_low_rank, simulate_trajectory_low_rank, solve_task_low_rank, vmap_solve_task_low_rank, batched_loss_low_rank
 from _5_training import setup_optimizers, scan_with_history, apply_column_balancing, create_training_functions_low_rank, train_model_low_rank
 from _6_analysis import find_points, compute_jacobian, find_and_analyze_points, generate_point_summaries
 from _7_visualization import (save_figure, plot_single_trajectory_vs_target, plot_trajectories_vs_targets, plot_parameter_matrices_for_tasks, 
                           plot_frequency_comparison, analyze_jacobians_visualization, analyze_unstable_frequencies_visualization)
 from _8_pca_analysis import plot_explained_variance_ratio, plot_pca_trajectories_and_points, run_pca_analysis
+
+
+# OVERWRITE
+NUM_EPOCHS_LBFGS = 500
 
 
 
@@ -982,7 +986,7 @@ def train_with_full_analysis(params, rank_value, key, compute_jacobian_eigenvals
     print("-" * 40)
     
     # Collect final trajectories and fixed-point initializations
-    final_loss_check, state_traj_states, state_fixed_point_inits = run_batch_diagnostics(trained_params, key)
+    final_loss_check, state_traj_states, state_fixed_point_inits = run_batch_diagnostics_low_rank(trained_params, key)
     print(f"Final loss after training: {final_loss_check:.6e}")
     
     results['state_traj_states'] = state_traj_states

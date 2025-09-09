@@ -547,3 +547,73 @@ def batched_loss_low_rank(params):
 
     # Compute the MSE over tasks and time
     return jnp.mean((zs_all - targets_all) ** 2)
+
+
+def run_single_task_diagnostics_low_rank(params, omega, u_off):
+    """
+    Run exactly one (omega, u_off) through the drive and train phases using low-rank connectivity.
+
+    Arguments:
+        params: dict containing U, V, B, b_x, w, b_z
+        omega : frequency of the sine wave for this task
+        u_off : static input offset for this task
+
+    Returns:
+        task_loss    : scalar loss value for this task
+        xs_train     : the training trajectory for the task, for the given parameters (jnp.ndarray, shape (num_steps_train+1, N))
+        x_drive_final: the final state of the system after the drive phase, for the given parameters (jnp.ndarray, shape (N,))
+    """
+    # Set the initial hidden state
+    x0 = jnp.zeros((N,), dtype=jnp.float64)
+
+    # Build the driving‐phase input
+    u_drive = jnp.sin(omega * time_drive).reshape(-1, 1) + u_off        # (num_steps_drive, I)
+
+    # Drive phase
+    xs_drive, _ = simulate_trajectory_low_rank(x0, u_drive, params)
+    x_drive_final = xs_drive[-1]  # (N,)
+
+    # Build the training‐phase input and target
+    # Training phase input (constant offset)
+    u_train = jnp.full((num_steps_train, 1), u_off, dtype=jnp.float64)  # (num_steps_train, I)
+    target_train = jnp.sin(omega * time_train)                          # (num_steps_train,)
+
+    # Train phase
+    xs_train, zs_train = simulate_trajectory_low_rank(x_drive_final, u_train, params)   # zs_train: (num_steps_train,)
+
+    # Compute MSE over the training phase
+    task_loss = jnp.mean((zs_train - target_train) ** 2)
+    
+    return task_loss, xs_train, x_drive_final
+
+
+def run_batch_diagnostics_low_rank(params, key):
+    """
+    Run all tasks in a vectorised fashion, compute loss, and collect trajectories using low-rank connectivity.
+    Only for post-training diagnostics and analysis.
+
+    Arguments:
+        params: dict containing U, V, B, b_x, w, b_z
+        key   : JAX random key for reproducibility
+
+    Returns:
+      avg_loss         : average loss over all tasks and all time steps, scalar
+      traj_states      : list of states at each time step during training for each task, so a list of num_tasks elements, each of shape (num_steps_train+1, N)
+      fixed_point_inits: list of drive phase final states for each task, so a list of num_tasks elements, each of shape (N,)
+    """
+    # vmap over the two task‐specific arrays: omegas and static_inputs
+    all_task_loss, all_xs_train, all_x_drive_final = jax.vmap(
+        lambda omega, u0: run_single_task_diagnostics_low_rank(params, omega, u0),
+        in_axes=(0, 0)  # both omega and u_off vary along the leading dimension
+    )(omegas, static_inputs)
+    # all_task_loss shape    : (num_tasks,)
+    # all_xs_train shape     : (num_tasks, num_steps_train+1, N)
+    # all_x_drive_final shape: (num_tasks, N)
+
+    avg_loss = jnp.mean(all_task_loss)
+
+    # Convert to NumPy arrays
+    traj_states = np.array(all_xs_train)                # shape (num_tasks, num_steps_train+1, N)
+    fixed_point_inits = np.array(all_x_drive_final)     # shape (num_tasks, N)
+
+    return float(avg_loss), traj_states, fixed_point_inits
