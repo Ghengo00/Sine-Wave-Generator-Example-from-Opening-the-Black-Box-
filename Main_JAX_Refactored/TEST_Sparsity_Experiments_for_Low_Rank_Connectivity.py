@@ -599,7 +599,7 @@ def init_params_low_rank(key, rank):
     B = random.normal(k2, (N, I)) / jnp.sqrt(N)
     b_x = jnp.zeros((N,))
     w = random.normal(k4, (N,)) / jnp.sqrt(N)
-    b_z = jnp.array(0.0, dtype=jnp.float32)
+    b_z = jnp.array(0.0)
     
     return {"U": U, "V": V, "B": B, "b_x": b_x, "w": w, "b_z": b_z}
 
@@ -2987,7 +2987,7 @@ def main():
     
     # Setup custom output directory with timestamp
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    output_dir_name = f"Sparsity_Experiments_{timestamp}"
+    output_dir_name = f"Sparsity_Experiments_for_Low_Rank_{timestamp}"
     
     # Get the directory where this script is located
     script_dir = os.path.dirname(os.path.abspath(__file__))
