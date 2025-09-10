@@ -78,9 +78,11 @@ echo "Running original sparsity experiments in $(pwd)"
 echo "Starting Python script at $(date)"
 echo "Running original TEST_Sparsity_Experiments.py with fixed JAX debug print"
 python -u TEST_Sparsity_Experiments.py << EOF
-0.0, 0.2, 0.4, 0.6, 0.8, 0.99
+0.0
 y
-2
+1
+0, 25, 50
+y
 EOF
 PYTHON_EXIT_CODE=$?
 
