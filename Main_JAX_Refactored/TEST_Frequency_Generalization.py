@@ -156,7 +156,7 @@ from _8_pca_analysis import perform_pca_analysis, project_points_to_pca, plot_ex
 # EXECUTION MODE SETTINGS
 
 # Set the execution mode
-EXECUTION_MODE               = "test"   # Options: "train" or "test"
+EXECUTION_MODE               = "train"   # Options: "train" or "test"
 RUN_TESTING_AFTER_TRAINING   = True      # If True, will run testing after gap training completes
 
 # Current timestamp for output folder naming
@@ -375,13 +375,13 @@ def generate_sine_wave_data(frequency, static_input, time_drive, time_train_or_t
     # Generate driving phase input (sine wave with static offset)
     drive_input  = (jnp.sin(frequency * time_drive) + static_input)[:, None]                 # Shape: (num_steps_drive, 1)
     # Generate training/testing phase input (static input only)
-    train_input  = jnp.full((len(time_train_or_test), 1), static_input, dtype=jnp.float32)   # Shape: (num_steps_train, 1)
+    train_input  = jnp.full((len(time_train_or_test), 1), static_input, dtype=jnp.float64)   # Shape: (num_steps_train, 1)
     
     # Combine inputs
     inputs       = jnp.concatenate([drive_input, train_input], axis=0)
     
     # Generate target for driving phase (zeros)
-    drive_target = jnp.zeros((len(time_drive), 1), dtype=jnp.float32)                        # Shape: (num_steps_drive, 1)
+    drive_target = jnp.zeros((len(time_drive), 1), dtype=jnp.float64)                        # Shape: (num_steps_drive, 1)
     # Generate target (for training/testing phase only)
     train_target = jnp.sin(frequency * time_train_or_test)[:, None]                          # Shape: (num_steps_train, 1)
     
@@ -417,7 +417,7 @@ def get_gap_train_input(gap_task_index):
     Returns:
         train_input: training phase input, shape (num_steps_train, I)
     """
-    return jnp.full((num_steps_train, I), training_static_inputs[gap_task_index], dtype=jnp.float32)
+    return jnp.full((num_steps_train, I), training_static_inputs[gap_task_index], dtype=jnp.float64)
 
 
 def get_gap_train_target(gap_task_index):
@@ -473,19 +473,19 @@ def init_params_gap(key, sparsity):
     """
     k_mask, k1, k2, k3, k4, k5 = random.split(key, 6)
 
-    mask = random.bernoulli(k_mask, p=1.0 - sparsity, shape=(N, N)).astype(jnp.float32)
+    mask = random.bernoulli(k_mask, p=1.0 - sparsity, shape=(N, N)).astype(jnp.float64)
     J_unscaled = random.normal(k1, (N, N)) / jnp.sqrt(N) * mask
     # By Girko's law, we know that, in the limit N -> infinity, the eigenvalues of J will converge to a uniform distribution
     # within a disk centred at the origin of radius sqrt(Var * N) = sqrt((1 / N) * N) = 1.
     # After masking, the elements remain independently distributed with mean zero,
     # but their variance becomes Var_m = (1 - s) / N, meaning the spectral radius becomes sqrt(1 - s).
     # To compensate for the reduction in effective connectivity, we scale J by 1 / (1 - s).
-    J = J_unscaled / (1 - sparsity)
+    J = J_unscaled / jnp.sqrt(1 - sparsity)
 
     B = random.normal(k2, (N, I)) / jnp.sqrt(N)
     b_x = jnp.zeros((N,))
     w = random.normal(k4, (N,)) / jnp.sqrt(N)
-    b_z = jnp.array(0.0, dtype=jnp.float32)
+    b_z = jnp.array(0.0, dtype=jnp.float64)
     
     return mask, {"J": J, "B": B, "b_x": b_x, "w": w, "b_z": b_z}
 
@@ -507,7 +507,7 @@ def init_params_gap_control_rank(key, sparsity, R, N, cov):
 
     # ----------------------------------------
     # CREATE MASK
-    mask = random.bernoulli(k_mask, p=1.0 - sparsity, shape=(N, N)).astype(jnp.float32)
+    mask = random.bernoulli(k_mask, p=1.0 - sparsity, shape=(N, N)).astype(jnp.float64)
 
     # ----------------------------------------
     # CREATE UNSPARSIFIED J, WITH RANK R
@@ -550,7 +550,7 @@ def init_params_gap_control_rank(key, sparsity, R, N, cov):
     B = random.normal(k2, (N, I)) / jnp.sqrt(N)
     b_x = jnp.zeros((N,))
     w = random.normal(k4, (N,)) / jnp.sqrt(N)
-    b_z = jnp.array(0.0, dtype=jnp.float32)
+    b_z = jnp.array(0.0, dtype=jnp.float64)
     
     return mask, {"J": J, "B": B, "b_x": b_x, "w": w, "b_z": b_z}
 
@@ -568,7 +568,7 @@ def solve_gap_task(params, gap_task_index):
     Returns:
         zs_tr: training phase outputs, shape (num_steps_train,)
     """
-    x0 = jnp.zeros((N,), dtype=jnp.float32)                     # Initial state for the task
+    x0 = jnp.zeros((N,), dtype=jnp.float64)                     # Initial state for the task
     
     # Drive phase
     d_u       = get_gap_drive_input(gap_task_index)             # shape (num_steps_drive, I)
@@ -962,10 +962,10 @@ def generate_trajectory_states_for_frequencies(frequencies, params):
         drive_input = (jnp.sin(freq * time_drive) + static_input)[:, None]
         
         # Generate training phase input (static input only)
-        train_input = jnp.full((num_steps_train, 1), static_input, dtype=jnp.float32)
+        train_input = jnp.full((num_steps_train, 1), static_input, dtype=jnp.float64)
         
         # Initialize state and run drive phase
-        x0 = jnp.zeros((N,), dtype=jnp.float32)
+        x0 = jnp.zeros((N,), dtype=jnp.float64)
         xs_drive, _ = simulate_trajectory(x0, drive_input, params)
         x_drive_final = xs_drive[-1]
         
@@ -993,7 +993,7 @@ def test_frequency_generalization_with_params(params, test_frequencies):
         # Calculate variable test time
         test_time      = calculate_variable_test_time(freq)
         # Generate time arrays for this frequency
-        time_test      = jnp.arange(0, test_time, dt, dtype=jnp.float32)
+        time_test      = jnp.arange(0, test_time, dt, dtype=jnp.float64)
         # Generate test data with variable time
         test_data      = generate_sine_wave_data(frequency=freq,
                                                  static_input=static_input,
@@ -1073,9 +1073,9 @@ def create_error_vs_frequency_plot_with_gaps(test_frequencies, mse_values):
     
     # Define region colors (same as create_comprehensive_trajectory_subplots)
     region_colors = {
-        'lower_extrap': '#FFE6E6',      # Very light red
+        'lower_extrap': '#FFCCCC',      # Slightly darker light red
         'lower_training': '#E6F7E6',    # Very light green
-        'gap': '#E6D9FF',               # Light purple
+        'gap': '#FFCCDD',               # Warmer light purple (closer to red)
         'upper_training': '#E6F7E6',    # Very light green (same as lower training)
         'higher_extrap': '#E6E6FF'      # Very light blue
     }
@@ -1211,9 +1211,9 @@ def create_comprehensive_trajectory_subplots(results, max_plots=25,
     
     # Define colors for each region
     region_colors = {
-        'lower_extrap': '#FFE6E6',      # Very light red
+        'lower_extrap': '#FFCCCC',      # Slightly darker light red
         'lower_training': '#E6F7E6',    # Very light green
-        'gap': '#E6D9FF',               # Light purple
+        'gap': '#FFCCDD',               # Warmer light purple (closer to red)
         'upper_training': '#E6F7E6',    # Very light green (same as lower training)
         'higher_extrap': '#E6E6FF'      # Very light blue
     }
@@ -1626,9 +1626,9 @@ def plot_frequency_comparison_gap(all_unstable_eig_freq, test_frequencies):
 
     # Define region colors (same as create_comprehensive_trajectory_subplots)
     region_colors = {
-        'lower_extrap': '#FFE6E6',      # Very light red
+        'lower_extrap': '#FFCCCC',      # Slightly darker light red
         'lower_training': '#E6F7E6',    # Very light green
-        'gap': '#E6D9FF',               # Light purple
+        'gap': '#FFCCDD',               # Warmer light purple (closer to red)
         'upper_training': '#E6F7E6',    # Very light green (same as lower training)
         'higher_extrap': '#E6E6FF'      # Very light blue
     }
