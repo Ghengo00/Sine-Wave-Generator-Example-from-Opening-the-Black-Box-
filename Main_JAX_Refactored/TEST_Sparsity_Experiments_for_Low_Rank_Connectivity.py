@@ -289,7 +289,7 @@ from _8_pca_analysis import plot_explained_variance_ratio, plot_pca_trajectories
 
 
 # OVERWRITE
-NUM_EPOCHS_LBFGS = 500
+# NUM_EPOCHS_LBFGS = 500
 
 
 
@@ -324,9 +324,9 @@ def get_rank_values():
             rank_values = [int(x.strip()) for x in user_input.split(',')]
             
             # Validate rank values
-            invalid_ranks = [r for r in rank_values if r < 1 or r >= N]
+            invalid_ranks = [r for r in rank_values if r < 1 or r > N]
             if invalid_ranks:
-                print(f"Invalid rank values: {invalid_ranks}. Rank must be between 1 and {N-1}.")
+                print(f"Invalid rank values: {invalid_ranks}. Rank must be between 1 and {N}.")
                 continue
                 
             print(f"Selected rank values: {rank_values}")

@@ -9,9 +9,9 @@
 #SBATCH --mail-type=END,FAIL
 
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
-#SBATCH --time=32:00:00
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=128G
+#SBATCH --time=48:00:00
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 
@@ -79,7 +79,7 @@ echo "Start time: $(date)"
 # 2. Sparsity values: "0.0, 0.2, 0.4, 0.6, 0.8, 0.99"
 # 3. Confirmation: "y" to proceed with sparsity values
 python -u TEST_Sparsity_Experiments_for_Low_Rank_Connectivity.py << EOF
-20
+1, 5, 10, 50, 100, 200
 y
 2
 EOF
