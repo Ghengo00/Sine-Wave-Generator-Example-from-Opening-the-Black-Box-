@@ -430,6 +430,8 @@ def get_frequency_selection():
                     
             elif choice == '3':
                 range_input = input("Enter range (e.g., '0-10'): ").strip()
+                if '-' not in range_input:
+                    raise ValueError("Range must contain a dash (e.g., '0-10')")
                 start_str, end_str = range_input.split('-')
                 start_idx = int(start_str.strip())
                 end_idx = int(end_str.strip())
@@ -464,6 +466,18 @@ def get_frequency_selection():
 # CONTEXT MANAGER AND PARAMETER DICTIONARY HELPER
 # =============================================================================
 # =============================================================================
+@contextmanager
+def connectivity_context(params):
+    """
+    Context manager to temporarily add the full connectivity matrix J = U @ V.T to params.
+    This allows compatibility with visualization functions that expect J.
+    """
+    params_with_J = add_connectivity_matrix(params)
+    try:
+        yield params_with_J
+    finally:
+        pass  # No cleanup needed
+
 @contextmanager
 def rank_output_context(rank_value):
     """
@@ -1037,10 +1051,12 @@ def train_with_full_analysis(params, rank_value, key, compute_jacobian_eigenvals
     
     # Plot trajectories vs targets (save in rank-specific folder)
     print("Plotting produced trajectories vs. target signals...")
-    plot_trajectories_vs_targets(trained_params, test_indices=TEST_INDICES, rank_value=rank_value)
+    with connectivity_context(trained_params) as params_with_J:
+        plot_trajectories_vs_targets(params_with_J, test_indices=TEST_INDICES, rank_value=rank_value)
     
     # Plot parameter matrices (save in rank-specific folder)
-    plot_parameter_matrices_for_tasks(trained_params, test_indices=[0], rank_value=rank_value)
+    with connectivity_context(trained_params) as params_with_J:
+        plot_parameter_matrices_for_tasks(params_with_J, test_indices=[0], rank_value=rank_value)
 
 
     # ========================================
@@ -1051,9 +1067,10 @@ def train_with_full_analysis(params, rank_value, key, compute_jacobian_eigenvals
     
     with Timer("Fixed Point Analysis"):
         # Find and analyze fixed points
-        all_fixed_points, all_jacobians, all_unstable_eig_freq = find_and_analyze_points(
-            state_traj_states, state_fixed_point_inits, trained_params, point_type="fixed"
-        )
+        with connectivity_context(trained_params) as params_with_J:
+            all_fixed_points, all_jacobians, all_unstable_eig_freq = find_and_analyze_points(
+                state_traj_states, state_fixed_point_inits, params_with_J, point_type="fixed"
+            )
         
         # Save fixed point results
         save_variable_with_rank(all_fixed_points, f"all_fixed_points_rank_{rank_value}", rank_value, r=rank_value)
@@ -1080,8 +1097,6 @@ def train_with_full_analysis(params, rank_value, key, compute_jacobian_eigenvals
             analyze_unstable_frequencies_visualization(point_type="fixed", 
                                                       all_unstable_eig_freq=all_unstable_eig_freq)
         finally:
-            # Restore original sparsity
-            _1_config.s = original_s
             # Restore original sparsity value
             _1_config.s = original_s
     
@@ -1099,9 +1114,10 @@ def train_with_full_analysis(params, rank_value, key, compute_jacobian_eigenvals
         
         with Timer("Slow Point Analysis"):
             # Find and analyze slow points
-            all_slow_points, all_slow_jacobians, all_slow_unstable_eig_freq = find_and_analyze_points(
-                state_traj_states, state_fixed_point_inits, trained_params, point_type="slow"
-            )
+            with connectivity_context(trained_params) as params_with_J:
+                all_slow_points, all_slow_jacobians, all_slow_unstable_eig_freq = find_and_analyze_points(
+                    state_traj_states, state_fixed_point_inits, params_with_J, point_type="slow"
+                )
             
             # Save slow point results
             save_variable_with_rank(all_slow_points, f"all_slow_points_rank_{rank_value}", rank_value, r=rank_value)
@@ -1125,7 +1141,6 @@ def train_with_full_analysis(params, rank_value, key, compute_jacobian_eigenvals
                                                           all_unstable_eig_freq=all_slow_unstable_eig_freq)
             finally:
                 # Restore original sparsity value
-                _1_config.s = original_s
                 _1_config.s = original_s
     
     results['all_slow_points'] = all_slow_points
@@ -1158,15 +1173,16 @@ def train_with_full_analysis(params, rank_value, key, compute_jacobian_eigenvals
                     _1_config.s = 0  # Use 0 for sparsity since we're using rank
                     
                     try:
-                        pca_result = run_pca_analysis(
-                            state_traj_states, 
-                            all_fixed_points=all_fixed_points,
-                            all_slow_points=all_slow_points,
-                            params=trained_params,
-                            slow_point_search=SLOW_POINT_SEARCH,
-                            skip_initial_steps=skip_steps,
-                            apply_tanh=apply_tanh,
-                            n_components=PCA_N_COMPONENTS
+                        with connectivity_context(trained_params) as params_with_J:
+                            pca_result = run_pca_analysis(
+                                state_traj_states, 
+                                all_fixed_points=all_fixed_points,
+                                all_slow_points=all_slow_points,
+                                params=params_with_J,
+                                slow_point_search=SLOW_POINT_SEARCH,
+                                skip_initial_steps=skip_steps,
+                                apply_tanh=apply_tanh,
+                                n_components=PCA_N_COMPONENTS
                         )
                     finally:
                         # Restore original sparsity value
@@ -1202,13 +1218,13 @@ def train_with_full_analysis(params, rank_value, key, compute_jacobian_eigenvals
 # TRAINING LOSS PLOTTING FUNCTION
 # =============================================================================
 # =============================================================================
-def plot_training_loss_evolution(training_loss_data, sparsity_value, ax=None, for_comparison=False, ylim=None):
+def plot_training_loss_evolution(training_loss_data, rank_value, ax=None, for_comparison=False, ylim=None):
     """
-    Plot training loss evolution during optimization for a single sparsity level.
+    Plot training loss evolution during optimization for a single rank level.
     
     Arguments:
         training_loss_data: dictionary with 'adam', 'lbfgs', and 'final' keys
-        sparsity_value: sparsity level for this experiment
+        rank_value: rank level for this experiment
         ax: optional matplotlib axis to plot on. If None, creates new figure
         for_comparison: if True, adjusts styling for comparison plots (smaller markers, shorter labels)
         ylim: optional tuple (ymin, ymax) to set consistent y-axis limits across comparison plots
@@ -1246,14 +1262,14 @@ def plot_training_loss_evolution(training_loss_data, sparsity_value, ax=None, fo
         
         # Set title based on context
         if standalone_plot:
-            ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}')
+            ax.set_title(f'Training Loss Evolution - Rank r = {rank_value}')
             plt.tight_layout()
-            # Save with sparsity-specific filename
-            sparsity_str = f'{sparsity_value:.2f}'.replace('.', 'p')
-            save_figure_with_sparsity(fig, f'training_loss_evolution_sparsity_{sparsity_str}', sparsity_value)
+            # Save with rank-specific filename
+            rank_str = f'{rank_value}'
+            save_figure_with_rank(fig, f'training_loss_evolution_rank_{rank_str}', rank_value)
             plt.close(fig)
         else:
-            ax.set_title(f'Sparsity s = {sparsity_value:.2f}')
+            ax.set_title(f'Rank r = {rank_value}')
         return
     
     # Plot the loss evolution
@@ -1284,9 +1300,9 @@ def plot_training_loss_evolution(training_loss_data, sparsity_value, ax=None, fo
     
     # Set title based on context - remove final loss for publication readiness
     if standalone_plot:
-        ax.set_title(f'Training Loss Evolution - Sparsity s = {sparsity_value:.2f}', fontsize=20)
+        ax.set_title(f'Training Loss Evolution - Rank r = {rank_value}', fontsize=20)
     else:
-        ax.set_title(f'Sparsity s = {sparsity_value:.2f}', fontsize=20)
+        ax.set_title(f'Rank r = {rank_value}', fontsize=20)
     
     ax.set_yscale('log')
     ax.grid(True, alpha=0.3)
@@ -1299,8 +1315,8 @@ def plot_training_loss_evolution(training_loss_data, sparsity_value, ax=None, fo
     # Save only for standalone plots
     if standalone_plot:
         plt.tight_layout()
-        sparsity_str = f'{sparsity_value:.2f}'.replace('.', 'p')
-        save_figure_with_sparsity(fig, f'training_loss_evolution_sparsity_{sparsity_str}', sparsity_value)
+        rank_str = f'{rank_value}'
+        save_figure_with_rank(fig, f'training_loss_evolution_rank_{rank_str}', rank_value)
         plt.close(fig)
 
 
@@ -1311,14 +1327,14 @@ def plot_training_loss_evolution(training_loss_data, sparsity_value, ax=None, fo
 # EIGENVALUE EVOLUTION PLOTTING FUNCTIONS
 # =============================================================================
 # =============================================================================
-def plot_eigenvalue_evolution_comparison(all_results, sparsity_values):
+def plot_eigenvalue_evolution_comparison(all_results, rank_values):
     """
-    Create visualization showing eigenvalue evolution during training for all sparsity levels.
+    Create visualization showing eigenvalue evolution during training for all rank levels.
     Handles both Jacobian and connectivity eigenvalues, with separate plots for each Jacobian frequency.
     
     Arguments:
         all_results: list of results dictionaries
-        sparsity_values: list of sparsity values tested
+        rank_values: list of rank values tested
     """
     # Determine which eigenvalue types are present in the data
     has_jacobian = False
@@ -1346,32 +1362,32 @@ def plot_eigenvalue_evolution_comparison(all_results, sparsity_values):
     
     # Plot connectivity eigenvalues if present
     if has_connectivity:
-        plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap)
+        plot_connectivity_eigenvalue_evolution(all_results, rank_values, cmap)
     
     # Plot Jacobian eigenvalues for each frequency if present
     if has_jacobian and jacobian_frequencies:
         for freq_idx in jacobian_frequencies:
-            # Create separate plot for each sparsity level
-            for sparsity_idx, result in enumerate(all_results):
+            # Create separate plot for each rank level
+            for rank_idx, result in enumerate(all_results):
                 plot_jacobian_eigenvalue_evolution_for_single_sparsity(result, freq_idx, cmap)
 
 
-def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
+def plot_connectivity_eigenvalue_evolution(all_results, rank_values, cmap):
     """
-    Plot connectivity matrix eigenvalue evolution for all sparsity levels.
+    Plot connectivity matrix eigenvalue evolution for all rank levels.
     """
-    n_sparsity = len(sparsity_values)
+    n_ranks = len(rank_values)
     
     # Calculate subplot layout - prefer wider layouts (same as other aggregate plots)
-    if n_sparsity <= 3:
-        nrows, ncols = 1, n_sparsity
-    elif n_sparsity <= 6:
+    if n_ranks <= 3:
+        nrows, ncols = 1, n_ranks
+    elif n_ranks <= 6:
         nrows, ncols = 2, 3
     else:
-        nrows, ncols = 3, (n_sparsity + 2) // 3
+        nrows, ncols = 3, (n_ranks + 2) // 3
     
     fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 5*nrows))
-    if n_sparsity == 1:
+    if n_ranks == 1:
         axes = [axes]
     elif nrows == 1:
         axes = axes  # Already a 1D array for single row
@@ -1381,12 +1397,12 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
     # Store scatter plot for colorbar
     scatter_plot = None
     
-    for sparsity_idx, result in enumerate(all_results):
-        sparsity = result['sparsity']
+    for rank_idx, result in enumerate(all_results):
+        rank = result['rank']
         eigenvalue_data = result['eigenvalue_data']
         final_loss = result['final_loss']
         
-        ax = axes[sparsity_idx]
+        ax = axes[rank_idx]
         
         # Combine eigenvalue data from both training phases
         all_iterations = []
@@ -1410,7 +1426,7 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
         if len(all_eigenvals) == 0:
             ax.text(0.5, 0.5, 'No connectivity\neigenvalue data', 
                    ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(f'Sparsity s = {sparsity:.2f}')
+            ax.set_title(f'Rank r = {rank}')
             continue
         
         # Convert to numpy arrays
@@ -1444,13 +1460,13 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
         # Formatting
         ax.set_xlabel('Real', fontsize=18)
         ax.set_ylabel('Imaginary', fontsize=18)
-        ax.set_title(f'Sparsity s = {sparsity:.2f}', fontsize=20)
+        ax.set_title(f'Rank r = {rank}', fontsize=20)
         ax.grid(True, alpha=0.3)
         ax.set_aspect('equal')
         ax.tick_params(axis='both', which='major', labelsize=15)
     
     # Hide unused subplots if any
-    for idx in range(n_sparsity, len(axes)):
+    for idx in range(n_ranks, len(axes)):
         axes[idx].set_visible(False)
     
     # Add colorbar to the right of all subplots
@@ -1467,18 +1483,18 @@ def plot_connectivity_eigenvalue_evolution(all_results, sparsity_values, cmap):
     # Remove super title for publication readiness
     # plt.suptitle('Connectivity Matrix Eigenvalue Evolution During Training', fontsize=16)
     
-    # Create sparsity-specific filename
-    sparsity_str = '_'.join([f'{s:.2f}'.replace('.', 'p') for s in sparsity_values])
-    save_figure(fig, f'connectivity_eigenvalue_evolution_sparsities_{sparsity_str}')
+    # Create rank-specific filename
+    rank_str = '_'.join([f'{r}' for r in rank_values])
+    save_figure(fig, f'connectivity_eigenvalue_evolution_ranks_{rank_str}')
     plt.close(fig)  # Close figure to free memory
     # plt.show()  # Commented out to prevent interactive display
 
 
 def plot_jacobian_eigenvalue_evolution_for_single_sparsity(result, freq_idx, cmap):
     """
-    Plot Jacobian eigenvalue evolution for a specific frequency and single sparsity level.
+    Plot Jacobian eigenvalue evolution for a specific frequency and single rank level.
     """
-    sparsity = result['sparsity']
+    rank = result['rank']
     eigenvalue_data = result['eigenvalue_data']
     final_loss = result['final_loss']
     
@@ -1518,13 +1534,13 @@ def plot_jacobian_eigenvalue_evolution_for_single_sparsity(result, freq_idx, cma
     if len(all_eigenvals) == 0:
         ax.text(0.5, 0.5, f'No Jacobian eigenvalue\ndata for freq {freq_idx}', 
                ha='center', va='center', transform=ax.transAxes)
-        ax.set_title(f'Sparsity s = {sparsity:.2f}\nFreq {freq_idx}: ω = {freq_value:.3f} rad/s')
+        ax.set_title(f'Rank r = {rank}\nFreq {freq_idx}: ω = {freq_value:.3f} rad/s')
         plt.tight_layout()
         
-        # Save with sparsity-specific filename in sparsity subdirectory
-        sparsity_str = f'{sparsity:.2f}'.replace('.', 'p')
+        # Save with rank-specific filename in rank subdirectory
+        rank_str = f'{rank}'
         freq_str = f'{freq_value:.3f}'.replace('.', 'p')
-        save_figure_with_sparsity(fig, f'jacobian_eigenvalue_evolution_freq_{freq_idx}_sparsity_{sparsity_str}_omega_{freq_str}', sparsity)
+        save_figure_with_rank(fig, f'jacobian_eigenvalue_evolution_freq_{freq_idx}_rank_{rank_str}_omega_{freq_str}', rank)
         # plt.show()  # Commented out to prevent interactive display
         plt.close(fig)
         return
@@ -1557,7 +1573,7 @@ def plot_jacobian_eigenvalue_evolution_for_single_sparsity(result, freq_idx, cma
     ax.set_xlabel('Real')
     ax.set_ylabel('Imaginary')
     ax.set_title(f'Jacobian Eigenvalue Evolution During Training\n'
-                 f'Sparsity s = {sparsity:.2f} | Frequency {freq_idx}: ω = {freq_value:.3f} rad/s\n'
+                 f'Rank r = {rank} | Frequency {freq_idx}: ω = {freq_value:.3f} rad/s\n'
                  f'Static input = {static_input_value:.3f} | Final loss: {final_loss:.2e}')
     ax.grid(True, alpha=0.3)
     ax.set_aspect('equal')
@@ -1568,10 +1584,10 @@ def plot_jacobian_eigenvalue_evolution_for_single_sparsity(result, freq_idx, cma
     
     plt.tight_layout()
     
-    # Save with sparsity-specific filename in sparsity subdirectory
-    sparsity_str = f'{sparsity:.2f}'.replace('.', 'p')
+    # Save with rank-specific filename in rank subdirectory
+    rank_str = f'{rank}'
     freq_str = f'{freq_value:.3f}'.replace('.', 'p')
-    save_figure_with_sparsity(fig, f'jacobian_eigenvalue_evolution_freq_{freq_idx}_sparsity_{sparsity_str}_omega_{freq_str}', sparsity)
+    save_figure_with_rank(fig, f'jacobian_eigenvalue_evolution_freq_{freq_idx}_rank_{rank_str}_omega_{freq_str}', rank)
     # plt.show()  # Commented out to prevent interactive display
     plt.close(fig)
 
@@ -1615,7 +1631,14 @@ def create_sparsity_summary_plots(all_results, sparsity_values):
             num_slow_points.append(0)
         
         # Compute spectral radius of connectivity matrix
-        J = result['trained_params']['J']
+        trained_params = result['trained_params']
+        if "U" in trained_params and "V" in trained_params:
+            U = np.array(trained_params['U'])
+            V = np.array(trained_params['V'])
+            J = U @ V.T
+        else:
+            # Fallback to direct J if available
+            J = trained_params['J']
         eigenvals = np.linalg.eigvals(np.array(J))
         spectral_radius = np.max(np.abs(eigenvals))
         spectral_radii.append(spectral_radius)
@@ -2473,13 +2496,14 @@ def plot_trajectories_vs_targets_comparison(all_results, sparsity_values, test_i
         
         try:
             # Call the individual plotting function with the provided axis
-            error = plot_single_trajectory_vs_target(
-                params=trained_params,
-                task_index=j,
-                x0_test=x0_test,
-                ax=ax,
-                for_comparison=True
-            )
+            with connectivity_context(trained_params) as params_with_J:
+                error = plot_single_trajectory_vs_target(
+                    params=params_with_J,
+                    task_index=j,
+                    x0_test=x0_test,
+                    ax=ax,
+                    for_comparison=True
+                )
             
             # Add parameter information to the title for comparison context
             if is_rank_based:
