@@ -51,10 +51,6 @@ def create_training_functions(adam_opt, lbfgs_opt, mask, loss_fn=None):
         adam_step: JIT-compiled Adam training step function
         lbfgs_step: JIT-compiled L-BFGS training step function
         loss_fn: JIT-compiled loss function using pre-computed states
-        
-    Note:
-        The bias terms b_x and b_z are kept fixed during training (non-trainable).
-        Only J, B, and w parameters are optimized.
     """
     # Use provided loss function or default to batched_loss
     if loss_fn is None:
@@ -81,19 +77,16 @@ def create_training_functions(adam_opt, lbfgs_opt, mask, loss_fn=None):
         # 1) Get loss and gradients
         loss, grads = value_and_grad_fn(params)
 
-        # 2) Zero out gradients for bias terms b_x and b_z to make them non-trainable
-        grads = {**grads, "b_x": jnp.zeros_like(grads["b_x"]), "b_z": jnp.zeros_like(grads["b_z"])}
-
-        # 3) One optimizer update
+        # 2) One optimizer update
         updates, new_state = adam_opt.update(grads, opt_state, params)
 
-        # 4) Apply updates to your parameters
+        # 3) Apply updates to your parameters
         new_params = optax.apply_updates(params, updates)
 
-        # 5) Enforce exact sparsity on the J matrix
+        # 4) Enforce exact sparsity on the J matrix
         J1 = new_params["J"] * mask
 
-        # 6) Reconstruct the new parameters with the updated J matrix
+        # 5) Reconstruct the new parameters with the updated J matrix
         new_params = {**new_params, "J": J1}
 
         return new_params, new_state, loss
@@ -116,23 +109,20 @@ def create_training_functions(adam_opt, lbfgs_opt, mask, loss_fn=None):
         # 1) Get loss and gradients
         loss, grads = value_and_grad_fn(params)
 
-        # 2) Zero out gradients for bias terms b_x and b_z to make them non-trainable
-        grads = {**grads, "b_x": jnp.zeros_like(grads["b_x"]), "b_z": jnp.zeros_like(grads["b_z"])}
-
-        # 3) One optimizer update
+        # 2) One optimizer update
         updates, new_state = lbfgs_opt.update(
             grads, opt_state, params,
             value=loss, grad=grads,
             value_fn=loss_fn
         )
 
-        # 4) Apply updates to your parameters
+        # 3) Apply updates to your parameters
         new_params = optax.apply_updates(params, updates)
 
-        # 5) Enforce exact sparsity on the J matrix
+        # 4) Enforce exact sparsity on the J matrix
         J1 = new_params["J"] * mask
 
-        # 6) Reconstruct the new parameters with the updated J matrix
+        # 5) Reconstruct the new parameters with the updated J matrix
         new_params = {**new_params, "J": J1}
 
         return new_params, new_state, loss
@@ -332,19 +322,16 @@ def create_training_functions_low_rank(adam_opt, lbfgs_opt, loss_fn=None):
         # 1) Get loss and gradients
         loss, grads = value_and_grad_fn(params)
 
-        # 2) Zero out gradients for bias terms b_x and b_z to make them non-trainable
-        grads = {**grads, "b_x": jnp.zeros_like(grads["b_x"]), "b_z": jnp.zeros_like(grads["b_z"])}
-
-        # 3) One optimizer update
+        # 2) One optimizer update
         updates, new_state = adam_opt.update(grads, opt_state, params)
 
-        # 4) Apply updates to your parameters
+        # 3) Apply updates to your parameters
         new_params = optax.apply_updates(params, updates)
 
-        # 5) Apply column balancing to U and V
+        # 4) Apply column balancing to U and V
         U_balanced, V_balanced = apply_column_balancing(new_params["U"], new_params["V"])
         
-        # 6) Reconstruct the parameters with balanced U and V
+        # 5) Reconstruct the parameters with balanced U and V
         new_params = {**new_params, "U": U_balanced, "V": V_balanced}
 
         return new_params, new_state, loss
@@ -366,23 +353,20 @@ def create_training_functions_low_rank(adam_opt, lbfgs_opt, loss_fn=None):
         # 1) Get loss and gradients
         loss, grads = value_and_grad_fn(params)
 
-        # 2) Zero out gradients for bias terms b_x and b_z to make them non-trainable
-        grads = {**grads, "b_x": jnp.zeros_like(grads["b_x"]), "b_z": jnp.zeros_like(grads["b_z"])}
-
-        # 3) One optimizer update
+        # 2) One optimizer update
         updates, new_state = lbfgs_opt.update(
             grads, opt_state, params,
             value=loss, grad=grads,
             value_fn=loss_fn
         )
 
-        # 4) Apply updates to your parameters
+        # 3) Apply updates to your parameters
         new_params = optax.apply_updates(params, updates)
 
-        # 5) Apply column balancing to U and V
+        # 4) Apply column balancing to U and V
         U_balanced, V_balanced = apply_column_balancing(new_params["U"], new_params["V"])
         
-        # 6) Reconstruct the parameters with balanced U and V
+        # 5) Reconstruct the parameters with balanced U and V
         new_params = {**new_params, "U": U_balanced, "V": V_balanced}
 
         return new_params, new_state, loss
