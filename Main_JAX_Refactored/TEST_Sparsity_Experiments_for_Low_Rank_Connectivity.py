@@ -623,10 +623,6 @@ def init_params_low_rank(key, rank):
         
     Returns:
         params: dictionary containing U, V, B, b_x, w, b_z
-        
-    Note:
-        The bias terms b_x and b_z are initialized to zero and are kept fixed during training
-        (non-trainable parameters). Only U, V, B, and w are optimized.
     """
     k_cov, k_factors, k2, k3, k4, k5 = random.split(key, 6)
 

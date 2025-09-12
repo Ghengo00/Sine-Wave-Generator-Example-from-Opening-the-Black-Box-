@@ -80,7 +80,7 @@ echo "Start time: $(date)"
 # 3. Confirmation: "y" to proceed with sparsity values
 python -u TEST_Sparsity_Experiments_from_Trained_Parameters.py << EOF
 2
-0.0, 0.2, 0.4, 0.6, 0.8, 0.99
+0.0, 0.01, 0.02, 0.05, 0.1, 0.2
 y
 EOF
 PYTHON_EXIT_CODE=$?
