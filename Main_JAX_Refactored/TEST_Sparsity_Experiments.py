@@ -2279,7 +2279,9 @@ def plot_pca_3d_comparison(all_results, sparsity_values, skip_steps, apply_tanh,
                 filename_prefix="",
                 ax=ax,
                 sparsity_value=sparsity,
-                for_comparison=True
+                for_comparison=True,
+                show_points=False,
+                show_unstable_modes=False
             )
             
             # Format for publication readiness: remove legend, clean title, enhance font sizes

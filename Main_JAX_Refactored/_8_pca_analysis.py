@@ -703,7 +703,9 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
             proj_points=proj_fixed,
             params=params,
             skip_initial_steps=skip_initial_steps,
-            apply_tanh=apply_tanh
+            apply_tanh=apply_tanh,
+            show_points=False,
+            show_unstable_modes=False
         )
         
         # Create interactive plot - all trajectories (Plotly)
@@ -714,7 +716,9 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
             proj_points=proj_fixed,
             params=params,
             skip_initial_steps=skip_initial_steps,
-            apply_tanh=apply_tanh
+            apply_tanh=apply_tanh,
+            show_points=False,
+            show_unstable_modes=False
         )
         
         # Plot subset of trajectories (first, middle, last: indices 0, 25, 50)
@@ -734,7 +738,9 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
                 params=params,
                 skip_initial_steps=skip_initial_steps,
                 apply_tanh=apply_tanh,
-                filename_prefix="subset_of_indices_"
+                filename_prefix="subset_of_indices_",
+                show_points=False,
+                show_unstable_modes=False
             )
             
             # Create interactive subset plot with modified filename
@@ -746,7 +752,9 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
                 params=params,
                 skip_initial_steps=skip_initial_steps,
                 apply_tanh=apply_tanh,
-                filename_prefix="subset_of_indices_"
+                filename_prefix="subset_of_indices_",
+                show_points=False,
+                show_unstable_modes=False
             )
     
 
@@ -765,7 +773,9 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
             proj_points=proj_slow,
             params=params,
             skip_initial_steps=skip_initial_steps,
-            apply_tanh=apply_tanh
+            apply_tanh=apply_tanh,
+            show_points=False,
+            show_unstable_modes=False
         )
         
         # Create interactive plot - all trajectories (Plotly)
@@ -776,7 +786,9 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
             proj_points=proj_slow,
             params=params,
             skip_initial_steps=skip_initial_steps,
-            apply_tanh=apply_tanh
+            apply_tanh=apply_tanh,
+            show_points=False,
+            show_unstable_modes=False
         )
         
         # Plot subset of trajectories (first, middle, last: indices 0, 25, 50)
@@ -796,7 +808,9 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
                 params=params,
                 skip_initial_steps=skip_initial_steps,
                 apply_tanh=apply_tanh,
-                filename_prefix="subset_of_indices_"
+                filename_prefix="subset_of_indices_",
+                show_points=False,
+                show_unstable_modes=False
             )
             
             # Create interactive subset plot with modified filename
@@ -808,7 +822,9 @@ def run_pca_analysis(state_traj_states, all_fixed_points=None, all_slow_points=N
                 params=params,
                 skip_initial_steps=skip_initial_steps,
                 apply_tanh=apply_tanh,
-                filename_prefix="subset_of_indices_"
+                filename_prefix="subset_of_indices_",
+                show_points=False,
+                show_unstable_modes=False
             )
     
 
