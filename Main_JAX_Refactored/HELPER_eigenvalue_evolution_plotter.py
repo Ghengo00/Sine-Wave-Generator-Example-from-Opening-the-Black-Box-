@@ -29,10 +29,10 @@ from pathlib import Path
 # =============================================================================
 
 # Specify the path to your experiment results folder
-FOLDER_PATH = "/Users/gianlucacarrozzo/Documents/University and Education/UCL/Machine Learning/MSc Project/Palmigiano Lab/Code/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/L1_Regularization_Experiments_20250619_095512"
+FOLDER_PATH = "/nfs/ghome/live/gcarrozzo/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250910_130454_16_Same_as_11_but_with_Jacobian_Eigenvalue_Tracking_For_3_Frequencies_Every_100_Epochs"
 
 # Choose which eigenvalue types to plot
-EIGENVALUE_TYPES = 'both'  # Options: 'jacobian', 'connectivity', 'both'
+EIGENVALUE_TYPES = 'jacobian'  # Options: 'jacobian', 'connectivity', 'both'
 
 # Choose which optimization phases to include
 OPTIMIZATION_PHASES = 'both'  # Options: 'adam', 'lbfgs', 'both'
@@ -188,9 +188,41 @@ def plot_eigenvalue_evolution(eigenvalue_data, title_suffix="", ax=None):
                                 all_labels.append(f"{phase}_{eigenval_type}")
     
     if not all_iterations:
-        ax.text(0.5, 0.5, 'No eigenvalue data found', 
+        # Provide more detailed diagnostic information
+        debug_info = []
+        total_entries = 0
+        empty_arrays = 0
+        
+        for phase in ['adam', 'lbfgs']:
+            if phase not in eigenvalue_data or not eigenvalue_data[phase]:
+                debug_info.append(f"No {phase} data")
+                continue
+                
+            phase_data = eigenvalue_data[phase]
+            total_entries += len(phase_data)
+            
+            for iteration, eigenval_dict in phase_data:
+                for eigenval_type in ['jacobian', 'connectivity']:
+                    if eigenval_type not in eigenval_dict:
+                        continue
+                    
+                    eigenvals = eigenval_dict[eigenval_type]
+                    if isinstance(eigenvals, dict):
+                        for freq_idx, freq_eigenvals in eigenvals.items():
+                            if len(freq_eigenvals) == 0:
+                                empty_arrays += 1
+                    else:
+                        if len(eigenvals) == 0:
+                            empty_arrays += 1
+        
+        debug_msg = f'No finite eigenvalue data found\n'
+        debug_msg += f'Total entries: {total_entries}\n'
+        debug_msg += f'Empty arrays: {empty_arrays}\n'
+        debug_msg += f'Available types: {list(eigenvalue_data.keys())}'
+        
+        ax.text(0.5, 0.5, debug_msg, 
                 horizontalalignment='center', verticalalignment='center',
-                transform=ax.transAxes, fontsize=14)
+                transform=ax.transAxes, fontsize=12)
         ax.set_title(f'Eigenvalue Evolution in Complex Plane{title_suffix}')
         return
     
