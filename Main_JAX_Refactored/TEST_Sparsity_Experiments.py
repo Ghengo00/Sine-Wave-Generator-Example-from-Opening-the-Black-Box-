@@ -451,6 +451,39 @@ def get_frequency_selection():
 
 # =============================================================================
 # =============================================================================
+# MEMORY MANAGEMENT UTILITIES
+# =============================================================================
+# =============================================================================
+def cleanup_memory():
+    """Force garbage collection and JAX memory cleanup"""
+    import gc
+    gc.collect()
+    try:
+        import jax
+        # Clear JAX compilation cache
+        jax.clear_caches()
+    except Exception as e:
+        print(f"Warning: JAX cleanup failed: {e}")
+
+
+def print_memory_usage(label=""):
+    """Print current memory usage if psutil is available"""
+    try:
+        import psutil
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        memory_gb = memory_info.rss / (1024**3)
+        print(f"[Memory] {label}: {memory_gb:.2f} GB")
+        return memory_gb
+    except ImportError:
+        return None
+
+
+
+
+
+# =============================================================================
+# =============================================================================
 # CONTEXT MANAGER
 # =============================================================================
 # =============================================================================
@@ -492,11 +525,14 @@ def init_params_with_sparsity(key, sparsity_val):
     Note: All sparsity levels use the same base random key to ensure
     that the underlying parameter distributions are identical, with only
     the sparsity mask differing between experiments.
+    
+    The bias terms b_x and b_z are initialized to zero and are kept fixed during training
+    (non-trainable parameters). Only J, B, and w are optimized.
     """
     k_mask, k1, k2, k3, k4, k5 = random.split(key, 6)
 
     mask = random.bernoulli(k_mask, p=1.0 - sparsity_val, shape=(N, N)).astype(jnp.float64)
-    J_unscaled = random.normal(k1, (N, N)) / jnp.sqrt(N) * mask
+    J_unscaled = 0.1 * random.normal(k1, (N, N)) / jnp.sqrt(N) * mask
     J = J_unscaled / jnp.sqrt(1 - sparsity_val) if sparsity_val < 1.0 else J_unscaled
 
     B = random.normal(k2, (N, I)) / jnp.sqrt(N)
@@ -556,12 +592,20 @@ def compute_jacobian_eigenvalues_at_fixed_points(params, frequency_indices):
     
     eigenvalue_data_by_freq = {}
     
+    # Track failed frequencies to provide better diagnostics
+    if not hasattr(compute_jacobian_eigenvalues_at_fixed_points, 'failed_frequencies'):
+        compute_jacobian_eigenvalues_at_fixed_points.failed_frequencies = set()
+    
     for freq_idx in frequency_indices:
         # Get the corresponding static input for this frequency
         u_const = float(static_inputs[freq_idx])
         
         try:
             # Find fixed points using existing analysis code
+            # Use more robust parameters for higher frequencies that may be more challenging
+            num_attempts = 40 if freq_idx > 20 else 30  # More attempts for higher frequencies
+            max_iter = 1000 if freq_idx > 20 else 800   # More iterations for higher frequencies
+            
             fixed_points = find_points(
                 x0_guess=x0_guess,
                 u_const=u_const,
@@ -569,11 +613,19 @@ def compute_jacobian_eigenvalues_at_fixed_points(params, frequency_indices):
                 B_trained=B_trained,
                 b_x_trained=b_x_trained,
                 mode='fixed',
-                num_attempts=20,  # Reduce attempts for speed during training
+                num_attempts=num_attempts,
                 tol=TOL,
-                maxiter=500,  # Reduce max iterations for speed
+                maxiter=max_iter,
                 gaussian_std=GAUSSIAN_STD
             )
+            
+            # Check if fixed points were found
+            if len(fixed_points) == 0:
+                print(f"WARNING: No fixed points found for frequency index {freq_idx}")
+                print(f"  Frequency: ω = {float(omegas[freq_idx]):.3f} rad/s, static_input = {u_const:.3f}")
+                eigenvalue_data_by_freq[freq_idx] = np.array([])
+                compute_jacobian_eigenvalues_at_fixed_points.failed_frequencies.add(freq_idx)
+                continue
             
             all_eigenvalues = []
             
@@ -584,10 +636,28 @@ def compute_jacobian_eigenvalues_at_fixed_points(params, frequency_indices):
                 all_eigenvalues.extend(eigenvals)
             
             eigenvalue_data_by_freq[freq_idx] = np.array(all_eigenvalues)
+            
+            # Remove from failed frequencies if it succeeded this time
+            if freq_idx in compute_jacobian_eigenvalues_at_fixed_points.failed_frequencies:
+                compute_jacobian_eigenvalues_at_fixed_points.failed_frequencies.discard(freq_idx)
         
         except Exception as e:
-            print(f"Warning: Could not compute Jacobian eigenvalues for frequency index {freq_idx} - {e}")
+            import traceback
+            print(f"WARNING: Could not compute Jacobian eigenvalues for frequency index {freq_idx}")
+            print(f"  Frequency: ω = {float(omegas[freq_idx]):.3f} rad/s, static_input = {u_const:.3f}")
+            print(f"  Error: {str(e)}")
+            if "find_points" in str(e) or "fixed" in str(e).lower():
+                print(f"  Likely cause: Fixed point finding failed for this frequency/input combination")
+                print(f"  This may happen with higher static inputs during early training")
+            # Optionally print full traceback for debugging
+            # traceback.print_exc()
             eigenvalue_data_by_freq[freq_idx] = np.array([])
+            compute_jacobian_eigenvalues_at_fixed_points.failed_frequencies.add(freq_idx)
+    
+    # Print summary if there are persistent failures
+    if compute_jacobian_eigenvalues_at_fixed_points.failed_frequencies:
+        print(f"NOTE: Frequencies {list(compute_jacobian_eigenvalues_at_fixed_points.failed_frequencies)} have failed eigenvalue computation")
+        print(f"  This may improve as training progresses and the network converges")
     
     return eigenvalue_data_by_freq
 
@@ -1062,6 +1132,9 @@ def train_with_full_analysis(params, mask, sparsity_value, key, compute_jacobian
     results['pca_results'] = pca_results
     
     print(f"Completed full analysis for sparsity {sparsity_value}: final loss = {final_loss:.6e}")
+    
+    # Final memory cleanup for this sparsity level
+    cleanup_memory()
     
     return results
 
@@ -2352,6 +2425,9 @@ def main():
         print(f"PROCESSING SPARSITY LEVEL {i+1}/{len(sparsity_values)}: s = {sparsity}")
         print(f"{'='*80}")
         
+        # Print memory usage before processing
+        print_memory_usage(f"Before sparsity {sparsity}")
+        
         # Use the same base key for all sparsity levels to ensure consistent initial parameters
         # Only the sparsity mask will differ between runs
         mask, params = init_params_with_sparsity(base_key, sparsity)
@@ -2359,14 +2435,27 @@ def main():
         # Generate a unique analysis key for this sparsity level
         analysis_key, subkey = random.split(analysis_key)
         
-        # Run full training and analysis pipeline
-        results = train_with_full_analysis(params, mask, sparsity, subkey, 
-                                          compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies)
-        
-        # Store results
-        all_results.append(results)
-        
-        print(f"\nCompleted sparsity {sparsity}: final loss = {results['final_loss']:.6e}")
+        try:
+            # Run full training and analysis pipeline
+            results = train_with_full_analysis(params, mask, sparsity, subkey, 
+                                              compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies)
+            
+            # Store results
+            all_results.append(results)
+            
+            print(f"\nCompleted sparsity {sparsity}: final loss = {results['final_loss']:.6e}")
+            
+        except Exception as e:
+            print(f"\n{'!'*60}")
+            print(f"ERROR in sparsity level {sparsity}: {e}")
+            print(f"{'!'*60}")
+            # Continue with other sparsity levels
+            continue
+        finally:
+            # Clean up memory after each sparsity level
+            print("Performing memory cleanup...")
+            cleanup_memory()
+            print_memory_usage(f"After sparsity {sparsity} cleanup")
     
 
     # ========================================
@@ -2484,4 +2573,29 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import gc
+    import sys
+    
+    try:
+        main()
+    except Exception as e:
+        print(f"\n{'='*60}")
+        print(f"CRITICAL ERROR DURING EXPERIMENT")
+        print(f"{'='*60}")
+        print(f"Error type: {type(e).__name__}")
+        print(f"Error message: {str(e)}")
+        print(f"{'='*60}")
+        
+        # Force cleanup before exit
+        gc.collect()
+        try:
+            import jax
+            jax.clear_caches()
+        except:
+            pass
+            
+        sys.exit(1)
+    finally:
+        # Always cleanup at exit
+        gc.collect()
+        print("Memory cleanup completed.")

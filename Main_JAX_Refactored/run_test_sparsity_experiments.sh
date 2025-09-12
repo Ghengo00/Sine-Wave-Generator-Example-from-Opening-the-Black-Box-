@@ -11,7 +11,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
-#SBATCH --time=48:00:00
+#SBATCH --time=60:00:00
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 
@@ -76,10 +76,15 @@ echo "Running original sparsity experiments in $(pwd)"
 
 # Run the experiment with automated inputs
 echo "Starting Python script at $(date)"
-echo "Running original TEST_Sparsity_Experiments.py with fixed JAX debug print"
+echo "Running original TEST_Sparsity_Experiments.py with improved error handling"
+
+# Add ulimit to prevent bus errors from memory issues  
+ulimit -c 0  # Disable core dumps to save disk space
+
 python -u TEST_Sparsity_Experiments.py << EOF
 0.0
 y
+1
 1
 0, 25, 50
 y
