@@ -156,7 +156,7 @@ from _8_pca_analysis import perform_pca_analysis, project_points_to_pca, plot_ex
 # EXECUTION MODE SETTINGS
 
 # Set the execution mode
-EXECUTION_MODE               = "train"   # Options: "train" or "test"
+EXECUTION_MODE               = "test"   # Options: "train" or "test"
 RUN_TESTING_AFTER_TRAINING   = True      # If True, will run testing after gap training completes
 
 # Current timestamp for output folder naming
@@ -226,7 +226,7 @@ NUM_SAMPLES_EXTRAPOLATION_LOWER    = 15
 # TESTING MODE SETTINGS - IF EXECUTION_MODE = "test" (so no gap training)
 
 # Default parameter path
-DEFAULT_PARAM_PATH = "/nfs/ghome/live/gcarrozzo/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Frequency_Generalization_train_20250627_152729/Gap_Trained_Params_20250627_152729.pkl"
+DEFAULT_PARAM_PATH = "/nfs/ghome/live/gcarrozzo/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Frequency_Generalization_train_20250910_120002/Gap_Trained_Params_20250910_120002.pkl"
 
 # Function to import trajectory data from pickle files
 def read_trajectory_data(file_path):
@@ -236,13 +236,21 @@ def read_trajectory_data(file_path):
     
     return data
 
-# RNN parameters from parameter paths
+# # RNN parameters from parameter paths
+# RNN_PARAMS = {
+#     'J': read_trajectory_data(DEFAULT_PARAM_PATH)["J"],
+#     'B': read_trajectory_data(DEFAULT_PARAM_PATH)["B"],
+#     'w': read_trajectory_data(DEFAULT_PARAM_PATH)["w"],
+#     'b_x': read_trajectory_data(DEFAULT_PARAM_PATH)["b_x"],
+#     'b_z': read_trajectory_data(DEFAULT_PARAM_PATH)["b_z"]
+# }
+
 RNN_PARAMS = {
-    'J': read_trajectory_data(DEFAULT_PARAM_PATH)["J"],
-    'B': read_trajectory_data(DEFAULT_PARAM_PATH)["B"],
-    'w': read_trajectory_data(DEFAULT_PARAM_PATH)["w"],
-    'b_x': read_trajectory_data(DEFAULT_PARAM_PATH)["b_x"],
-    'b_z': read_trajectory_data(DEFAULT_PARAM_PATH)["b_z"]
+    'J': read_trajectory_data("/nfs/ghome/live/gcarrozzo/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250909_145322_15_Same_as_11_but_for_6_Values_of_Sparsity/Sparsity_0p80/J_param_sparsity_0.8_20250909_145319_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.8_Adam_Epochs_1000_LBFGS_Epochs_10000.pkl"),
+    'B': read_trajectory_data("/nfs/ghome/live/gcarrozzo/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250909_145322_15_Same_as_11_but_for_6_Values_of_Sparsity/Sparsity_0p80/B_param_sparsity_0.8_20250909_145319_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.8_Adam_Epochs_1000_LBFGS_Epochs_10000.pkl"),
+    'w': read_trajectory_data("/nfs/ghome/live/gcarrozzo/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250909_145322_15_Same_as_11_but_for_6_Values_of_Sparsity/Sparsity_0p80/w_param_sparsity_0.8_20250909_145319_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.8_Adam_Epochs_1000_LBFGS_Epochs_10000.pkl"),
+    'b_x': read_trajectory_data("/nfs/ghome/live/gcarrozzo/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250909_145322_15_Same_as_11_but_for_6_Values_of_Sparsity/Sparsity_0p80/b_x_param_sparsity_0.8_20250909_145319_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.8_Adam_Epochs_1000_LBFGS_Epochs_10000.pkl"),
+    'b_z': read_trajectory_data("/nfs/ghome/live/gcarrozzo/Sine-Wave-Generator-Example-from-Opening-the-Black-Box-/Outputs/Sparsity_Experiments_20250909_145322_15_Same_as_11_but_for_6_Values_of_Sparsity/Sparsity_0p80/b_z_param_sparsity_0.8_20250909_145319_Neuron_Number_200_Task_Number_51_Time_Steps_0.02_Driving_Time_8.0_Training_Time_64.0_Sparsity_0.8_Adam_Epochs_1000_LBFGS_Epochs_10000.pkl")
 }
 
 
@@ -470,6 +478,10 @@ def init_params_gap(key, sparsity):
     Returns:
         mask: sparsity mask for connections
         params: dictionary containing J, B, b_x, w, b_z
+        
+    Note:
+        The bias terms b_x and b_z are initialized to zero and are kept fixed during training
+        (non-trainable parameters). Only J, B, and w are optimized.
     """
     k_mask, k1, k2, k3, k4, k5 = random.split(key, 6)
 
@@ -502,6 +514,10 @@ def init_params_gap_control_rank(key, sparsity, R, N, cov):
     Returns:
         mask: sparsity mask for connections
         params: dictionary containing J, B, b_x, w, b_z
+        
+    Note:
+        The bias terms b_x and b_z are initialized to zero and are kept fixed during training
+        (non-trainable parameters). Only J, B, and w are optimized.
     """
     k_mask, k1, k2, k3, k4, k5 = random.split(key, 6)
 
@@ -1075,7 +1091,7 @@ def create_error_vs_frequency_plot_with_gaps(test_frequencies, mse_values):
     region_colors = {
         'lower_extrap': '#FFCCCC',      # Slightly darker light red
         'lower_training': '#E6F7E6',    # Very light green
-        'gap': '#FFCCDD',               # Warmer light purple (closer to red)
+        'gap': '#E6F7E6',               # Warmer light purple (closer to red)
         'upper_training': '#E6F7E6',    # Very light green (same as lower training)
         'higher_extrap': '#E6E6FF'      # Very light blue
     }
@@ -1213,7 +1229,7 @@ def create_comprehensive_trajectory_subplots(results, max_plots=25,
     region_colors = {
         'lower_extrap': '#FFCCCC',      # Slightly darker light red
         'lower_training': '#E6F7E6',    # Very light green
-        'gap': '#FFCCDD',               # Warmer light purple (closer to red)
+        'gap': '#E6F7E6',               # Warmer light purple (closer to red)
         'upper_training': '#E6F7E6',    # Very light green (same as lower training)
         'higher_extrap': '#E6E6FF'      # Very light blue
     }
@@ -1628,7 +1644,7 @@ def plot_frequency_comparison_gap(all_unstable_eig_freq, test_frequencies):
     region_colors = {
         'lower_extrap': '#FFCCCC',      # Slightly darker light red
         'lower_training': '#E6F7E6',    # Very light green
-        'gap': '#FFCCDD',               # Warmer light purple (closer to red)
+        'gap': '#E6F7E6',               # Warmer light purple (closer to red)
         'upper_training': '#E6F7E6',    # Very light green (same as lower training)
         'higher_extrap': '#E6E6FF'      # Very light blue
     }
