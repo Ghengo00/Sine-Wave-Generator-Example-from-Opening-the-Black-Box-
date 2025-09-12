@@ -265,7 +265,32 @@ from functools import partial
 from tqdm import tqdm
 import time
 import os
+import gc
 from contextlib import contextmanager
+
+# Memory monitoring function
+def print_memory_usage(label=""):
+    """Print current memory usage"""
+    try:
+        import psutil
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        memory_mb = memory_info.rss / 1024 / 1024
+        print(f"[Memory] {label}: {memory_mb:.1f} MB")
+        return memory_mb
+    except ImportError:
+        print(f"[Memory] {label}: psutil not available")
+        return 0
+
+def cleanup_memory():
+    """Force garbage collection and JAX memory cleanup"""
+    gc.collect()
+    try:
+        import jax
+        # Clear JAX compilation cache periodically
+        jax.clear_backends()
+    except:
+        pass
 
 # Import all modules
 from _1_config import (
@@ -289,7 +314,7 @@ from _8_pca_analysis import plot_explained_variance_ratio, plot_pca_trajectories
 
 
 # OVERWRITE
-# NUM_EPOCHS_LBFGS = 500
+# NUM_EPOCHS_LBFGS = 1000
 
 
 
@@ -310,7 +335,7 @@ def get_rank_values():
     print("LOW-RANK CONNECTIVITY EXPERIMENT SETUP")
     print("=" * 60)
     
-    print(f"\nEnter rank values to test (between 1 and {N-1})")
+    print(f"\nEnter rank values to test (between 1 and 200)")
     print("Examples: 1, 5, 10, 20")
     print("Enter values separated by commas (e.g., '1, 5, 10')")
     
@@ -324,9 +349,9 @@ def get_rank_values():
             rank_values = [int(x.strip()) for x in user_input.split(',')]
             
             # Validate rank values
-            invalid_ranks = [r for r in rank_values if r < 1 or r > N]
+            invalid_ranks = [r for r in rank_values if r < 1 or r > 200]
             if invalid_ranks:
-                print(f"Invalid rank values: {invalid_ranks}. Rank must be between 1 and {N}.")
+                print(f"Invalid rank values: {invalid_ranks}. Rank must be between 1 and 200.")
                 continue
                 
             print(f"Selected rank values: {rank_values}")
@@ -598,6 +623,10 @@ def init_params_low_rank(key, rank):
         
     Returns:
         params: dictionary containing U, V, B, b_x, w, b_z
+        
+    Note:
+        The bias terms b_x and b_z are initialized to zero and are kept fixed during training
+        (non-trainable parameters). Only U, V, B, and w are optimized.
     """
     k_cov, k_factors, k2, k3, k4, k5 = random.split(key, 6)
 
@@ -3063,21 +3092,43 @@ def main():
         print(f"PROCESSING RANK LEVEL {i+1}/{len(rank_values)}: r = {rank}")
         print(f"{'='*80}")
         
-        # Use the same base key for all rank levels to ensure consistent initial parameters
-        # Only the rank will differ between runs
-        params = init_params_low_rank(base_key, rank)
+        # Memory monitoring
+        print_memory_usage(f"Before rank {rank}")
         
-        # Generate a unique analysis key for this rank level
-        analysis_key, subkey = random.split(analysis_key)
+        # Validate rank is reasonable for low-rank approximation
+        if rank > N:
+            print(f"WARNING: Rank {rank} > N={N}. This is not low-rank and may cause memory issues.")
+            print("Skipping this rank value.")
+            continue
+            
+        try:
+            # Use the same base key for all rank levels to ensure consistent initial parameters
+            # Only the rank will differ between runs
+            params = init_params_low_rank(base_key, rank)
+            
+            # Generate a unique analysis key for this rank level
+            analysis_key, subkey = random.split(analysis_key)
+            
+            # Run full training and analysis pipeline
+            results = train_with_full_analysis(params, rank, subkey, 
+                                              compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies)
+            
+            # Store results
+            all_results.append(results)
+            
+            print(f"\nCompleted rank {rank}: final loss = {results['final_loss']:.6e}")
+            
+        except Exception as e:
+            print(f"\nERROR processing rank {rank}: {e}")
+            print(f"Error type: {type(e).__name__}")
+            print("Continuing with next rank...")
+            cleanup_memory()
+            continue
         
-        # Run full training and analysis pipeline
-        results = train_with_full_analysis(params, rank, subkey, 
-                                          compute_jacobian_eigenvals, compute_connectivity_eigenvals, jacobian_frequencies)
-        
-        # Store results
-        all_results.append(results)
-        
-        print(f"\nCompleted rank {rank}: final loss = {results['final_loss']:.6e}")
+        # Memory cleanup after each rank
+        print_memory_usage(f"After rank {rank}")
+        cleanup_memory()
+        print_memory_usage(f"After cleanup for rank {rank}")
     
 
     # ========================================

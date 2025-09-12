@@ -52,6 +52,10 @@ unset OMP_NUM_THREADS
 export MPLBACKEND=Agg
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 
+# JAX memory settings for better memory management
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+export XLA_PYTHON_CLIENT_ALLOCATOR=platform
+
 echo "Environment setup:"
 python --version
 echo "Conda env: $CONDA_DEFAULT_ENV"
