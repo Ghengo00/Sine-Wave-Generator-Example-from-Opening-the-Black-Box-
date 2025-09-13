@@ -11,7 +11,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
-#SBATCH --time=60:00:00
+#SBATCH --time=48:00:00
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 
@@ -82,12 +82,9 @@ echo "Running original TEST_Sparsity_Experiments.py with improved error handling
 ulimit -c 0  # Disable core dumps to save disk space
 
 python -u TEST_Sparsity_Experiments.py << EOF
-0.0
+0.0, 0.2, 0.4, 0.6, 0.8, 0.99
 y
-1
-1
-0, 25, 50
-y
+2
 EOF
 PYTHON_EXIT_CODE=$?
 
