@@ -14,5 +14,6 @@ Main_JAX_Refactored/logs/
 # .venv/
 # env/
 
-# Ignore outputs if they are large/generated (comment out if you want to track)
-# Outputs/
+# Ignore large generated output files
+Outputs/
+*.pkl
